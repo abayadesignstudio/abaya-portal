@@ -17,9 +17,9 @@ export default function Projects() {
   const [adding, setAdding] = useState(false)
   const { data, error, reload } = useLoad(async () => must(await supabase.from('projects')
     .select('id, number, name, status, category, sector, next_milestone, clients(name), phases(code, status, fee)').order('number', { ascending: false })) as unknown as Row[])
-  const rows = useMemo(() => (data ?? []).filter((p) => (status === 'all' || p.status === status) &&
+  const rows = useMemo(() => (data ?? []).filter((p) => p.number !== 'OH' && (status === 'all' || p.status === status) &&
     (!q || `${p.number} ${p.name} ${p.clients?.name ?? ''}`.toLowerCase().includes(q.toLowerCase()))), [data, status, q])
-  const count = (s: string) => (data ?? []).filter((p) => s === 'all' || p.status === s).length
+  const count = (s: string) => (data ?? []).filter((p) => p.number !== 'OH' && (s === 'all' || p.status === s)).length
 
   return (
     <div className="stack">

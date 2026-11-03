@@ -20,7 +20,7 @@ export default function StaffHome() {
       <div className="row between">
         <div><p className="muted" style={{ margin: 0 }}>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
           <h1>Good {hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'}, {(profile?.full_name || '').split(' ')[0] || 'there'}</h1></div>
-        <Link className="btn" to="/time">{data?.timer ? '● Timer running' : '▶ Start timer'}</Link>
+        <Link className="btn secondary" to="/time">Open timesheet</Link>
       </div>
       <section className="card pad" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
         <div><div className="muted">This week</div><div className="num" style={{ fontSize: 26, fontWeight: 700 }}>{(data?.week ?? 0).toFixed(1)} <span style={{ fontSize: 15 }}>of 40 hrs</span></div></div>

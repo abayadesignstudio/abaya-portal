@@ -2,140 +2,167 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase, PHASE_NAME, SECTOR_COLOR } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
+import { ACTIVITIES, OVERHEAD, loadProjects, iso, mondayOf, hrs, TIME_CHANGED, announceTimeChange, type Proj } from '../lib/time'
 
-type Proj = { id: string; number: string; name: string; sector: string | null; phases: { id: string; code: string }[] }
-type Timer = { project_id: string; phase_id: string | null; role_label: string | null; activity: string | null; note: string | null; started_at: string; banked_minutes: number }
-type Entry = { id: string; work_date: string; minutes: number; note: string | null; activity: string | null; billable: boolean; project_id: string; phase_id: string | null }
-
-const iso = (d: Date) => d.toISOString().slice(0, 10)
-const mondayOf = (d: Date) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x }
-const hhmm = (min: number) => `${Math.floor(min / 60)}:${String(Math.round(min % 60)).padStart(2, '0')}`
-const parseDur = (s: string) => { const t = s.trim(); if (/^\d+:\d{1,2}$/.test(t)) { const [h, m] = t.split(':').map(Number); return h * 60 + m } const n = parseFloat(t); return isFinite(n) ? Math.round(n * 60) : 0 }
-const ACTIVITIES = ['Design', 'Drafting', 'Client meeting', 'Coordination', 'Site visit', 'Code research', 'Admin']
+type Entry = { id: string; work_date: string; minutes: number; note: string | null; activity: string | null; role_label: string | null; project_id: string; phase_id: string | null }
+type RowDef = { id?: string; project_id: string; phase_id: string | null; role_label: string | null; activity: string | null }
+const keyOf = (r: { project_id: string; phase_id: string | null; activity: string | null }) => `${r.project_id}|${r.phase_id ?? ''}|${r.activity ?? ''}`
 
 export default function Time() {
   const { profile } = useAuth()
   const me = profile!.id
-  const projects = useLoad(async () => must(await supabase.from('projects').select('id, number, name, sector, phases(id, code)').in('status', ['active', 'paused']).order('number', { ascending: false })) as unknown as Proj[])
-  const timer = useLoad(async () => must(await supabase.from('timers').select('*').eq('profile_id', me).maybeSingle()) as Timer | null, [me])
   const [week, setWeek] = useState(() => mondayOf(new Date()))
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => { const d = new Date(week); d.setDate(d.getDate() + i); return d }), [week])
-  const entries = useLoad(async () => must(await supabase.from('time_entries').select('id, work_date, minutes, note, activity, billable, project_id, phase_id')
-    .eq('profile_id', me).gte('work_date', iso(days[0])).lte('work_date', iso(days[6])).order('created_at')) as Entry[], [me, week])
-  const pById = Object.fromEntries((projects.data ?? []).map((p) => [p.id, p]))
-  const phaseCode = (pid: string, phid: string | null) => pById[pid]?.phases.find((x) => x.id === phid)?.code
-  const total = (entries.data ?? []).reduce((a, e) => a + e.minutes, 0)
+  const projects = useLoad(loadProjects)
+  const data = useLoad(async () => {
+    const entries = must(await supabase.from('time_entries').select('id, work_date, minutes, note, activity, role_label, project_id, phase_id')
+      .eq('profile_id', me).gte('work_date', iso(days[0])).lte('work_date', iso(days[6])).order('created_at')) as Entry[]
+    const rows = must(await supabase.from('timesheet_rows').select('id, project_id, phase_id, role_label, activity').eq('profile_id', me).order('created_at')) as RowDef[]
+    const phaseIds = Array.from(new Set([...rows, ...entries].map((r) => r.phase_id).filter(Boolean))) as string[]
+    const totals = phaseIds.length ? must(await supabase.from('time_entries').select('phase_id, minutes').eq('profile_id', me).in('phase_id', phaseIds)) as { phase_id: string; minutes: number }[] : []
+    return { entries, rows, totals }
+  }, [me, week])
+  const reload = data.reload
+  useEffect(() => { window.addEventListener(TIME_CHANGED, reload); return () => window.removeEventListener(TIME_CHANGED, reload) }, [reload])
+  const [err, setErr] = useState('')
+
+  const pById = Object.fromEntries((projects.data ?? []).map((p) => [p.id, p])) as Record<string, Proj>
+  const entries = data.data?.entries ?? []
+  // rows: saved rows + any combination that has time this week
+  const rows: RowDef[] = useMemo(() => {
+    const m = new Map<string, RowDef>()
+    ;(data.data?.rows ?? []).forEach((r) => m.set(keyOf(r), r))
+    entries.forEach((e) => { if (!m.has(keyOf(e))) m.set(keyOf(e), { project_id: e.project_id, phase_id: e.phase_id, role_label: e.role_label, activity: e.activity }) })
+    return Array.from(m.values())
+  }, [data.data, entries])
+  const cell = (r: RowDef, d: Date) => entries.filter((e) => keyOf(e) === keyOf(r) && e.work_date === iso(d)).reduce((a, e) => a + e.minutes, 0)
+  const dayTotal = (d: Date) => entries.filter((e) => e.work_date === iso(d)).reduce((a, e) => a + e.minutes, 0)
+  const weekTotal = entries.reduce((a, e) => a + e.minutes, 0)
+  const phaseTotal = (phaseId: string | null) => phaseId ? (data.data?.totals ?? []).filter((t) => t.phase_id === phaseId).reduce((a, t) => a + t.minutes, 0) : 0
+
+  const setCell = async (r: RowDef, d: Date, text: string) => {
+    const val = parseFloat(text.replace(',', '.'))
+    const minutes = isFinite(val) && val > 0 ? Math.round(val * 60) : 0
+    if (minutes > 24 * 60) return setErr('A day can’t have more than 24 hours.')
+    const existing = entries.filter((e) => keyOf(e) === keyOf(r) && e.work_date === iso(d))
+    if (existing.reduce((a, e) => a + e.minutes, 0) === minutes) return
+    setErr('')
+    if (existing.length) { const { error } = await supabase.from('time_entries').delete().in('id', existing.map((e) => e.id)); if (error) return setErr(error.message) }
+    if (minutes > 0) {
+      const { error } = await supabase.from('time_entries').insert({ profile_id: me, project_id: r.project_id, phase_id: r.phase_id, role_label: r.role_label, activity: r.activity,
+        work_date: iso(d), minutes, note: existing.map((e) => e.note).filter(Boolean).join(' / ') || null })
+      if (error) return setErr(error.message)
+    }
+    await ensureRow(r); announceTimeChange()
+  }
+  const ensureRow = async (r: RowDef) => {
+    if ((data.data?.rows ?? []).some((x) => keyOf(x) === keyOf(r))) return
+    await supabase.from('timesheet_rows').insert({ profile_id: me, project_id: r.project_id, phase_id: r.phase_id, role_label: r.role_label, activity: r.activity })
+  }
+  const addRow = async (r: RowDef) => {
+    if (rows.some((x) => keyOf(x) === keyOf(r))) return setErr('That row is already on your timesheet.')
+    const { error } = await supabase.from('timesheet_rows').insert({ profile_id: me, ...r })
+    if (error) return setErr(error.message)
+    setErr(''); reload()
+  }
+  const changeActivity = async (r: RowDef, activity: string) => {
+    const next = { ...r, activity: activity || null }
+    if (rows.some((x) => keyOf(x) === keyOf(next))) return setErr('You already have a row with that activity.')
+    const ids = entries.filter((e) => keyOf(e) === keyOf(r)).map((e) => e.id)
+    if (ids.length) await supabase.from('time_entries').update({ activity: next.activity }).in('id', ids)
+    if (r.id) await supabase.from('timesheet_rows').update({ activity: next.activity }).eq('id', r.id)
+    else await supabase.from('timesheet_rows').insert({ profile_id: me, ...next })
+    setErr(''); reload()
+  }
+  const removeRow = async (r: RowDef) => {
+    const has = entries.some((e) => keyOf(e) === keyOf(r))
+    if (has) return setErr('Clear this week’s hours on that row before removing it.')
+    if (r.id) await supabase.from('timesheet_rows').delete().eq('id', r.id)
+    reload()
+  }
+
+  const overhead = (projects.data ?? []).find((p) => p.number === 'OH')
+  const phaseOptions = (projects.data ?? []).filter((p) => p.number !== 'OH').flatMap((p) => (p.phases.length ? p.phases.map((ph) => ({ value: `${p.id}|${ph.id}`, label: `${p.number} · ${p.name} — ${ph.code}` })) : [{ value: `${p.id}|`, label: `${p.number} · ${p.name} — no phases yet` }]))
+  const groups = Array.from(new Set(rows.map((r) => r.project_id)))
+  const today = iso(new Date())
 
   return (
     <div className="stack">
-      <h1>Time</h1>
-      <TimerCard me={me} projects={projects.data ?? []} timer={timer.data ?? null} onChange={() => { timer.reload(); entries.reload() }} />
-      <section className="card pad stack">
-        <div className="row between">
-          <h2>Week of {days[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} <span className="muted" style={{ fontWeight: 400 }}>· {hhmm(total)} hrs</span></h2>
-          <div className="row">
-            <button className="btn small secondary" aria-label="Previous week" onClick={() => { const d = new Date(week); d.setDate(d.getDate() - 7); setWeek(d) }}>‹</button>
-            <button className="btn small secondary" onClick={() => setWeek(mondayOf(new Date()))}>This week</button>
-            <button className="btn small secondary" aria-label="Next week" onClick={() => { const d = new Date(week); d.setDate(d.getDate() + 7); setWeek(d) }}>›</button>
+      <div className="row between"><h1>Timesheet</h1><span className="muted" style={{ fontSize: 14 }}>Use the <strong>Timer</strong> at the bottom of the sidebar to track time live.</span></div>
+      <div className="row between">
+        <div className="row">
+          <label className="sr" htmlFor="ts-add">Add project and phase</label>
+          <select id="ts-add" className="input" style={{ width: 340 }} value="" onChange={(e) => { const [project_id, phase_id] = e.target.value.split('|'); if (project_id) addRow({ project_id, phase_id: phase_id || null, role_label: null, activity: null }) }}>
+            <option value="">Search for project and add phase</option>{phaseOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
+          <label className="sr" htmlFor="ts-oh">Add overhead</label>
+          <select id="ts-oh" className="input" style={{ width: 200 }} value="" onChange={(e) => { if (e.target.value && overhead) addRow({ project_id: overhead.id, phase_id: null, role_label: null, activity: e.target.value }) }}>
+            <option value="">Add overhead</option>{OVERHEAD.map((o) => <option key={o}>{o}</option>)}</select>
+        </div>
+        <div className="row" style={{ gap: 0 }}>
+          <button className="btn small secondary" aria-label="Previous week" onClick={() => { const d = new Date(week); d.setDate(d.getDate() - 7); setWeek(d) }}>‹</button>
+          <label className="sr" htmlFor="ts-wk">Week of</label>
+          <input id="ts-wk" type="date" className="input" style={{ width: 170, margin: '0 6px' }} value={iso(week)} onChange={(e) => { if (e.target.value) { const [y, m, d] = e.target.value.split('-').map(Number); setWeek(mondayOf(new Date(y, m - 1, d))) } }} />
+          <button className="btn small secondary" aria-label="Next week" onClick={() => { const d = new Date(week); d.setDate(d.getDate() + 7); setWeek(d) }}>›</button>
+          <button className="btn small secondary" style={{ marginLeft: 8 }} onClick={() => setWeek(mondayOf(new Date()))}>This week</button>
+        </div>
+      </div>
+      {err && <p className="err" role="alert">{err}</p>}
+
+      <div className="card" style={{ overflowX: 'auto' }}>
+        <div style={{ minWidth: 980 }}>
+          <div className="ts-grid" style={{ background: '#f6f5f2', borderBottom: '1px solid var(--line)', fontWeight: 700, fontSize: 14 }}>
+            <div className="cell" style={{ textAlign: 'left', paddingLeft: 16 }}>Activity</div>
+            {days.map((d) => <div key={iso(d)} className="cell" style={{ background: iso(d) === today ? '#eef2f6' : undefined }}>{d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>)}
+            <div className="cell">Hours</div><div />
+          </div>
+          <div className="ts-grid" style={{ borderBottom: '1px solid var(--line)' }}>
+            <div className="cell" style={{ textAlign: 'left', paddingLeft: 16 }}>All activities <span className="muted">· {rows.length}</span></div>
+            {days.map((d) => <div key={iso(d)} className="cell num" style={{ fontWeight: 700 }}>{hrs(dayTotal(d))}</div>)}
+            <div className="cell num" style={{ fontWeight: 700 }}>{hrs(weekTotal)}</div><div />
           </div>
         </div>
-        {days.map((d) => {
-          const list = (entries.data ?? []).filter((e) => e.work_date === iso(d))
-          const sum = list.reduce((a, e) => a + e.minutes, 0)
-          return (
-            <div key={iso(d)} style={{ borderTop: '1px solid #efece6', paddingTop: 10 }}>
-              <div className="row between"><strong>{d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</strong><span className="num muted">{hhmm(sum)}</span></div>
-              {list.map((e) => { const p = pById[e.project_id]; return (
-                <div key={e.id} className="row" style={{ padding: '6px 0', gap: 8 }}>
-                  {p && <span className="tag" style={{ background: SECTOR_COLOR[p.sector ?? 'internal'] }}>{p.number}</span>}
-                  <span style={{ flex: 1, minWidth: 200 }}>{p?.name ?? 'Project'}{phaseCode(e.project_id, e.phase_id) && <span className="muted"> · {phaseCode(e.project_id, e.phase_id)}</span>}{e.activity && <span className="muted"> · {e.activity}</span>}{e.note && <em className="muted"> — {e.note}</em>}{!e.billable && <span className="pill" style={{ marginLeft: 6 }}>Non-billable</span>}</span>
-                  <strong className="num">{hhmm(e.minutes)}</strong>
-                  <button className="btn small danger" aria-label="Delete entry" onClick={async () => { await supabase.from('time_entries').delete().eq('id', e.id); entries.reload() }}>×</button>
-                </div>) })}
-            </div>)
-        })}
-        <ManualEntry me={me} projects={projects.data ?? []} defaultDate={iso(new Date())} onSaved={entries.reload} />
-      </section>
+      </div>
+
+      {groups.map((pid) => {
+        const p = pById[pid]
+        const isOH = p?.number === 'OH'
+        return (
+          <section key={pid} className="card" style={{ overflowX: 'auto' }}>
+            <div style={{ minWidth: 980 }}>
+              <h2 className="row" style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)', gap: 10 }}>
+                {p && !isOH && <span className="tag" style={{ background: SECTOR_COLOR[p.sector ?? 'internal'] }}>{p.number}</span>}{isOH ? 'Overhead' : (p?.name ?? 'Project')}</h2>
+              {rows.filter((r) => r.project_id === pid).map((r) => {
+                const code = p?.phases.find((x) => x.id === r.phase_id)?.code
+                const total = days.reduce((a, d) => a + cell(r, d), 0)
+                return (
+                  <div key={keyOf(r)} style={{ borderBottom: '1px solid #efece6' }}>
+                    {!isOH && <div className="row between" style={{ padding: '10px 16px 0' }}>
+                      <div><div>{code ? `${code} · ` : ''}{r.role_label ?? 'Role not set'}</div><strong>{code ? PHASE_NAME[code] : 'No phase'}</strong></div>
+                      {r.phase_id && <span title="Your hours on this phase, all time" className="num" style={{ minWidth: 44, height: 44, borderRadius: '50%', border: '2px solid var(--line)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>{hrs(phaseTotal(r.phase_id))}</span>}
+                    </div>}
+                    <div className="ts-grid">
+                      <div className="cell" style={{ paddingLeft: 16 }}>
+                        <label className="sr" htmlFor={'act-' + keyOf(r)}>Activity</label>
+                        <select id={'act-' + keyOf(r)} className="input" value={r.activity ?? ''} onChange={(e) => changeActivity(r, e.target.value)}>
+                          <option value="">{isOH ? 'Overhead type' : 'Activity'}</option>{(isOH ? OVERHEAD : ACTIVITIES).map((a) => <option key={a}>{a}</option>)}</select>
+                      </div>
+                      {days.map((d) => <div key={iso(d)} className="cell"><Cell value={cell(r, d)} today={iso(d) === today} label={`${p?.name ?? ''} ${code ?? ''} ${r.activity ?? ''} ${d.toDateString()}`} onCommit={(t) => setCell(r, d, t)} /></div>)}
+                      <div className="cell num" style={{ fontWeight: 700 }}>{hrs(total)}</div>
+                      <div className="cell"><button className="linkbtn" style={{ color: 'var(--muted)', fontSize: 18 }} aria-label="Remove row" onClick={() => removeRow(r)}>×</button></div>
+                    </div>
+                  </div>)
+              })}
+            </div>
+          </section>)
+      })}
+      {data.data && rows.length === 0 && <p className="muted card pad" style={{ textAlign: 'center' }}><em>Nothing on this week yet. Add a project and phase above, or start the timer in the sidebar.</em></p>}
     </div>
   )
 }
 
-function TaskFields({ projects, v, set, idp }: { projects: Proj[]; v: { project_id: string; phase_id: string; activity: string; note: string }; set: (k: string, x: string) => void; idp: string }) {
-  const phases = projects.find((p) => p.id === v.project_id)?.phases ?? []
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px,2fr) minmax(160px,1.2fr) minmax(140px,1fr) minmax(200px,2fr)', gap: 10 }}>
-      <div><label className="l" htmlFor={idp + 'p'}>Project</label><select id={idp + 'p'} className="input" value={v.project_id} onChange={(e) => { set('project_id', e.target.value); set('phase_id', '') }}>
-        <option value="">Choose…</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.number} · {p.name}</option>)}</select></div>
-      <div><label className="l" htmlFor={idp + 'ph'}>Phase</label><select id={idp + 'ph'} className="input" value={v.phase_id} onChange={(e) => set('phase_id', e.target.value)}>
-        <option value="">—</option>{phases.map((x) => <option key={x.id} value={x.id}>{x.code} · {PHASE_NAME[x.code]}</option>)}</select></div>
-      <div><label className="l" htmlFor={idp + 'a'}>Activity</label><select id={idp + 'a'} className="input" value={v.activity} onChange={(e) => set('activity', e.target.value)}>
-        <option value="">—</option>{ACTIVITIES.map((a) => <option key={a}>{a}</option>)}</select></div>
-      <div><label className="l" htmlFor={idp + 'n'}>Note</label><input id={idp + 'n'} className="input" value={v.note} onChange={(e) => set('note', e.target.value)} /></div>
-    </div>)
-}
-
-function TimerCard({ me, projects, timer, onChange }: { me: string; projects: Proj[]; timer: Timer | null; onChange: () => void }) {
-  const [v, setV] = useState({ project_id: '', phase_id: '', activity: '', note: '' })
-  const [now, setNow] = useState(Date.now())
-  const [err, setErr] = useState('')
-  useEffect(() => { if (!timer) return; const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t) }, [timer])
-  useEffect(() => { if (timer) setV({ project_id: timer.project_id, phase_id: timer.phase_id ?? '', activity: timer.activity ?? '', note: timer.note ?? '' }) }, [timer])
-  const set = (k: string, x: string) => setV((o) => ({ ...o, [k]: x }))
-  const elapsedMs = timer ? now - new Date(timer.started_at).getTime() + timer.banked_minutes * 60000 : 0
-  const s = Math.max(0, Math.floor(elapsedMs / 1000))
-  const clock = `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
-
-  const start = async () => {
-    if (!v.project_id) return setErr('Choose a project first.')
-    const { error } = await supabase.from('timers').upsert({ profile_id: me, project_id: v.project_id, phase_id: v.phase_id || null, activity: v.activity || null, note: v.note || null, started_at: new Date().toISOString(), banked_minutes: 0 })
-    setErr(error?.message ?? ''); onChange()
-  }
-  const logCurrent = async () => {
-    if (!timer) return
-    const minutes = Math.max(1, Math.round(elapsedMs / 60000))
-    const { error } = await supabase.from('time_entries').insert({ profile_id: me, project_id: v.project_id || timer.project_id, phase_id: (v.phase_id || timer.phase_id) || null,
-      work_date: new Date().toISOString().slice(0, 10), minutes, activity: v.activity || null, note: v.note || null, started_at: timer.started_at, ended_at: new Date().toISOString() })
-    if (error) { setErr(error.message); return false }
-    await supabase.from('timers').delete().eq('profile_id', me); return true
-  }
-  const stop = async () => { if (await logCurrent()) { setV({ project_id: '', phase_id: '', activity: '', note: '' }); onChange() } }
-  const reset = async () => { await supabase.from('timers').delete().eq('profile_id', me); onChange() }
-
-  return (
-    <section className="card pad stack" aria-label="Timer">
-      <div className="row between"><h2>Timer</h2><span className="num" style={{ fontSize: 30, fontWeight: 700, color: timer ? '#039855' : 'var(--muted)' }} aria-live="polite">{clock}</span></div>
-      <TaskFields projects={projects} v={v} set={set} idp="tm-" />
-      {err && <p className="err" role="alert">{err}</p>}
-      <div className="row">
-        {!timer && <button className="btn" onClick={start}>▶ Start timer</button>}
-        {timer && <><button className="btn" onClick={stop}>■ Stop &amp; log</button>
-          <button className="btn secondary" onClick={async () => { if (await logCurrent()) await start() }}>Switch task</button>
-          <button className="btn secondary" onClick={reset}>Discard</button></>}
-      </div>
-      <p className="muted" style={{ margin: 0, fontSize: 13 }}>The timer keeps running if you close the tab or switch to your phone. “Switch task” logs the current time and starts the new task.</p>
-    </section>)
-}
-
-function ManualEntry({ me, projects, defaultDate, onSaved }: { me: string; projects: Proj[]; defaultDate: string; onSaved: () => void }) {
-  const [v, setV] = useState({ project_id: '', phase_id: '', activity: '', note: '' })
-  const [date, setDate] = useState(defaultDate); const [dur, setDur] = useState(''); const [billable, setBillable] = useState(true); const [err, setErr] = useState('')
-  const save = async () => {
-    const minutes = parseDur(dur)
-    if (!v.project_id || minutes <= 0) return setErr('Choose a project and enter hours (e.g. 1.5 or 1:30).')
-    const { error } = await supabase.from('time_entries').insert({ profile_id: me, project_id: v.project_id, phase_id: v.phase_id || null, work_date: date, minutes, activity: v.activity || null, note: v.note || null, billable })
-    if (error) return setErr(error.message)
-    setErr(''); setDur(''); setV({ ...v, note: '' }); onSaved()
-  }
-  return (
-    <div className="stack" style={{ borderTop: '2px solid var(--line)', paddingTop: 14 }}>
-      <h2 style={{ fontSize: 16 }}>Add time</h2>
-      <TaskFields projects={projects} v={v} set={(k, x) => setV((o) => ({ ...o, [k]: x }))} idp="me-" />
-      <div className="row" style={{ alignItems: 'flex-end' }}>
-        <div><label className="l" htmlFor="me-d">Date</label><input id="me-d" type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} /></div>
-        <div><label className="l" htmlFor="me-h">Hours</label><input id="me-h" className="input num" style={{ width: 120 }} placeholder="1:30" value={dur} onChange={(e) => setDur(e.target.value)} /></div>
-        <label className="row" style={{ gap: 6, minHeight: 44 }}><input type="checkbox" checked={billable} onChange={(e) => setBillable(e.target.checked)} style={{ width: 18, height: 18 }} />Billable</label>
-        <button className="btn" onClick={save}>Add</button>
-      </div>
-      {err && <p className="err" role="alert">{err}</p>}
-    </div>)
+function Cell({ value, today, label, onCommit }: { value: number; today: boolean; label: string; onCommit: (t: string) => void }) {
+  const [t, setT] = useState(hrs(value))
+  useEffect(() => setT(hrs(value)), [value])
+  return <input aria-label={label} className={'ts-in num' + (today ? ' today' : '')} inputMode="decimal" value={t} onChange={(e) => setT(e.target.value)}
+    onFocus={(e) => e.target.select()} onBlur={() => onCommit(t)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
 }

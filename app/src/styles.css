@@ -42,3 +42,11 @@ label.l{display:block;margin-bottom:5px;font-size:13px;font-weight:700}
 .main{min-width:0;padding:26px clamp(16px,2.6vw,36px) 60px;display:flex;flex-direction:column;gap:18px}
 .topbar{display:none}
 @media (max-width:900px){.shell{grid-template-columns:minmax(0,1fr)}.side{display:none}.side.open{display:flex;position:fixed;inset:0 30% 0 0;z-index:20}.topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--navy);color:#fff}}
+.linkbtn{background:none;border:0;padding:0;color:#3b5bdb;font:700 14px Arial;cursor:pointer}
+.recent{display:flex;flex-direction:column;gap:2px;width:100%;text-align:left;padding:10px 12px;border:0;border-radius:8px;background:#fff;cursor:pointer;font:14px Arial;color:var(--text)}
+.recent:hover{background:#f3f1ec}
+.ts-grid{display:grid;grid-template-columns:minmax(220px,1.6fr) repeat(7,minmax(64px,.6fr)) 80px 44px;align-items:center}
+.ts-grid .cell{padding:8px 6px;text-align:center}
+.ts-in{width:100%;min-height:40px;border:1px solid #b9b4aa;border-radius:6px;text-align:center;font:16px Arial;font-variant-numeric:tabular-nums}
+.ts-in:focus{outline:3px solid #7aa2c2}
+.ts-in.today{background:#f4f7fa}
