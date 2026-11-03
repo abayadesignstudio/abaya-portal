@@ -13,7 +13,9 @@ function useIsPhone() {
   return m
 }
 
-type Entry = { id: string; work_date: string; minutes: number; note: string | null; activity: string | null; role_label: string | null; project_id: string; phase_id: string | null }
+const legacyOf = (es: { project_id: string; phase_id: string | null; legacy_phase?: string | null }[], r: { project_id: string; phase_id: string | null }) =>
+  es.find((e) => e.project_id === r.project_id && !r.phase_id && !e.phase_id && e.legacy_phase)?.legacy_phase ?? 'No phase'
+type Entry = { id: string; work_date: string; minutes: number; note: string | null; activity: string | null; role_label: string | null; project_id: string; phase_id: string | null; legacy_phase?: string | null }
 type RowDef = { id?: string; project_id: string; phase_id: string | null; role_label: string | null; activity: string | null }
 const keyOf = (r: { project_id: string; phase_id: string | null; activity: string | null }) => `${r.project_id}|${r.phase_id ?? ''}|${r.activity ?? ''}`
 
@@ -24,7 +26,7 @@ export default function Time() {
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => { const d = new Date(week); d.setDate(d.getDate() + i); return d }), [week])
   const projects = useLoad(loadProjects)
   const data = useLoad(async () => {
-    const entries = must(await supabase.from('time_entries').select('id, work_date, minutes, note, activity, role_label, project_id, phase_id')
+    const entries = must(await supabase.from('time_entries').select('id, work_date, minutes, note, activity, role_label, project_id, phase_id, legacy_phase')
       .eq('profile_id', me).gte('work_date', iso(days[0])).lte('work_date', iso(days[6])).order('created_at')) as Entry[]
     const rows = must(await supabase.from('timesheet_rows').select('id, project_id, phase_id, role_label, activity').eq('profile_id', me).order('created_at')) as RowDef[]
     const phaseIds = Array.from(new Set([...rows, ...entries].map((r) => r.phase_id).filter(Boolean))) as string[]
@@ -144,7 +146,7 @@ export default function Time() {
                     return (
                       <li key={keyOf(r)} className="ts-mrow">
                         <div style={{ minWidth: 0, flex: 1 }}>
-                          {!isOH && <div style={{ fontWeight: 700 }}>{code ? `${code} · ${PHASE_NAME[code]}` : 'No phase'}</div>}
+                          {!isOH && <div style={{ fontWeight: 700 }}>{code ? `${code} · ${PHASE_NAME[code]}` : legacyOf(data.data?.entries ?? [], r)}</div>}
                           <label className="sr" htmlFor={'mact-' + keyOf(r)}>Activity</label>
                           <select id={'mact-' + keyOf(r)} className="input" style={{ marginTop: 6 }} value={r.activity ?? ''} onChange={(e) => changeActivity(r, e.target.value)}>
                             <option value="">{isOH ? 'Overhead type' : 'Activity'}</option>{(isOH ? OVERHEAD : ACTIVITIES).map((x) => <option key={x}>{x}</option>)}</select>
@@ -189,7 +191,7 @@ export default function Time() {
                 return (
                   <div key={keyOf(r)} style={{ borderBottom: '1px solid #efece6' }}>
                     {!isOH && <div className="row between" style={{ padding: '10px 16px 0' }}>
-                      <div><div>{code ? `${code} · ` : ''}{r.role_label ?? 'Role not set'}</div><strong>{code ? PHASE_NAME[code] : 'No phase'}</strong></div>
+                      <div><div>{code ? `${code} · ` : ''}{r.role_label ?? 'Role not set'}</div><strong>{code ? PHASE_NAME[code] : legacyOf(data.data?.entries ?? [], r)}</strong></div>
                       {r.phase_id && <span title="Your hours on this phase, all time" className="num" style={{ minWidth: 44, height: 44, borderRadius: '50%', border: '2px solid var(--line)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>{hrs(phaseTotal(r.phase_id))}</span>}
                     </div>}
                     <div className="ts-grid">
