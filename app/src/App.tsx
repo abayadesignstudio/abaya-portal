@@ -6,7 +6,15 @@ import StaffHome from './staff/Home'
 import Projects from './staff/Projects'
 import ProjectDetail from './staff/ProjectDetail'
 import Time from './staff/Time'
+import Employees from './staff/Employees'
+import Invoices from './staff/Invoices'
+import InvoiceBuilder from './staff/InvoiceBuilder'
+import Proposals from './staff/Proposals'
+import AgreementEditor from './staff/AgreementEditor'
+import ClientUpdates from './staff/ClientUpdates'
 import ClientLayout from './client/ClientLayout'
+import ClientProject from './client/ClientProject'
+import ClientInvoices from './client/ClientInvoices'
 import ClientHome from './client/ClientHome'
 
 function Gate() {
@@ -24,6 +32,8 @@ function Gate() {
     <Routes>
       <Route element={<ClientLayout />}>
         <Route index element={<ClientHome />} />
+        <Route path="projects/:id" element={<ClientProject />} />
+        <Route path="invoices" element={<ClientInvoices />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Route>
     </Routes>
@@ -35,6 +45,13 @@ function Gate() {
         <Route path="projects" element={<Projects />} />
         <Route path="projects/:id" element={<ProjectDetail />} />
         <Route path="time" element={<Time />} />
+        <Route path="employees" element={<Employees />} />
+        <Route path="invoices" element={<Invoices />} />
+        <Route path="invoices/new" element={<InvoiceBuilder />} />
+        <Route path="invoices/:id" element={<InvoiceBuilder />} />
+        <Route path="proposals" element={<Proposals />} />
+        <Route path="proposals/:id" element={<AgreementEditor />} />
+        <Route path="client-updates" element={<ClientUpdates />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Route>
     </Routes>

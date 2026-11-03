@@ -72,7 +72,9 @@ export default function SidebarTimer({ me }: { me: string }) {
     <div style={{ position: 'relative', padding: '0 16px 12px' }}>
       <button type="button" className="timer-btn" onClick={() => { setOpen(!open); setView('form') }} aria-expanded={open}
         style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', minHeight: 52, padding: '0 14px', borderRadius: 10, border: '1px solid rgba(154,143,99,.5)', background: t ? 'rgba(3,152,85,.18)' : 'rgba(237,230,214,.05)', color: '#ede6d6', font: '700 16px Arial', cursor: 'pointer' }}>
-        <span aria-hidden="true" style={{ width: 28, height: 28, borderRadius: '50%', background: t ? '#039855' : '#9a8f63', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#02253d' }}>{t ? '■' : '▶'}</span>
+        <span aria-hidden="true" style={{ width: 28, height: 28, flex: 'none', borderRadius: '50%', background: t ? '#039855' : '#9a8f63', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+          {t ? <svg width="10" height="10" viewBox="0 0 10 10"><rect width="10" height="10" rx="1" fill="#fff" /></svg>
+             : <svg width="12" height="12" viewBox="0 0 12 12" style={{ marginLeft: 2 }}><path d="M1 0.8 L11 6 L1 11.2 Z" fill="#02253d" /></svg>}</span>
         {t ? <span className="num">{clockOf(elapsed)}</span> : 'Timer'}
       </button>
       {open && (
