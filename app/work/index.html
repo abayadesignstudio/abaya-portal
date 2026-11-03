@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Work — Abaya Design Studio</title>
+  <meta name="description" content="Selected works by Abaya Design Studio — commercial, residential, light industrial and office architecture in North Texas." />
+  <meta name="theme-color" content="#02253d" />
+  <link rel="icon" type="image/png" href="../site/img/abaya-crest-light-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap" />
+  <link rel="stylesheet" href="../site/site.css" />
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="top">
+    <a class="brand" href="../" aria-label="Abaya Design Studio — home">
+      <img class="crest" src="../site/img/abaya-crest-light-192.png" alt="" width="52" height="52" />
+      <img class="word" src="../site/img/abaya-wordmark.png" alt="Abaya Design Studio" width="141" height="46" />
+    </a>
+    <div class="nav">
+      <nav aria-label="Main">
+        <ul>
+          <li><a href="./" aria-current="page">Work</a></li>
+          <li><a href="../#practice">Practice</a></li>
+          <li><a href="../#approach">Approach</a></li>
+          <li><a href="../#contact">Contact</a></li>
+        </ul>
+      </nav>
+      <a class="btn-light" href="../portal/">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="1"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+        <span>Portal</span>
+      </a>
+      <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="menu">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 7h18M3 12h18M3 17h18"></path></svg>
+      </button>
+    </div>
+    <div class="menu" id="menu">
+      <ul>
+        <li><a href="./">Work</a></li>
+        <li><a href="../#practice">Practice</a></li>
+        <li><a href="../#approach">Approach</a></li>
+        <li><a href="../#contact">Contact</a></li>
+        <li><a href="../portal/">Client &amp; staff portal</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="page-head" aria-labelledby="work-h">
+      <h1 id="work-h" class="h2"><i>Selected</i><b>WORKS</b></h1>
+      <div class="rule" aria-hidden="true"><span class="l"></span><span class="d"></span><span class="D"></span><span class="d"></span><span class="l"></span></div>
+      <p>Buildings for families, businesses and communities across North Texas.</p>
+      <div class="filters" role="group" aria-label="Filter by type" data-filters>
+        <button type="button" data-filter="all" aria-pressed="true">All</button>
+        <button type="button" data-filter="commercial" aria-pressed="false">Commercial</button>
+        <button type="button" data-filter="residential" aria-pressed="false">Residential</button>
+        <button type="button" data-filter="industrial" aria-pressed="false">Light Industrial</button>
+        <button type="button" data-filter="office" aria-pressed="false">General Office</button>
+      </div>
+    </section>
+    <!-- Each project: drop a photo into site/img/ and replace the placeholder div with
+         <img src="../site/img/your-photo.jpg" alt="[describe it]"> inside .shot -->
+    <ul class="works" aria-label="Projects">
+      <li data-category="commercial">
+        <article>
+          <div class="shot ph">[Image: town-center watercolor aerial, toned]</div>
+          <p class="cat">Commercial</p>
+          <h2>[Project name — town center]</h2>
+          <p>[One or two sentences about the project, its site, and the client.]</p>
+        </article>
+      </li>
+      <li data-category="residential">
+        <article>
+          <div class="shot ph">[Image: lake house watercolor, toned]</div>
+          <p class="cat">Residential</p>
+          <h2>[Project name — lake house]</h2>
+          <p>[One or two sentences about the project.]</p>
+        </article>
+      </li>
+      <li data-category="commercial">
+        <article>
+          <div class="shot ph">[Image: Heritage Park photo, toned]</div>
+          <p class="cat">Commercial</p>
+          <h2>[Project name — Heritage Park]</h2>
+          <p>[One or two sentences about the project.]</p>
+        </article>
+      </li>
+      <li data-category="residential">
+        <article>
+          <div class="shot ph">[Image: Hendricks watercolor, toned]</div>
+          <p class="cat">Residential</p>
+          <h2>[Project name — Hendricks]</h2>
+          <p>[One or two sentences about the project.]</p>
+        </article>
+      </li>
+      <li data-category="industrial">
+        <article>
+          <div class="shot ph">[Image: metal building photo, toned]</div>
+          <p class="cat">Light Industrial</p>
+          <h2>[Project name — light industrial]</h2>
+          <p>[One or two sentences about the project.]</p>
+        </article>
+      </li>
+      <li data-category="office">
+        <article>
+          <div class="shot ph">[Image: office interior photo, toned]</div>
+          <p class="cat">General Office</p>
+          <h2>[Project name — office]</h2>
+          <p>[One or two sentences about the project.]</p>
+        </article>
+      </li>
+    </ul>
+    <section class="clients" aria-labelledby="w-cta" style="padding-top:0">
+      <div class="box"><div>
+        <div><h2 id="w-cta"><i>Begin a</i><b>PROJECT</b></h2><p class="body" style="margin:0">Tell us about your site, your program and your schedule.</p></div>
+        <div class="act"><a class="btn-light" href="../#contact" style="min-height:56px;padding:0 32px">Contact us</a></div>
+      </div></div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap">
+      <a class="brand" href="../" aria-label="Abaya Design Studio — home">
+        <img class="crest" src="../site/img/abaya-crest-light-192.png" alt="" width="44" height="44" style="width:44px;height:44px" />
+        <img class="word" src="../site/img/abaya-wordmark.png" alt="Abaya Design Studio" width="129" height="42" style="height:42px" />
+      </a>
+      <nav aria-label="Footer">
+        <a href="./">Work</a>
+        <a href="https://www.instagram.com/abayadesignstudio/">Instagram</a>
+        <a href="../portal/">Client Portal</a>
+        <a href="../#contact">Contact</a>
+      </nav>
+      <small>Abaya Design Studio, LLC © 2026. All rights reserved.</small>
+    </div>
+  </footer>
+
+  <script type="module" src="../site/site.js"></script>
+</body>
+</html>

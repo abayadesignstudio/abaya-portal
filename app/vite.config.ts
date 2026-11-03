@@ -11,6 +11,7 @@ export default defineConfig({
       input: {
         site: resolve(__dirname, 'index.html'),
         portal: resolve(__dirname, 'portal/index.html'),
+        work: resolve(__dirname, 'work/index.html'),
       },
     },
   },

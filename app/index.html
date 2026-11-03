@@ -1,11 +1,241 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Abaya Design Studio</title>
-  </head>
-  <body style="margin:0;background:#02253d;color:#ede6d6;font-family:Georgia,serif;display:grid;place-items:center;min-height:100vh">
-    <p>Abaya Design Studio — new site coming this week. <a style="color:#bdb38a" href="portal/">Portal</a></p>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Abaya Design Studio — Architecture in Coppell, Texas</title>
+  <meta name="description" content="Abaya Design Studio is an architecture firm in Coppell, Texas, offering traditional design adapted for modern living — commercial, residential, light industrial and office work." />
+  <meta name="theme-color" content="#02253d" />
+  <link rel="icon" type="image/png" href="./site/img/abaya-crest-light-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap" />
+  <link rel="stylesheet" href="./site/site.css" />
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="top">
+    <a class="brand" href="./" aria-label="Abaya Design Studio — home">
+      <img class="crest" src="./site/img/abaya-crest-light-192.png" alt="" width="52" height="52" />
+      <img class="word" src="./site/img/abaya-wordmark.png" alt="Abaya Design Studio" width="141" height="46" />
+    </a>
+    <div class="nav">
+      <nav aria-label="Main">
+        <ul>
+          <li><a href="./work/">Work</a></li>
+          <li><a href="#practice">Practice</a></li>
+          <li><a href="#approach">Approach</a></li>
+          <li><a href="#contact">Contact</a></li>
+        </ul>
+      </nav>
+      <a class="btn-light" href="./portal/">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="1"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+        <span>Portal</span>
+      </a>
+      <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="menu">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 7h18M3 12h18M3 17h18"></path></svg>
+      </button>
+    </div>
+    <div class="menu" id="menu">
+      <ul>
+        <li><a href="./work/">Work</a></li>
+        <li><a href="#practice">Practice</a></li>
+        <li><a href="#approach">Approach</a></li>
+        <li><a href="#contact">Contact</a></li>
+        <li><a href="./portal/">Client &amp; staff portal</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- HERO -->
+    <section class="hero" aria-labelledby="hero-h">
+      <div class="photo ph">
+        <!-- Replace with: <img src="./site/img/hero.jpg" alt="[describe the project]"> (at least 2400 px wide) -->
+        <span>[Full-bleed photograph or rendering of your work — e.g. the town-center aerial or the lake house]</span>
+      </div>
+      <div class="shade" aria-hidden="true"></div>
+      <svg class="oval" aria-hidden="true" viewBox="0 0 1440 900" preserveAspectRatio="none">
+        <ellipse cx="760" cy="430" rx="520" ry="300" fill="none" stroke="#9a8f63" stroke-opacity="0.35" stroke-width="1" transform="rotate(-14 760 430)"></ellipse>
+        <ellipse cx="700" cy="470" rx="610" ry="250" fill="none" stroke="#9a8f63" stroke-opacity="0.2" stroke-width="0.8" transform="rotate(9 700 470)"></ellipse>
+      </svg>
+      <div class="copy">
+        <p class="eyebrow" style="margin-bottom:34px">Abaya Design Studio · Coppell, Texas</p>
+        <h1 id="hero-h"><i>Timeless &amp; Traditional</i><b>ARCHITECTURE</b></h1>
+        <div class="rule" aria-hidden="true"><span class="l"></span><span class="d"></span><span class="D"></span><span class="d"></span><span class="l"></span></div>
+        <p class="cap">[Project name], [City] — <a href="./work/">see the work</a></p>
+      </div>
+    </section>
+
+    <!-- THE FIRM -->
+    <section id="approach" class="firm" aria-labelledby="firm-h">
+      <div class="wrap two">
+        <div>
+          <h2 id="firm-h" class="eyebrow">The Firm</h2>
+          <p class="lead">Good architecture should feel considered, lasting, and at home in its setting.</p>
+          <p class="body"><span class="sc">Abaya Design Studio</span> is an architecture firm in Coppell, Texas, offering traditional design adapted for modern living. We draw from tradition not to repeat the past, but to recover what it teaches.</p>
+          <p class="body" style="margin:0">Whether residential, commercial, or institutional, our work seeks to serve real human life.</p>
+        </div>
+        <figure style="margin:0">
+          <div class="frame"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i>
+            <div class="duo"><img src="./site/img/sketching-by-river.jpg" alt="Painting of two people sketching on the bank of a quiet river beneath trees" width="720" height="951" loading="lazy" /></div>
+          </div>
+          <figcaption>[Caption: title, artist and date of the painting]</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- PLATE I: SELECTED WORKS -->
+    <section id="work" class="plate-sec" aria-labelledby="works-h">
+      <div class="plate" data-carousel>
+        <script type="application/json">
+          [
+            { "category": "Commercial", "title": "[Project name — town center]", "blurb": "[One or two sentences about the project, its site, and the client.]", "placeholder": "[Image: town-center watercolor aerial, toned]" },
+            { "category": "Residential", "title": "[Project name — lake house]", "blurb": "[One or two sentences about the project.]", "placeholder": "[Image: lake house watercolor, toned]" },
+            { "category": "Commercial", "title": "[Project name — Heritage Park]", "blurb": "[One or two sentences about the project.]", "placeholder": "[Image: Heritage Park photo, toned]" },
+            { "category": "Residential", "title": "[Project name — Hendricks]", "blurb": "[One or two sentences about the project.]", "placeholder": "[Image: Hendricks watercolor, toned]" }
+          ]
+        </script>
+        <div><div>
+          <div class="plate-head">
+            <h2 id="works-h"><i>Plate I.</i><b>SELECTED WORKS</b></h2>
+            <div style="display:flex;align-items:center;gap:12px">
+              <div class="count" aria-hidden="true"><div><span data-no>01</span><hr /><span class="of" data-total>04</span></div></div>
+              <button class="arrow" type="button" data-prev aria-label="Previous project"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></button>
+              <button class="arrow dark" type="button" data-next aria-label="Next project"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M9 5l7 7-7 7"></path></svg></button>
+            </div>
+          </div>
+          <p class="sr" data-live aria-live="polite"></p>
+          <div class="slide">
+            <figure style="margin:0">
+              <div class="frame dk"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i>
+                <div class="shot ph" data-shot>[Image: town-center watercolor aerial, toned]</div>
+              </div>
+              <figcaption data-fig>Fig. 1 — [Project name — town center]</figcaption>
+            </figure>
+            <div>
+              <p class="cat" data-cat>Commercial</p>
+              <h3 data-title>[Project name — town center]</h3>
+              <p class="blurb" data-blurb>[One or two sentences about the project, its site, and the client.]</p>
+              <a class="more" href="./work/">View all work</a>
+            </div>
+          </div>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- OUR TENETS -->
+    <section id="tenets" class="tenets" aria-labelledby="tn-h" data-tenets>
+      <img class="bg" src="./site/img/tracery-plate.jpg" alt="" aria-hidden="true" loading="lazy" />
+      <ol class="idx" aria-label="Tenets">
+        <li><button type="button" data-tenet aria-pressed="true" aria-label="I. Proportion" data-numeral="I" data-title="Proportion" data-line="[One or two lines on how proportion guides your work]"><span class="dot" aria-hidden="true"></span><span class="lbl">I. Proportion</span></button></li>
+        <li><button type="button" data-tenet aria-pressed="false" aria-label="II. Restraint" data-numeral="II" data-title="Restraint" data-line="[One or two lines on restraint]"><span class="dot" aria-hidden="true"></span><span class="lbl">II. Restraint</span></button></li>
+        <li><button type="button" data-tenet aria-pressed="false" aria-label="III. Material Honesty" data-numeral="III" data-title="Material Honesty" data-line="[One or two lines on material honesty]"><span class="dot" aria-hidden="true"></span><span class="lbl">III. Material Honesty</span></button></li>
+        <li><button type="button" data-tenet aria-pressed="false" aria-label="IV. Order" data-numeral="IV" data-title="Order" data-line="[One or two lines on order]"><span class="dot" aria-hidden="true"></span><span class="lbl">IV. Order</span></button></li>
+      </ol>
+      <div class="tenet" aria-live="polite">
+        <h2 id="tn-h" class="h2"><i>Our</i><b>TENETS</b></h2>
+        <div class="rule" aria-hidden="true"><span class="l"></span><span class="d"></span><span class="D"></span><span class="d"></span><span class="l"></span></div>
+        <div class="num-box"><span data-numeral>I</span></div>
+        <h3 data-ttitle>Proportion</h3>
+        <p data-tline>[One or two lines on how proportion guides your work]</p>
+      </div>
+    </section>
+
+    <!-- THE PRACTICE -->
+    <section id="practice" class="practice" aria-labelledby="pr-h">
+      <div class="wrap">
+        <h2 id="pr-h" class="h2"><i>The</i><b>PRACTICE</b></h2>
+        <div class="rule" aria-hidden="true"><span class="l"></span><span class="d"></span><span class="D"></span><span class="d"></span><span class="l"></span></div>
+        <div class="four">
+          <article><p class="n" aria-hidden="true">i.</p><h3>Commercial</h3><p>Economical buildings with a strong identity, rooted in their context and the vernacular of the place.</p></article>
+          <article><p class="n" aria-hidden="true">ii.</p><h3>Residential</h3><p>Custom homes shaped closely with each family: functional, beautiful, and made to last.</p></article>
+          <article><p class="n" aria-hidden="true">iii.</p><h3>Light Industrial</h3><p>Flexible metal buildings for storage, workshops, and sports facilities, tailored to how they are used.</p></article>
+          <article><p class="n" aria-hidden="true">iv.</p><h3>General Office</h3><p>Offices for small businesses: medical practices, real estate, insurance, and other professional firms.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <!-- PLATE II -->
+    <section class="plate2" aria-labelledby="p2-h">
+      <svg class="oval" aria-hidden="true" viewBox="0 0 1440 800" preserveAspectRatio="none"><ellipse cx="420" cy="420" rx="360" ry="520" fill="none" stroke="#f1ebdd" stroke-opacity="0.28" stroke-width="1" transform="rotate(-8 420 420)"></ellipse></svg>
+      <div class="wrap two" style="position:relative">
+        <div>
+          <h2 id="p2-h" class="eyebrow">Plate II · On Building Well</h2>
+          <p class="lead">Buildings should be beautiful, useful, and durable — places where people gather, work, worship, rest, and return.</p>
+          <p class="body">With a sense that the design was made for them and for its place.</p>
+          <a class="btn-line" href="#contact">Begin a Project</a>
+        </div>
+        <figure style="margin:0">
+          <div class="frame lt"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i>
+            <div class="tracery"><img src="./site/img/tracery-plate.jpg" alt="Engraved plate of Gothic rose-window tracery with the circle constructions used to set them out" width="735" height="1031" loading="lazy" /></div>
+          </div>
+          <figcaption>[Caption: source of the tracery plate]</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- FOR OUR CLIENTS -->
+    <section class="clients" aria-labelledby="cl-h">
+      <div class="box"><div>
+        <div>
+          <h2 id="cl-h"><i>For our</i><b>CLIENTS</b></h2>
+          <p class="body" style="margin:0">Sign in to review your drawings, see project progress, and view and pay invoices by card or bank transfer (ACH).</p>
+        </div>
+        <div class="act">
+          <a class="btn-light" href="./portal/" style="min-height:56px;padding:0 32px">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="1"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+            Sign in to the portal
+          </a>
+          <p>No password — we email you a secure sign-in link.</p>
+        </div>
+      </div></div>
+    </section>
+
+    <!-- CONTACT -->
+    <section id="contact" class="contact" aria-labelledby="ct-h">
+      <svg class="oval" aria-hidden="true" viewBox="0 0 1440 900" preserveAspectRatio="none"><ellipse cx="300" cy="460" rx="420" ry="300" fill="none" stroke="#9a8f63" stroke-opacity="0.25" stroke-width="1" transform="rotate(12 300 460)"></ellipse></svg>
+      <div class="grid">
+        <div>
+          <h2 id="ct-h"><i>Let’s work</i><b>TOGETHER</b></h2>
+          <p class="body" style="margin-bottom:40px">Tell us about your project — a home, a storefront, an office, or a building for your community.</p>
+          <address>
+            215 S. Denton Tap Road, Suite 215<br />
+            Coppell, Texas 75019<br />
+            [phone]<br />
+            <a href="mailto:info@abayadesignstudio.com">info@abayadesignstudio.com</a>
+          </address>
+        </div>
+        <form id="inquiry" style="display:flex;flex-direction:column;gap:26px" novalidate>
+          <div class="field"><label for="f-name">Name</label><input id="f-name" name="name" type="text" autocomplete="name" required /></div>
+          <div class="field"><label for="f-email">Email</label><input id="f-email" name="email" type="email" autocomplete="email" required /></div>
+          <div class="field"><label for="f-type">Project type</label>
+            <select id="f-type" name="type"><option>Residential</option><option>Commercial</option><option>Light Industrial</option><option>General Office</option><option>Other</option></select></div>
+          <div class="field"><label for="f-msg">Message</label><textarea id="f-msg" name="message" rows="4"></textarea></div>
+          <button class="btn-light" type="submit" style="align-self:flex-start;min-height:52px;padding:0 36px">Send Inquiry</button>
+          <p class="note">This opens your email app with the message filled in, addressed to info@abayadesignstudio.com.</p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap">
+      <a class="brand" href="./" aria-label="Abaya Design Studio — home">
+        <img class="crest" src="./site/img/abaya-crest-light-192.png" alt="" width="44" height="44" style="width:44px;height:44px" />
+        <img class="word" src="./site/img/abaya-wordmark.png" alt="Abaya Design Studio" width="129" height="42" style="height:42px" />
+      </a>
+      <nav aria-label="Footer">
+        <a href="./work/">Work</a>
+        <a href="https://www.instagram.com/abayadesignstudio/">Instagram</a>
+        <a href="./portal/">Client Portal</a>
+        <a href="#contact">Contact</a>
+      </nav>
+      <small>Abaya Design Studio, LLC © 2026. All rights reserved.</small>
+    </div>
+  </footer>
+
+  <script type="module" src="./site/site.js"></script>
+</body>
 </html>

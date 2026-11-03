@@ -1,32 +1,220 @@
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import { supabase, SECTOR_COLOR } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
+import { workload, fmt, isoDate, parseDate, mondayOf } from './workload'
+import './home.css'
+
+type Ev = { id: string; title: string; starts_on: string; ends_on: string; start_time: string | null; projects: { number: string; name: string; sector: string | null } | null }
+type Dl = { id: string; title: string; due_date: string | null; status: string; created_at: string; projects: { number: string; name: string; sector: string | null } | null; phases: { code: string } | null }
+type Note = { id: number; kind: string; text: string; href: string | null; read_at: string | null; created_at: string }
+type P = { id: string; number: string; name: string }
+
+const STATUS: Record<string, [string, string, string]> = {
+  todo: ['Not started', '#475467', '#f2f4f7'], in_progress: ['In progress', '#ffffff', '#039855'], in_review: ['In review', '#ffffff', '#b54708'], done: ['Done', '#344054', '#e4e7ec'],
+}
+const DAY_MS = 86400000
 
 export default function StaffHome() {
   const { profile } = useAuth()
-  const monday = (() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10) })()
-  const yearStart = new Date().getFullYear() + '-01-01'
-  const { data } = useLoad(async () => {
-    const week = must(await supabase.from('time_entries').select('minutes').eq('profile_id', profile!.id).gte('work_date', monday)) as { minutes: number }[]
-    const ytd = must(await supabase.from('time_entries').select('minutes, billable').eq('profile_id', profile!.id).gte('work_date', yearStart)) as { minutes: number; billable: boolean }[]
-    const timer = must(await supabase.from('timers').select('started_at').eq('profile_id', profile!.id).maybeSingle())
-    return { week: week.reduce((a, e) => a + e.minutes, 0) / 60, bill: ytd.filter((e) => e.billable).reduce((a, e) => a + e.minutes, 0) / 60, ytd: ytd.reduce((a, e) => a + e.minutes, 0) / 60, timer }
-  }, [profile?.id])
-  const target = profile?.util_target ? Math.round(1920 * Number(profile.util_target) / 100) : null
+  const me = profile!.id
+  const [week, setWeek] = useState(() => mondayOf(new Date()))
+  const days = useMemo(() => Array.from({ length: 5 }, (_, i) => { const d = new Date(week); d.setDate(d.getDate() + i); return d }), [week])
+  const fri = days[4]
+  const todayIso = isoDate(new Date())
+  const [dFilter, setDFilter] = useState<'week' | 'all'>('week')
+
+  const hours = useLoad(async () => {
+    const ytd = must(await supabase.from('time_entries').select('minutes, billable, work_date').eq('profile_id', me).gte('work_date', new Date().getFullYear() + '-01-01')) as { minutes: number; billable: boolean; work_date: string }[]
+    return ytd
+  }, [me])
+  const cal = useLoad(async () => must(await supabase.from('calendar_events').select('id, title, starts_on, ends_on, start_time, projects(number, name, sector)')
+    .eq('profile_id', me).lte('starts_on', isoDate(fri)).gte('ends_on', isoDate(days[0])).order('start_time', { nullsFirst: true })) as unknown as Ev[], [me, week])
+  const dls = useLoad(async () => must(await supabase.from('deliverables').select('id, title, due_date, status, created_at, projects(number, name, sector), phases(code)')
+    .eq('assignee', me).order('due_date', { nullsFirst: false })) as unknown as Dl[], [me])
+  const notes = useLoad(async () => must(await supabase.from('notifications').select('id, kind, text, href, read_at, created_at').eq('profile_id', me).order('created_at', { ascending: false }).limit(30)) as Note[], [me])
+  const projects = useLoad(async () => must(await supabase.from('projects').select('id, number, name').in('status', ['active', 'paused']).order('number', { ascending: false })) as P[])
+
+  // hours card
+  const entries = hours.data ?? []
+  const w = workload(profile?.util_target ?? null, entries.reduce((a, e) => a + e.minutes, 0), entries.filter((e) => e.billable).reduce((a, e) => a + e.minutes, 0))
+  const thisMonday = mondayOf(new Date())
+  const weekBars = Array.from({ length: 5 }, (_, i) => { const d = new Date(thisMonday); d.setDate(d.getDate() + i); const m = entries.filter((e) => e.work_date === isoDate(d)).reduce((a, e) => a + e.minutes, 0); return { d, h: m / 60 } })
+  const weekTotal = weekBars.reduce((a, b) => a + b.h, 0)
+
+  // calendar
+  const colOf = (s: string) => Math.round((parseDate(s).getTime() - days[0].getTime()) / DAY_MS)
+  const spans = (dls.data ?? []).filter((d) => (d.status === 'in_progress' || d.status === 'in_review') && d.due_date).map((d) => {
+    const a = Math.max(0, colOf(d.created_at.slice(0, 10))), b = Math.min(4, colOf(d.due_date!))
+    return { ...d, a, b }
+  }).filter((d) => d.a <= 4 && d.b >= 0 && d.a <= d.b)
+
+  // deliverables list
+  const dayDiff = (s: string) => Math.round((parseDate(s).getTime() - parseDate(todayIso).getTime()) / DAY_MS)
+  const dlList = (dls.data ?? []).filter((d) => dFilter === 'all' || (d.status !== 'done' && d.due_date && dayDiff(d.due_date) <= 7))
+  const setStatus = async (id: string, status: string) => { await supabase.from('deliverables').update({ status }).eq('id', id); dls.reload() }
+
+  const unread = (notes.data ?? []).filter((n) => !n.read_at).length
+  const markRead = async (id: number) => { await supabase.from('notifications').update({ read_at: new Date().toISOString() }).eq('id', id); notes.reload() }
+  const markAll = async () => { await supabase.from('notifications').update({ read_at: new Date().toISOString() }).eq('profile_id', me).is('read_at', null); notes.reload() }
+
   const hour = new Date().getHours()
   return (
     <div className="stack">
-      <div className="row between">
+      <div className="row between" style={{ alignItems: 'flex-end' }}>
         <div><p className="muted" style={{ margin: 0 }}>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
-          <h1>Good {hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'}, {(profile?.full_name || '').split(' ')[0] || 'there'}</h1></div>
-        <Link className="btn secondary" to="/time">Open timesheet</Link>
+          <h1 style={{ fontSize: 28, marginTop: 2 }}>Good {hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'}, {(profile?.full_name || '').split(' ')[0] || 'there'}</h1></div>
+        <div className="row"><Link className="btn secondary" to="/time">Open timesheet</Link><Link className="btn secondary" to="/invoices/new">+ Invoice</Link></div>
       </div>
-      <section className="card pad" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
-        <div><div className="muted">This week</div><div className="num" style={{ fontSize: 26, fontWeight: 700 }}>{(data?.week ?? 0).toFixed(1)} <span style={{ fontSize: 15 }}>of 40 hrs</span></div></div>
-        <div><div className="muted">Logged this year</div><div className="num" style={{ fontSize: 26, fontWeight: 700 }}>{(data?.ytd ?? 0).toFixed(0)}</div></div>
-        <div><div className="muted">Billable this year</div><div className="num" style={{ fontSize: 26, fontWeight: 700 }}>{(data?.bill ?? 0).toFixed(0)}{target && <span style={{ fontSize: 15 }}> of {target}</span>}</div></div>
-      </section>
-      <p className="muted" style={{ fontSize: 13 }}>Calendar, deliverables and notifications are added on day 5.</p>
-    </div>)
+
+      <div className="hm-grid">
+        <div className="stack" style={{ minWidth: 0 }}>
+          <Calendar days={days} week={week} setWeek={setWeek} events={cal.data ?? []} spans={spans} colOf={colOf} todayIso={todayIso}
+            me={me} projects={projects.data ?? []} onAdded={cal.reload} err={cal.error} />
+
+          <section className="card pad stack" aria-labelledby="hm-dl">
+            <div className="row between">
+              <h2 id="hm-dl">My deliverables <span className="muted" style={{ fontWeight: 400 }}>· {(dls.data ?? []).filter((d) => d.status !== 'done').length} open</span></h2>
+              <div className="row" role="group" aria-label="Show">
+                <button className={'btn small' + (dFilter === 'week' ? '' : ' secondary')} aria-pressed={dFilter === 'week'} onClick={() => setDFilter('week')}>Due in the next 7 days</button>
+                <button className={'btn small' + (dFilter === 'all' ? '' : ' secondary')} aria-pressed={dFilter === 'all'} onClick={() => setDFilter('all')}>All assigned</button>
+              </div>
+            </div>
+            {dls.error && <p className="err">{dls.error}</p>}
+            {dls.data && dlList.length === 0 && <p className="muted" style={{ margin: 0 }}><em>{dFilter === 'week' ? 'Nothing due in the next 7 days.' : 'No deliverables are assigned to you yet.'}</em></p>}
+            <div>
+              {dlList.map((d) => {
+                const st = STATUS[d.status] ?? STATUS.todo
+                const dd = d.due_date ? dayDiff(d.due_date) : null
+                const over = dd !== null && dd < 0 && d.status !== 'done'
+                const dueTxt = dd === null ? 'No due date' : over ? `${-dd} day${dd === -1 ? '' : 's'} overdue` : dd === 0 ? 'Due today' : `Due ${parseDate(d.due_date!).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · ${dd} day${dd === 1 ? '' : 's'}`
+                return (
+                  <div key={d.id} className="hm-dl">
+                    <div style={{ minWidth: 0 }}>
+                      <p className="row" style={{ margin: 0, gap: 8 }}>{d.projects && <span className="tag" style={{ background: SECTOR_COLOR[d.projects.sector ?? 'internal'] }}>{d.projects.number}</span>}{d.phases && <span className="muted" style={{ fontSize: 12, fontWeight: 700 }}>{d.phases.code}</span>}</p>
+                      <p style={{ margin: '4px 0 0', fontWeight: 700, textDecoration: d.status === 'done' ? 'line-through' : 'none' }}>{d.title}</p>
+                      {d.projects && <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>{d.projects.name}</p>}
+                    </div>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: over ? 'var(--red)' : dd !== null && dd <= 2 ? 'var(--amber)' : 'var(--muted)' }}>{dueTxt}</span>
+                    <div><label className="sr" htmlFor={'dl-' + d.id}>Status of {d.title}</label>
+                      <select id={'dl-' + d.id} className="input" value={d.status} onChange={(e) => setStatus(d.id, e.target.value)} style={{ minHeight: 38, fontWeight: 700, color: st[1], background: st[2] }}>
+                        <option value="todo">Not started</option><option value="in_progress">In progress</option><option value="in_review">In review</option><option value="done">Done</option></select></div>
+                  </div>)
+              })}
+            </div>
+          </section>
+        </div>
+
+        <div className="stack">
+          <section className="card pad stack" aria-labelledby="hm-me">
+            <div className="row" style={{ gap: 12 }}>
+              <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--navy)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>{(profile?.full_name || profile?.email || '?').split(/\s+/).map((x) => x[0]).join('').slice(0, 2).toUpperCase()}</span>
+              <div style={{ flex: 1 }}><h2 id="hm-me">My hours</h2><p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>{profile?.title || (profile?.role === 'admin' ? 'Admin' : 'Staff')}</p></div>
+              <div style={{ textAlign: 'right' }}><p className="num" style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>{w.util ? w.util + '%' : '—'}</p><p className="muted" style={{ margin: 0, fontSize: 12 }}>utilization target</p></div>
+            </div>
+            {w.util ? (
+              <div>
+                <div className="row between" style={{ fontSize: 14 }}><strong className="num">{fmt(w.bill)} of {fmt(w.target)} billable hrs</strong>
+                  <span style={{ fontWeight: 700, color: w.diff >= 0 ? 'var(--green)' : 'var(--amber)' }}>{fmt(Math.abs(w.diff))} hrs {w.diff >= 0 ? 'ahead of' : 'behind'} pace</span></div>
+                <div className="bar" aria-hidden="true" style={{ marginTop: 8 }}><span className="fill" style={{ width: w.fillPct + '%' }} /><span className="tick" style={{ left: w.pacePct + '%' }} /></div>
+                <p className="muted num" style={{ margin: '6px 0 0', fontSize: 12 }}><em>Orange tick = {fmt(w.pace)} hrs expected by today</em></p>
+              </div>
+            ) : <p className="muted" style={{ margin: 0, fontSize: 14 }}><em>No utilization target set. An admin can set it on the Employees page.</em></p>}
+            <dl className="em-stats">
+              <div><dt>Logged YTD</dt><dd>{fmt(w.logged)}</dd></div>
+              <div><dt>Utilization</dt><dd style={{ color: w.util && w.actual < w.util ? 'var(--amber)' : undefined }}>{w.actual}%</dd></div>
+              <div><dt>Billable left</dt><dd>{w.util ? fmt(w.left) : '—'}</dd></div>
+            </dl>
+            <div style={{ paddingTop: 12, borderTop: '1px solid #ece9e3' }}>
+              <div className="row between" style={{ fontSize: 14 }}><strong>This week</strong><span className="num"><strong>{weekTotal.toFixed(1)}</strong> of 40 hrs</span></div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 8, alignItems: 'end', height: 84, marginTop: 8 }} aria-label={`Hours this week: ${weekBars.map((b) => b.d.toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + b.h.toFixed(1)).join(', ')}`}>
+                {weekBars.map((b) => <div key={isoDate(b.d)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, justifyContent: 'flex-end', height: '100%' }}>
+                  <span className="num muted" style={{ fontSize: 11 }}>{b.h ? b.h.toFixed(1) : '—'}</span>
+                  <span aria-hidden="true" style={{ width: '100%', height: Math.max(4, Math.min(60, b.h / 9 * 60)), borderRadius: '4px 4px 0 0', background: isoDate(b.d) === todayIso ? 'var(--navy)' : '#c9c4b8' }} />
+                  <span style={{ fontSize: 12 }}>{b.d.toLocaleDateString('en-US', { weekday: 'short' })}</span></div>)}
+              </div>
+            </div>
+            <Link to="/employees" style={{ fontSize: 14, fontWeight: 700 }}>All employees ›</Link>
+          </section>
+
+          <section className="card pad stack" aria-labelledby="hm-nt">
+            <div className="row between"><h2 id="hm-nt">Notifications <span style={{ fontSize: 14, color: unread ? 'var(--red)' : 'var(--muted)' }}>{unread ? unread + ' new' : 'All caught up'}</span></h2>
+              {unread > 0 && <button className="linkbtn" onClick={markAll}>Mark all read</button>}</div>
+            {notes.error && <p className="err">{notes.error}</p>}
+            {notes.data && notes.data.length === 0 && <p className="muted" style={{ margin: 0 }}><em>No notifications yet. Invoice views, payments, client comments and assignments will show up here.</em></p>}
+            <ul style={{ listStyle: 'none', margin: '0 -8px', padding: 0 }}>
+              {(notes.data ?? []).map((n) => (
+                <li key={n.id} className="hm-note" style={{ background: n.read_at ? '#fff' : '#f4f7fa' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {n.href ? <a href={n.href} onClick={() => !n.read_at && markRead(n.id)} style={{ color: 'var(--text)', textDecoration: 'none', fontWeight: n.read_at ? 400 : 700, fontSize: 14 }}>{n.text}</a>
+                      : <span style={{ fontWeight: n.read_at ? 400 : 700, fontSize: 14 }}>{n.text}</span>}
+                    <p className="muted" style={{ margin: '2px 0 0', fontSize: 12 }}>{new Date(n.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>
+                  </div>
+                  {!n.read_at && <button className="linkbtn" style={{ fontSize: 12, alignSelf: 'flex-start' }} onClick={() => markRead(n.id)} aria-label={'Mark read: ' + n.text}>
+                    <span aria-hidden="true" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#2b5c8a', marginRight: 6 }} />Mark read</button>}
+                </li>))}
+            </ul>
+          </section>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Calendar({ days, week, setWeek, events, spans, colOf, todayIso, me, projects, onAdded, err }: {
+  days: Date[]; week: Date; setWeek: (d: Date) => void; events: Ev[]; spans: (Dl & { a: number; b: number })[]; colOf: (s: string) => number; todayIso: string
+  me: string; projects: P[]; onAdded: () => void; err: string | null
+}) {
+  const [adding, setAdding] = useState(false)
+  const [f, setF] = useState({ title: '', project_id: '', day: todayIso, time: '' })
+  const [msg, setMsg] = useState(''); const [fErr, setFErr] = useState('')
+  const shift = (n: number) => { const d = new Date(week); d.setDate(d.getDate() + n * 7); setWeek(d) }
+  const save = async () => {
+    if (!f.title.trim()) return setFErr('Give it a title.')
+    const { error } = await supabase.from('calendar_events').insert({ profile_id: me, created_by: me, title: f.title.trim(), project_id: f.project_id || null, starts_on: f.day, ends_on: f.day, start_time: f.time || null })
+    if (error) return setFErr(error.message)
+    setFErr(''); setMsg('Added to your portal calendar.'); setAdding(false); setF({ ...f, title: '', time: '' }); onAdded()
+  }
+  const timed = (d: Date) => events.filter((e) => colOf(e.starts_on) <= colOf(isoDate(d)) && colOf(e.ends_on) >= colOf(isoDate(d)))
+  return (
+    <section className="card pad stack" aria-labelledby="hm-cal">
+      <div className="row between">
+        <div><h2 id="hm-cal">Week of {days[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {days[4].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</h2>
+          <p className="muted" style={{ margin: '3px 0 0', fontSize: 13 }}>Google Calendar sync isn’t connected yet — this shows events added in the portal.</p></div>
+        <div className="row">
+          <button className="btn small secondary" aria-label="Previous week" onClick={() => shift(-1)}>‹</button>
+          <button className="btn small secondary" onClick={() => setWeek(mondayOf(new Date()))}>Today</button>
+          <button className="btn small secondary" aria-label="Next week" onClick={() => shift(1)}>›</button>
+          <button className="btn small" onClick={() => { setAdding(!adding); setMsg('') }}>{adding ? 'Close' : '+ Add to calendar'}</button>
+        </div>
+      </div>
+      {adding && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px,2fr) minmax(150px,1.4fr) 160px 110px auto', gap: 8, alignItems: 'end', padding: 12, borderRadius: 8, background: '#f6f5f2', border: '1px solid var(--line)' }}>
+          <div><label className="l" htmlFor="ce-t">Title</label><input id="ce-t" className="input" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="e.g. Call with structural engineer" /></div>
+          <div><label className="l" htmlFor="ce-p">Project</label><select id="ce-p" className="input" value={f.project_id} onChange={(e) => setF({ ...f, project_id: e.target.value })}>
+            <option value="">—</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.number === 'OH' ? 'Internal' : `${p.number} · ${p.name}`}</option>)}</select></div>
+          <div><label className="l" htmlFor="ce-d">Day</label><input id="ce-d" type="date" className="input" value={f.day} onChange={(e) => setF({ ...f, day: e.target.value })} /></div>
+          <div><label className="l" htmlFor="ce-tm">Time</label><input id="ce-tm" type="time" className="input" value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })} /></div>
+          <button className="btn" onClick={save}>Add</button>
+        </div>)}
+      {fErr && <p className="err" role="alert">{fErr}</p>}
+      {msg && <p className="ok" role="status">{msg}</p>}
+      {err && <p className="err">{err}</p>}
+      <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 700 }}>
+        <div className="hm-days">{days.map((d) => { const t = isoDate(d) === todayIso; return <div key={isoDate(d)} className="hm-day-h" style={{ background: t ? 'var(--navy)' : 'transparent', color: t ? '#fff' : 'var(--text)' }}><strong>{d.toLocaleDateString('en-US', { weekday: 'short' })}</strong> {d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div> })}</div>
+        {spans.length > 0 && <ul className="hm-days" style={{ listStyle: 'none', margin: '8px 0 0', padding: 0, rowGap: 4 }}>
+          {spans.map((s) => <li key={s.id} className="hm-span" title={`${s.projects?.number ?? ''} ${s.title}`} style={{ gridColumn: `${s.a + 1} / ${s.b + 2}`, background: SECTOR_COLOR[s.projects?.sector ?? 'internal'] }}><strong>{s.projects?.number}</strong> · {s.title}</li>)}</ul>}
+        <div className="hm-days" style={{ marginTop: 8 }}>
+          {days.map((d) => { const list = timed(d); return (
+            <ul key={isoDate(d)} className="hm-col" style={{ background: isoDate(d) === todayIso ? '#f4f7fa' : '#fff' }} aria-label={d.toDateString()}>
+              {list.length === 0 && <li className="muted" style={{ fontSize: 12, padding: 4 }}>—</li>}
+              {list.map((e) => <li key={e.id} className="hm-ev" style={{ borderLeft: `4px solid ${SECTOR_COLOR[e.projects?.sector ?? 'internal']}` }}>
+                {e.start_time && <span className="num muted" style={{ fontSize: 12 }}>{e.start_time.slice(0, 5)}</span>}
+                <strong style={{ display: 'block', lineHeight: 1.3 }}>{e.title}</strong>{e.projects && <span className="muted" style={{ fontSize: 12 }}>{e.projects.number} · {e.projects.name}</span>}</li>)}
+            </ul>) })}
+        </div>
+      </div></div>
+    </section>
+  )
 }

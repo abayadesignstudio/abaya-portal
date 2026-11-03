@@ -1,3 +1,239 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASE_NAME } from '../lib/supabase'
+import { useAuth } from '../lib/auth'
+import { useLoad, must } from '../lib/useQuery'
+import { sortPhases, fmtDate, signedPhotoUrls, drawingLink, BAR_COLOR, PHASE_STYLE,
+  type PhaseRow, type Update, type Drawing, type ContractItem, type Meeting, type ServiceRequest } from '../lib/projectContent'
+import PhaseStepper from './PhaseStepper'
+import UpdateCard from './UpdateCard'
+import './client.css'
+
+type P = { id: string; number: string; name: string; sector: string | null; category: string | null; address: string | null; status: string }
+type Inv = { id: string; number: string; status: string; total: number; amount_paid: number; due_date: string | null }
+
 export default function ClientProject() {
-  return <div className="stack"><h1>ClientProject</h1><p className="muted">Being built.</p></div>
+  const { id } = useParams()
+  const { profile } = useAuth()
+  const d = useLoad(async () => ({
+    p: must(await supabase.from('projects').select('id, number, name, sector, category, address, status').eq('id', id!).single()) as P,
+    phases: sortPhases(must(await supabase.from('phases').select('id, code, fee, status, start_date, end_date, meetings_included').eq('project_id', id!)) as PhaseRow[]),
+    updates: must(await supabase.from('updates').select('*').eq('project_id', id!).order('created_at', { ascending: false }).limit(30)) as Update[],
+    drawings: must(await supabase.from('drawings').select('*').eq('project_id', id!).order('issued_on', { ascending: false })) as Drawing[],
+    items: must(await supabase.from('contract_items').select('*').eq('project_id', id!).order('sort')) as ContractItem[],
+    meetings: must(await supabase.from('meetings').select('*').eq('project_id', id!)) as Meeting[],
+    requests: must(await supabase.from('service_requests').select('*').eq('project_id', id!).order('created_at', { ascending: false })) as ServiceRequest[],
+    invoices: must(await supabase.from('invoices').select('id, number, status, total, amount_paid, due_date').eq('project_id', id!)) as Inv[],
+    models: ((await supabase.storage.from('models').list(id!)).data ?? []).filter((f) => f.name && !f.name.startsWith('.')),
+  }), [id])
+  const [urls, setUrls] = useState<Record<string, string>>({})
+  useEffect(() => { signedPhotoUrls((d.data?.updates ?? []).flatMap((u) => u.photo_paths)).then(setUrls) }, [d.data])
+  const [lock, setLock] = useState<{ title: string; invoice: string | null } | null>(null)
+  const [err, setErr] = useState('')
+
+  if (d.error) return <p className="err">{d.error}</p>
+  if (!d.data) return <p>Loading…</p>
+  const { p, phases, updates, drawings, items, meetings, requests, invoices, models } = d.data
+  const invById = Object.fromEntries(invoices.map((i) => [i.id, i]))
+
+  const openDrawing = async (dr: Drawing, download = false) => {
+    setErr('')
+    const inv = dr.locked_until_invoice ? invById[dr.locked_until_invoice] : null
+    if (inv && inv.status !== 'paid') return setLock({ title: dr.title, invoice: inv.number })
+    const r = await drawingLink(dr.id, download)
+    if (r.locked) return setLock({ title: dr.title, invoice: r.invoice ?? null })
+    if (r.error || !r.url) return setErr(r.error ?? 'Could not open the drawing.')
+    window.open(r.url, '_blank', 'noopener')
+  }
+
+  return (
+    <div className="stack">
+      <Link to="/" style={{ fontWeight: 700, textDecoration: 'none' }}>‹ All projects</Link>
+      <div>
+        <h1 className="row" style={{ gap: 10 }}><span className="tag" style={{ background: SECTOR_COLOR[p.sector ?? 'internal'], height: 28, fontSize: 15 }}>{p.number}</span>{p.name}
+          {p.category && <abbr className="pill" title={CATEGORY_NAME[p.category]}>{p.category}</abbr>}</h1>
+        {p.address && <p className="muted" style={{ margin: '6px 0 0' }}>{p.address}</p>}
+      </div>
+
+      <ModelPanel projectId={p.id} files={models.map((m) => m.name)} />
+
+      <section className="card pad stack" aria-label="Phases">
+        <h2>Where we are</h2>
+        {phases.length ? <PhaseStepper phases={phases} /> : <p className="muted" style={{ margin: 0 }}><em>Phases will appear here once the schedule is set.</em></p>}
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>Gray = complete · green = in progress · red = paused · outline = not started · dashed = not in your contract</p>
+      </section>
+
+      <div className="cl-grid">
+        <div className="stack">
+          <Drawings phases={phases} drawings={drawings} invById={invById} onOpen={openDrawing} />
+          {err && <p className="err" role="alert">{err}</p>}
+          <section className="stack" aria-labelledby="feed-h">
+            <h2 id="feed-h">Project updates</h2>
+            {updates.length === 0 && <p className="muted card pad"><em>No updates yet.</em></p>}
+            {updates.map((u) => <UpdateCard key={u.id} u={u} urls={urls} />)}
+          </section>
+        </div>
+        <div className="stack">
+          <ContractPanel phases={phases} items={items} meetings={meetings} />
+          <Schedule phases={phases} />
+          <RequestPanel projectId={p.id} me={profile!.id} requests={requests} onSent={d.reload} />
+          <InvoicesMini invoices={invoices} />
+        </div>
+      </div>
+
+      {lock && <LockDialog title={lock.title} invoice={lock.invoice} onClose={() => setLock(null)} />}
+    </div>
+  )
+}
+
+function ModelPanel({ projectId, files }: { projectId: string; files: string[] }) {
+  const glb = files.find((f) => /\.(glb|gltf)$/i.test(f))
+  const download = async () => {
+    if (!glb) return
+    const { data } = await supabase.storage.from('models').createSignedUrl(`${projectId}/${glb}`, 600)
+    if (data) window.open(data.signedUrl, '_blank', 'noopener')
+  }
+  return (
+    <section className="card" aria-label="3D model" style={{ overflow: 'hidden' }}>
+      <div style={{ height: 300, background: 'linear-gradient(160deg,#0b2f4a,#02253d)', color: '#ede6d6', display: 'grid', placeItems: 'center', textAlign: 'center', padding: 24 }}>
+        {glb ? <div className="stack" style={{ alignItems: 'center' }}><strong style={{ fontSize: 18 }}>3D model ready</strong><span style={{ color: '#c5ccd8' }}>The in-browser viewer (orbit, floor plans, saved views) is being added. You can download the model now.</span>
+          <button className="btn secondary" onClick={download}>Download model</button></div>
+          : <div><strong style={{ fontSize: 18 }}>3D model</strong><p style={{ color: '#c5ccd8', margin: '8px 0 0' }}>Your project’s SketchUp model will appear here once it’s published, so you can orbit it and click through floor plans and views.</p></div>}
+      </div>
+    </section>
+  )
+}
+
+function Drawings({ phases, drawings, invById, onOpen }: { phases: PhaseRow[]; drawings: Drawing[]; invById: Record<string, Inv>; onOpen: (d: Drawing, dl?: boolean) => void }) {
+  // latest phase first, so the newest work is at the top
+  const groups = [...phases].reverse().map((ph) => ({ ph, list: drawings.filter((d) => d.phase_id === ph.id) })).filter((g) => g.list.length)
+  const loose = drawings.filter((d) => !d.phase_id || !phases.some((p) => p.id === d.phase_id))
+  if (!drawings.length) return <section className="card pad"><h2>Drawings</h2><p className="muted" style={{ margin: '8px 0 0' }}><em>No drawings have been issued yet.</em></p></section>
+  const Row = ({ d, latest }: { d: Drawing; latest?: boolean }) => {
+    const inv = d.locked_until_invoice ? invById[d.locked_until_invoice] : null
+    const locked = !!inv && inv.status !== 'paid'
+    return (
+      <li style={{ padding: latest ? '12px 14px' : '10px 0', margin: latest ? '6px 0 10px' : 0, background: latest ? '#f4f7fa' : 'transparent', borderLeft: latest ? '4px solid var(--navy)' : 0, borderTop: latest ? 0 : '1px solid #efece6', borderRadius: latest ? 6 : 0 }}>
+        <div className="row between">
+          <div>{latest && <span className="pill" style={{ marginRight: 8, borderColor: 'var(--navy)', color: 'var(--navy)' }}>Latest issue</span>}<strong>{d.title}</strong>
+            <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>Issued {fmtDate(d.issued_on)}{d.sheet_count ? ` · ${d.sheet_count} sheets` : ''}</div></div>
+          <div className="row" style={{ gap: 6 }}>
+            {locked && <span style={{ color: 'var(--red)', fontWeight: 700, fontSize: 13 }}>🔒 Held until {inv!.number} is paid</span>}
+            <button className="btn small secondary" onClick={() => onOpen(d)}>{locked ? '🔒 View' : 'View'}</button>
+            <button className="btn small secondary" onClick={() => onOpen(d, true)}>{locked ? '🔒 Download' : 'Download'}</button>
+          </div>
+        </div>
+      </li>)
+  }
+  return (
+    <section className="card pad stack" aria-labelledby="dr-h">
+      <h2 id="dr-h">Drawings</h2>
+      {groups.map(({ ph, list }) => (
+        <div key={ph.id}><h3 style={{ margin: '4px 0', fontSize: 15 }}>{ph.code} · {PHASE_NAME[ph.code]}</h3>
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{list.map((d, i) => <Row key={d.id} d={d} latest={i === 0} />)}</ul></div>))}
+      {loose.length > 0 && <div><h3 style={{ margin: '4px 0', fontSize: 15 }}>Other</h3><ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{loose.map((d) => <Row key={d.id} d={d} />)}</ul></div>}
+    </section>
+  )
+}
+
+function ContractPanel({ phases, items, meetings }: { phases: PhaseRow[]; items: ContractItem[]; meetings: Meeting[] }) {
+  const withMeetings = phases.filter((p) => p.meetings_included != null || meetings.some((m) => m.phase_id === p.id))
+  const ST: Record<string, [string, string]> = { complete: ['Complete', 'var(--green)'], in_progress: ['In progress', 'var(--amber)'], not_started: ['Not started', 'var(--muted)'] }
+  return (
+    <section className="card pad stack" aria-labelledby="ct-h">
+      <h2 id="ct-h">Your contract</h2>
+      <div>
+        <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>Meetings</h3>
+        {withMeetings.length === 0 && <p className="muted" style={{ margin: 0 }}><em>Not set yet.</em></p>}
+        {withMeetings.map((p) => { const held = meetings.filter((m) => m.phase_id === p.id).length; const inc = p.meetings_included ?? 0; const over = held > inc
+          return <div key={p.id} style={{ margin: '0 0 10px' }}>
+            <div className="row between" style={{ fontSize: 14 }}><span><strong>{p.code}</strong> {PHASE_NAME[p.code]}</span><span className="num" style={{ fontWeight: 700, color: over ? 'var(--red)' : 'var(--text)' }}>{held} of {inc}</span></div>
+            <div aria-hidden="true" style={{ display: 'flex', gap: 4, marginTop: 4 }}>{Array.from({ length: Math.max(inc, held) }, (_, i) => <span key={i} style={{ flex: 1, height: 8, borderRadius: 4, background: i < held ? (i >= inc ? 'var(--red)' : 'var(--navy)') : '#ece9e3' }} />)}</div>
+            {over && <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--red)' }}>Meetings beyond the contract are billed as additional services.</p>}
+          </div> })}
+      </div>
+      <div>
+        <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>Drawings in your contract</h3>
+        {items.length === 0 ? <p className="muted" style={{ margin: 0 }}><em>Not set yet.</em></p> :
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{items.map((it) => { const [l, c] = ST[it.status] ?? ST.not_started
+            return <li key={it.id} className="row between" style={{ padding: '6px 0', borderTop: '1px solid #efece6', fontSize: 14 }}><span>{phases.find((p) => p.id === it.phase_id)?.code && <span className="muted">{phases.find((p) => p.id === it.phase_id)?.code} · </span>}{it.title}</span><strong style={{ color: c }}>{l}</strong></li> })}</ul>}
+      </div>
+    </section>
+  )
+}
+
+function Schedule({ phases }: { phases: PhaseRow[] }) {
+  const dated = phases.filter((p) => p.start_date && p.end_date)
+  const span = useMemo(() => {
+    if (!dated.length) return null
+    const t = (s: string) => new Date(s + 'T12:00:00').getTime()
+    const min = Math.min(...dated.map((p) => t(p.start_date!)), Date.now()), max = Math.max(...dated.map((p) => t(p.end_date!)), Date.now())
+    return { min, max, t }
+  }, [dated])
+  return (
+    <section className="card pad stack" aria-labelledby="sc-h">
+      <h2 id="sc-h">Schedule</h2>
+      {!span ? <p className="muted" style={{ margin: 0 }}><em>Dates will appear once the schedule is set.</em></p> : (
+        <div className="gantt">
+          {dated.map((p) => { const left = (span.t(p.start_date!) - span.min) / (span.max - span.min) * 100; const w = Math.max(1.5, (span.t(p.end_date!) - span.t(p.start_date!)) / (span.max - span.min) * 100)
+            return <div key={p.id} className="gantt-row">
+              <span style={{ fontSize: 13 }}><strong>{p.code}</strong> <span className="muted">{fmtDate(p.start_date)}–{fmtDate(p.end_date)}</span></span>
+              <div className="gantt-track" aria-label={`${PHASE_NAME[p.code]}: ${PHASE_STYLE[p.status]?.label ?? ''}`}>
+                <span className="gantt-bar" style={{ left: `${left}%`, width: `${w}%`, background: BAR_COLOR[p.status] ?? '#98a2b3' }} />
+                <span aria-hidden="true" style={{ position: 'absolute', top: -4, bottom: -4, left: `${(Date.now() - span.min) / (span.max - span.min) * 100}%`, width: 2, background: 'var(--navy)' }} />
+              </div></div> })}
+          <p className="muted" style={{ margin: '6px 0 0', fontSize: 12 }}>Navy line = today</p>
+        </div>)}
+    </section>
+  )
+}
+
+function RequestPanel({ projectId, me, requests, onSent }: { projectId: string; me: string; requests: ServiceRequest[]; onSent: () => void }) {
+  const [text, setText] = useState(''); const [err, setErr] = useState(''); const [ok, setOk] = useState('')
+  const send = async (e: React.FormEvent) => {
+    e.preventDefault(); setErr(''); setOk('')
+    if (!text.trim()) return setErr('Describe what you need.')
+    const { error } = await supabase.from('service_requests').insert({ project_id: projectId, requested_by: me, description: text.trim() })
+    if (error) return setErr(error.message)
+    setText(''); setOk('Sent. We’ll reply with a quote before any extra work starts.'); onSent()
+  }
+  const L: Record<string, string> = { requested: 'Requested', quoted: 'Quote sent', approved: 'Approved', declined: 'Declined', done: 'Done' }
+  return (
+    <section className="card pad stack" aria-labelledby="rq-h">
+      <h2 id="rq-h">Request additional services</h2>
+      <form onSubmit={send} className="stack" style={{ gap: 8 }}>
+        <label className="sr" htmlFor="rq-t">What do you need?</label>
+        <textarea id="rq-t" className="input" rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. One more site visit, revised renderings, an extra layout option…" />
+        <div><button className="btn small">Send request</button></div>
+        {err && <p className="err" role="alert">{err}</p>}{ok && <p className="ok" role="status">{ok}</p>}
+      </form>
+      {requests.length > 0 && <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{requests.map((r) => <li key={r.id} style={{ padding: '6px 0', borderTop: '1px solid #efece6', fontSize: 14 }}>
+        <div className="row between"><span>{r.description}</span><strong>{L[r.status] ?? r.status}{r.quote != null ? ` · ${money(r.quote)}` : ''}</strong></div></li>)}</ul>}
+    </section>
+  )
+}
+
+function InvoicesMini({ invoices }: { invoices: Inv[] }) {
+  const open = invoices.filter((i) => i.status === 'open')
+  if (!invoices.length) return null
+  return (
+    <section className="card pad stack" aria-labelledby="iv-h">
+      <h2 id="iv-h">Invoices</h2>
+      {open.length === 0 ? <p className="muted" style={{ margin: 0 }}>Nothing due. Thank you.</p> : open.map((i) => <div key={i.id} className="row between" style={{ fontSize: 14 }}><span><strong>{i.number}</strong> · due {fmtDate(i.due_date)}</span><strong className="num">{money(Number(i.total) - Number(i.amount_paid))}</strong></div>)}
+      <Link to="/invoices" style={{ fontWeight: 700 }}>All invoices ›</Link>
+    </section>
+  )
+}
+
+function LockDialog({ title, invoice, onClose }: { title: string; invoice: string | null; onClose: () => void }) {
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k) }, [onClose])
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-labelledby="lk-h" className="card pad stack" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+        <h2 id="lk-h">🔒 This set is held until payment</h2>
+        <p style={{ margin: 0, lineHeight: 1.5 }}><strong>{title}</strong> will be available to view and download as soon as {invoice ? <>invoice <strong>{invoice}</strong></> : 'the related invoice'} is paid. Bank transfers (ACH) release the drawings once the payment clears, usually within 4 business days.</p>
+        <div className="row between"><button className="btn secondary" onClick={onClose} autoFocus>Close</button><Link className="btn" to="/invoices">View invoice</Link></div>
+      </div>
+    </div>
+  )
 }

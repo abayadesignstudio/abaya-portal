@@ -1,0 +1,14 @@
+.stepper{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;position:relative}
+.stepper li{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;position:relative}
+.stepper li:not(:last-child)::after{content:"";position:absolute;top:18px;left:calc(50% + 20px);right:calc(-50% + 20px);height:2px;background:#e4e0d8}
+.stepper .dot{width:36px;height:36px;border-radius:50%;border:2px solid;display:inline-flex;align-items:center;justify-content:center;font:700 12px Arial;position:relative;z-index:1}
+.stepper .lbl{font-size:12px;line-height:1.25}
+.stepper .abbr{display:none}
+@media (max-width:760px){.stepper .full{display:none}.stepper .abbr{display:inline}}
+.cl-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:980px){.cl-grid{grid-template-columns:minmax(0,1fr)}}
+.gantt{position:relative}
+.gantt-row{display:grid;grid-template-columns:150px minmax(0,1fr);align-items:center;gap:10px;min-height:34px}
+.gantt-track{position:relative;height:22px;background:#f6f5f2;border-radius:4px}
+.gantt-bar{position:absolute;top:3px;height:16px;border-radius:4px}
+.modal-bg{position:fixed;inset:0;background:rgba(2,37,61,.55);display:grid;place-items:center;z-index:50;padding:16px}
