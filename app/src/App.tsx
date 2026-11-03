@@ -12,6 +12,11 @@ import InvoiceBuilder from './staff/InvoiceBuilder'
 import Proposals from './staff/Proposals'
 import AgreementEditor from './staff/AgreementEditor'
 import ClientUpdates from './staff/ClientUpdates'
+import Bills from './staff/Bills'
+import Expenses from './staff/Expenses'
+import Clients from './staff/Clients'
+import Settings from './staff/Settings'
+import SiteEditor from './editor/SiteEditor'
 import ClientLayout from './client/ClientLayout'
 import ClientProject from './client/ClientProject'
 import ClientInvoices from './client/ClientInvoices'
@@ -51,7 +56,13 @@ function Gate() {
         <Route path="invoices/:id" element={<InvoiceBuilder />} />
         <Route path="proposals" element={<Proposals />} />
         <Route path="proposals/:id" element={<AgreementEditor />} />
-        <Route path="client-updates" element={<ClientUpdates />} />
+        <Route path="notifications" element={<ClientUpdates />} />
+        <Route path="client-updates" element={<Navigate to="/notifications" />} />
+        <Route path="bills" element={<Bills />} />
+        <Route path="expenses" element={<Expenses />} />
+        <Route path="clients" element={<Clients />} />
+        <Route path="settings" element={<Settings />} />
+        <Route path="site" element={<SiteEditor />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Route>
     </Routes>

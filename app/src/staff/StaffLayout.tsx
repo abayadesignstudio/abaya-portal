@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useAuth } from '../lib/auth'
 import SidebarTimer from '../components/Timer'
 
-const LINKS: [string, string][] = [['/', 'Home'], ['/projects', 'Projects'], ['/employees', 'Employees'], ['/proposals', 'Proposals'], ['/invoices', 'Invoices'], ['/client-updates', 'Client updates'], ['/time', 'Time']]  // Time stays last, right above the timer
+const LINKS: [string, string][] = [['/', 'Home'], ['/projects', 'Projects'], ['/employees', 'Employees'], ['/proposals', 'Proposals'], ['/invoices', 'Invoices'], ['/bills', 'Bills'], ['/expenses', 'Expenses'], ['/clients', 'Clients'], ['/notifications', 'Notifications'], ['/site', 'Website'], ['/time', 'Time']]  // Time stays last, right above the timer
 
 export default function StaffLayout() {
   const { profile, signOut } = useAuth()

@@ -43,7 +43,7 @@ export default function ClientUpdates() {
 
   return (
     <div className="stack">
-      <h1>Client updates</h1>
+      <h1>Notifications</h1>
       <p className="err" role="note" style={{ margin: 0 }}><strong>Emails are not connected yet.</strong> Everything below is recorded and shown in each client’s portal; the 6 PM summary and “send now” emails start once billing@abayadesignstudio.com is set up (day 5).</p>
       {err && <p className="err" role="alert">{err}</p>}{msg && <p className="ok" role="status">{msg}</p>}
       <section className="card pad row between" aria-label="Summary settings">
