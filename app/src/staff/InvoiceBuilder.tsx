@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase, money, SECTOR_COLOR, PHASES, PHASE_NAME } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
-import { todayIso, addDays, fmtDate, num, round2, cardFee, achFee, nextInvoiceNumber, displayStatus } from '../lib/invoices'
+import { todayIso, addDays, fmtDate, num, round2, cardFee, achFee, nextInvoiceNumber, displayStatus, emailInvoice } from '../lib/invoices'
 import './invoices.css'
 
 type Phase = { id: string; code: string; fee: number; status: string }
@@ -47,7 +47,7 @@ export default function InvoiceBuilder() {
     const billedLines = phases.length ? must(await supabase.from('invoice_lines').select('phase_id, amount, invoice_id, invoices!inner(status)').eq('kind', 'phase').in('phase_id', phases.map((x) => x.id))) as unknown as { phase_id: string; amount: number; invoice_id: string; invoices: { status: string } }[] : []
     const billedBefore: Record<string, number> = {}
     billedLines.filter((l) => l.invoice_id !== id && ['open', 'paid'].includes(l.invoices.status)).forEach((l) => { billedBefore[l.phase_id] = (billedBefore[l.phase_id] ?? 0) + Number(l.amount) })
-    const expenses = must(await supabase.from('expenses').select('id, description, amount, spent_on, invoice_id').eq('project_id', projectId).eq('reimbursable', true).order('spent_on')) as Expense[]
+    const expenses = must(await supabase.from('expenses').select('id, description, amount, spent_on, invoice_id').eq('project_id', projectId).eq('reimbursable', true).or('planned.is.null,planned.eq.false').order('spent_on')) as Expense[]
     const contacts = p.client_id ? must(await supabase.from('client_contacts').select('email, receives_invoices').eq('client_id', p.client_id)) as { email: string; receives_invoices: boolean }[] : []
     const pastDue = p.client_id ? (must(await supabase.from('invoices').select('id, number, total, amount_paid, due_date').eq('client_id', p.client_id).eq('status', 'open').lt('due_date', todayIso())) as { id: string; number: string; total: number; amount_paid: number; due_date: string }[]).filter((x) => x.id !== id) : []
     const settings = must(await supabase.from('firm_settings').select('late_rate_monthly').maybeSingle()) as { late_rate_monthly: number } | null
@@ -166,11 +166,18 @@ export default function InvoiceBuilder() {
     if (!toList.length) return setErr('Add at least one recipient.')
     if (total <= 0) return setErr('The invoice total is $0.')
     const invId = await save(); if (!invId) return
-    const { error } = await supabase.from('invoices').update({ status: 'open', sent_at: new Date().toISOString() }).eq('id', invId)
-    if (error) return setErr(error.message)
-    await supabase.from('invoice_events').insert({ invoice_id: invId, kind: 'sent', actor: profile!.id, detail: `Marked as sent to ${toList.join(', ')} — email delivery not connected yet` })
-    setOk('Marked as sent. Email delivery and online payment are not connected yet (days 3 and 5), so nothing was emailed — send the PDF yourself for now.')
+    setBusy(true); setErr(''); setOk('')
+    const r = await emailInvoice(invId, 'invoice')
+    setBusy(false)
+    if (r.ok) setOk(r.message); else setErr(r.message)
     if (!id) nav(`/invoices/${invId}`, { replace: true }); else existing.reload()
+  }
+  const remind = async () => {
+    if (!id) return
+    setBusy(true); setErr(''); setOk('')
+    const r = await emailInvoice(id, 'reminder')
+    setBusy(false)
+    if (r.ok) { setOk(r.message); existing.reload() } else setErr(r.message)
   }
 
   // ---- render
@@ -326,10 +333,11 @@ export default function InvoiceBuilder() {
             <div className="row">
               <button className="btn secondary" onClick={() => setTab('build')}>‹ Back</button>
               <button className="btn secondary" onClick={() => window.print()}>Print / PDF</button>
-              {!locked && <><button className="btn secondary" disabled={busy} onClick={saveDraft}>Save draft</button><button className="btn" disabled={busy} onClick={send}>Mark as sent</button></>}
+              {!locked && <><button className="btn secondary" disabled={busy} onClick={saveDraft}>Save draft</button><button className="btn" disabled={busy} onClick={send}>{busy ? 'Sending…' : 'Send invoice'}</button></>}
+              {locked && inv?.status === 'open' && <button className="btn" disabled={busy} onClick={remind}>{busy ? 'Sending…' : 'Send reminder'}</button>}
             </div>
           </div>
-          {!locked && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Emailing from billing@ and online payment aren’t connected yet, so “Mark as sent” records the invoice as sent without emailing anyone.</p>}
+          {!locked && <p className="muted" style={{ margin: 0, fontSize: 13 }}>“Send invoice” emails each recipient their own link, so you can see who opened and viewed it. Online payment is coming soon; the invoice page says so.</p>}
           {view === 'invoice' ? (
             <article aria-label="Invoice preview" className="ib-doc">
               <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr', gap: 24 }}>

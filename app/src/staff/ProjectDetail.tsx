@@ -4,6 +4,8 @@ import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASES, PHASE_NAME } from
 import { useLoad, must } from '../lib/useQuery'
 import { useAuth } from '../lib/auth'
 import UpdateCard from '../client/UpdateCard'
+import BudgetTab from './budget/BudgetTab'
+import './budget.css'
 import { sortPhases, fmtDate, signedPhotoUrls, uid, extOf,
   type Update, type Drawing, type ContractItem, type Meeting, type ServiceRequest } from '../lib/projectContent'
 
@@ -12,13 +14,16 @@ type Entry = { phase_id: string | null; minutes: number; profiles: { full_name: 
 type Project = { id: string; number: string; name: string; status: string; category: string | null; sector: string | null; address: string | null; next_milestone: string | null; client_id: string | null; clients: { name: string } | null }
 type Inv = { id: string; number: string; status: string; total: number }
 
-const TABS = [['budget', 'Phases & budget'], ['updates', 'Updates feed'], ['drawings', 'Drawings'], ['contract', 'Contract scope'], ['requests', 'Requests'], ['client', 'Client access'], ['settings', 'Settings']] as const
-type Tab = typeof TABS[number][0]
+// Project sub-menu, Monograph-style: core pages, then client-facing content
+const NAV_MAIN = [['overview', 'Overview'], ['budget', 'Budget'], ['settings', 'Details'], ['drawings', 'Files']] as const
+const NAV_CLIENT = [['updates', 'Updates'], ['contract', 'Contract'], ['requests', 'Requests'], ['client', 'Client access']] as const
+type Tab = typeof NAV_MAIN[number][0] | typeof NAV_CLIENT[number][0]
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 export default function ProjectDetail() {
   const { id } = useParams()
   const [tab, setTab] = useState<Tab>('budget')
+  useEffect(() => { setTab('budget') }, [id])
   const { data, error, reload } = useLoad(async () => {
     const p = must(await supabase.from('projects').select('id, number, name, status, category, sector, address, next_milestone, client_id, clients(name)').eq('id', id!).single()) as unknown as Project
     const phases = sortPhases(must(await supabase.from('phases').select('id, code, fee, status, start_date, end_date, meetings_included').eq('project_id', id!)) as Phase[])
@@ -46,30 +51,37 @@ export default function ProjectDetail() {
         <StatusSelect id={p.id} value={p.status} onSaved={reload} />
       </div>
       <p className="muted" style={{ margin: 0 }}>{p.clients?.name ?? 'No client'}{p.address ? ` · ${p.address}` : ''}</p>
+      <div className="pb-layout">
+        <nav className="pb-subnav" aria-label="Project">
+          {NAV_MAIN.map(([k, l]) => <button key={k} type="button" aria-current={tab === k ? 'page' : undefined} onClick={() => setTab(k)}>{l}</button>)}
+          <p className="pb-sep">Client portal</p>
+          {NAV_CLIENT.map(([k, l]) => <button key={k} type="button" aria-current={tab === k ? 'page' : undefined} onClick={() => setTab(k)}>{l}</button>)}
+        </nav>
+        <div className="stack" style={{ minWidth: 0 }}>
+      {tab === 'overview' && <>
       <section className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }} aria-label="Summary">
         {[['Total fee', money(totFee)], ['Invoiced', money(totBilled)], ['Left to bill', money(totFee - totBilled)], ['Hours logged', totHrs.toFixed(1)]].map(([l, v]) => (
           <div key={l} style={{ padding: '16px 20px', borderRight: '1px solid #ece9e3' }}><div className="muted" style={{ fontSize: 14 }}>{l}</div><div className="num" style={{ fontSize: 26, fontWeight: 700 }}>{v}</div></div>))}
       </section>
-      <div role="tablist" aria-label="Project sections" className="row" style={{ gap: 4, borderBottom: '1px solid var(--line)' }}>
-        {TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
-          style={{ minHeight: 42, padding: '0 12px', border: 0, borderBottom: `3px solid ${tab === k ? 'var(--navy)' : 'transparent'}`, background: 'none', font: '700 15px Arial', color: tab === k ? 'var(--text)' : 'var(--muted)', cursor: 'pointer' }}>{l}</button>)}
-      </div>
-
-      {tab === 'budget' && <section className="card pad stack">
-        <h2>Phases & budget</h2>
+      <section className="card pad stack">
+        <h2>Phases</h2>
         <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 980 }}>
           <thead><tr><th>Phase</th><th>Status</th><th>Start</th><th>End</th><th className="r">Fee</th><th className="r">Billed</th><th className="r">Hours</th><th>Fee used (labor at rates)</th><th></th></tr></thead>
           <tbody>{phases.map((ph) => <PhaseRow key={ph.id} ph={ph} billed={billedBy[ph.id] ?? 0} used={used(ph.id)} onSaved={reload} />)}</tbody>
         </table></div>
         {missing.length > 0 && <AddPhase projectId={p.id} codes={missing.map(([c]) => c)} onSaved={reload} />}
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Fee used = hours × each person’s billable rate. The bar turns orange at 75% and red at 90%. Phase start and end dates drive the client’s schedule.</em></p>
-      </section>}
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Fee used = hours × each person’s billable rate. The bar turns orange at 75% and red at 90%. Phase start and end dates drive the client’s schedule. Assign the team and hours on the Budget page.</em></p>
+      </section>
+      </>}
+      {tab === 'budget' && <BudgetTab key={p.id + phases.map((x) => x.id + x.fee + x.status).join()} projectId={p.id} />}
       {tab === 'updates' && <UpdatesTab projectId={p.id} />}
       {tab === 'drawings' && <DrawingsTab projectId={p.id} phases={phases} invoices={invoices} />}
       {tab === 'contract' && <ContractTab projectId={p.id} phases={phases} onSaved={reload} />}
       {tab === 'requests' && <RequestsTab projectId={p.id} />}
       {tab === 'client' && <ClientAccessTab project={p} />}
       {tab === 'settings' && <SettingsTab project={p} onSaved={reload} />}
+        </div>
+      </div>
     </div>
   )
 }
@@ -159,7 +171,7 @@ function UpdatesTab({ projectId }: { projectId: string }) {
           <button className="btn" disabled={busy}>{busy ? 'Posting…' : 'Post'}</button>
         </div>
         {err && <p className="err" role="alert">{err}</p>}
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Client emails aren’t connected yet — notices are queued on the Client updates page.</em></p>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Client emails aren’t connected yet — notices are queued on the Notifications page.</em></p>
       </form>
       {list.error && <p className="err">{list.error}</p>}
       {list.data?.length === 0 && <p className="muted card pad"><em>No updates yet.</em></p>}

@@ -2,24 +2,60 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASES } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
+import './admin.css'
 
 type Row = { id: string; number: string; name: string; status: string; category: string | null; sector: string | null; next_milestone: string | null
   clients: { name: string } | null; phases: { code: string; status: string; fee: number }[] }
+type TimeRow = { project_id: string; minutes: number; profiles: { bill_rate: number | null } | null }
+type OpenInv = { project_id: string; total: number; amount_paid: number; due_date: string | null }
 
 const STATUS_STYLE: Record<string, [string, string, string]> = {
   active: ['In progress', '#fff', '#039855'], paused: ['Paused', '#fff', '#d92d20'], complete: ['Complete', '#344054', '#e4e7ec'], proposal: ['Proposal', '#344054', '#fff'],
 }
-const PH_COLOR: Record<string, [string, string]> = { complete: ['#d0d5dd', '#344054'], in_progress: ['#039855', '#fff'], paused: ['#d92d20', '#fff'], not_started: ['#fff', '#98a2b3'] }
+const PH_COLOR: Record<string, [string, string, string]> = {
+  complete: ['#d0d5dd', '#344054', 'complete'], in_progress: ['#039855', '#fff', 'in progress'], paused: ['#d92d20', '#fff', 'paused'], not_started: ['#fff', '#667085', 'not started'],
+}
+const SECTORS: [string, string][] = [['commercial', 'Commercial / Retail'], ['residential', 'Residential'], ['medical', 'Medical'], ['consultation', 'Consultation'], ['civic', 'Civic'], ['internal', 'Internal']]
+const TYPES: [string, string][] = [['all', 'All types'], ['S', 'Shell (S)'], ['FO', 'Finish-Out (FO)'], ['CON', 'Consultation (CON)']]
+const today = new Date().toISOString().slice(0, 10)
 
 export default function Projects() {
   const [status, setStatus] = useState('active')
+  const [cat, setCat] = useState('all')
   const [q, setQ] = useState('')
   const [adding, setAdding] = useState(false)
-  const { data, error, reload } = useLoad(async () => must(await supabase.from('projects')
-    .select('id, number, name, status, category, sector, next_milestone, clients(name), phases(code, status, fee)').order('number', { ascending: false })) as unknown as Row[])
-  const rows = useMemo(() => (data ?? []).filter((p) => p.number !== 'OH' && (status === 'all' || p.status === status) &&
-    (!q || `${p.number} ${p.name} ${p.clients?.name ?? ''}`.toLowerCase().includes(q.toLowerCase()))), [data, status, q])
-  const count = (s: string) => (data ?? []).filter((p) => p.number !== 'OH' && (s === 'all' || p.status === s)).length
+  const [err, setErr] = useState('')
+  const { data, error, reload } = useLoad(async () => {
+    const projects = must(await supabase.from('projects')
+      .select('id, number, name, status, category, sector, next_milestone, clients(name), phases(code, status, fee)').order('number', { ascending: false })) as unknown as Row[]
+    const time = must(await supabase.from('time_entries').select('project_id, minutes, profiles(bill_rate)')) as unknown as TimeRow[]
+    const open = must(await supabase.from('invoices').select('project_id, total, amount_paid, due_date').eq('status', 'open')) as OpenInv[]
+    return { projects, time, open }
+  })
+  const all = useMemo(() => (data?.projects ?? []).filter((p) => p.number !== 'OH'), [data])
+  const labor = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const t of data?.time ?? []) m[t.project_id] = (m[t.project_id] ?? 0) + (t.minutes / 60) * Number(t.profiles?.bill_rate ?? 0)
+    return m
+  }, [data])
+  const owed = useMemo(() => {
+    const m: Record<string, { amt: number; late: boolean }> = {}
+    for (const i of data?.open ?? []) {
+      const o = (m[i.project_id] ??= { amt: 0, late: false })
+      o.amt += Number(i.total) - Number(i.amount_paid)
+      if (i.due_date && i.due_date < today) o.late = true
+    }
+    return m
+  }, [data])
+  const rows = all.filter((p) => (status === 'all' || p.status === status) && (cat === 'all' || p.category === cat) &&
+    (!q || `${p.number} ${p.name} ${p.clients?.name ?? ''}`.toLowerCase().includes(q.toLowerCase())))
+  const count = (s: string) => all.filter((p) => (s === 'all' || p.status === s) && (cat === 'all' || p.category === cat)).length
+  const unset = all.filter((p) => !p.sector).length
+
+  const setSector = async (id: string, sector: string) => {
+    const { error } = await supabase.from('projects').update({ sector }).eq('id', id)
+    setErr(error?.message ?? ''); if (!error) reload()
+  }
 
   return (
     <div className="stack">
@@ -28,33 +64,49 @@ export default function Projects() {
       <div className="row between">
         <div className="row" role="group" aria-label="Status">
           {['active', 'paused', 'complete', 'all'].map((s) => (
-            <button key={s} className={'btn small' + (status === s ? '' : ' secondary')} aria-pressed={status === s} onClick={() => setStatus(s)}>
-              {s[0].toUpperCase() + s.slice(1)} ({count(s)})</button>))}
+            <button key={s} className="chip" aria-pressed={status === s} onClick={() => setStatus(s)}>{s[0].toUpperCase() + s.slice(1)} ({count(s)})</button>))}
         </div>
-        <div style={{ width: 300, maxWidth: '100%' }}><label className="sr" htmlFor="pq">Search</label><input id="pq" className="input" placeholder="Search number, name or client" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <div style={{ width: 300, maxWidth: '100%' }}><label className="sr" htmlFor="pq">Search projects</label><input id="pq" className="input" placeholder="Search number, name or client" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       </div>
-      {error && <p className="err">{error}</p>}
-      <div className="card" style={{ overflowX: 'auto' }}>
-        <table className="table" style={{ minWidth: 900 }}>
-          <thead><tr><th>Project</th><th>Client</th><th>Phases</th><th className="r">Fee</th><th>Status</th></tr></thead>
+      <div className="row" role="group" aria-label="Project type">
+        {TYPES.map(([id, l]) => <button key={id} className="chip" aria-pressed={cat === id} onClick={() => setCat(id)}>{l}</button>)}
+      </div>
+      {unset > 0 && <p className="muted" style={{ margin: 0, fontSize: 14 }}><strong>{unset} project{unset === 1 ? '' : 's'}</strong> have no building type yet; pick one in the row to set its color.</p>}
+      {(error || err) && <p className="err" role="alert">{error || err}</p>}
+      <div className="card tablewrap">
+        <table className="table" style={{ minWidth: 1100 }}>
+          <thead><tr><th>Project</th><th>Phases</th><th>Fee used</th><th className="r">Outstanding</th><th>Status</th></tr></thead>
           <tbody>
             {rows.map((p) => {
               const st = STATUS_STYLE[p.status] ?? STATUS_STYLE.active
               const byCode = Object.fromEntries(p.phases.map((ph) => [ph.code, ph]))
               const fee = p.phases.reduce((a, ph) => a + Number(ph.fee), 0)
+              const used = labor[p.id] ?? 0
+              const pct = fee ? used / fee * 100 : 0
+              const o = owed[p.id]
               return (
                 <tr key={p.id}>
-                  <td><div className="row" style={{ gap: 8 }}>
-                    <span className="tag" style={{ background: SECTOR_COLOR[p.sector ?? 'internal'] }} title={p.sector ?? ''}>{p.number}</span>
-                    <Link to={`/projects/${p.id}`} style={{ fontWeight: 700, color: 'var(--text)', textDecoration: 'none' }}>{p.name}</Link>
-                    {p.category && <abbr className="pill" title={CATEGORY_NAME[p.category]}>{p.category}</abbr>}
-                  </div>{p.next_milestone && <div className="muted" style={{ fontSize: 13, marginTop: 4 }}><em>{p.next_milestone}</em></div>}</td>
-                  <td>{p.clients?.name ?? '—'}</td>
-                  <td><div className="row" style={{ gap: 3, flexWrap: 'nowrap' }} aria-label="Phase progress">
-                    {PHASES.map(([code]) => { const ph = byCode[code]; const [bg, fg] = ph ? PH_COLOR[ph.status] : ['transparent', '#d0d5dd']
-                      return <span key={code} title={ph ? `${code}: ${ph.status.replace('_', ' ')}` : `${code}: not in contract`} style={{ width: 30, height: 22, borderRadius: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, background: bg, color: fg, border: ph ? '1px solid #d0d5dd' : '1px dashed #e4e0d8' }}>{code}</span> })}
+                  <td style={{ minWidth: 340 }}>
+                    <div className="row" style={{ gap: 8 }}>
+                      <span className="tag" style={{ background: SECTOR_COLOR[p.sector ?? 'internal'] }} title={p.sector ?? 'No building type'}>{p.number}</span>
+                      <Link to={`/projects/${p.id}`} style={{ fontWeight: 700, color: 'var(--text)', textDecoration: 'none' }}>{p.name}</Link>
+                      {p.category && <abbr className="pill" title={CATEGORY_NAME[p.category]}>{p.category}</abbr>}
+                      {!p.sector && <><label className="sr" htmlFor={'sec-' + p.id}>Building type for {p.name}</label>
+                        <select id={'sec-' + p.id} className="inline-select" value="" onChange={(e) => e.target.value && setSector(p.id, e.target.value)}>
+                          <option value="">Set building type…</option>{SECTORS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></>}
+                    </div>
+                    <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>{p.clients?.name ?? 'No client'}{p.next_milestone && <> · <em>{p.next_milestone}</em></>}</div>
+                  </td>
+                  <td><div className="row" style={{ gap: 3, flexWrap: 'nowrap' }} role="img" aria-label={PHASES.map(([c]) => `${c} ${byCode[c] ? PH_COLOR[byCode[c].status][2] : 'not in contract'}`).join(', ')}>
+                    {PHASES.map(([code]) => { const ph = byCode[code]
+                      return ph
+                        ? <span key={code} className="ph-seg" style={{ background: PH_COLOR[ph.status][0], color: PH_COLOR[ph.status][1], border: '1px solid ' + (ph.status === 'not_started' ? '#b9b4aa' : 'transparent') }}>{code}</span>
+                        : <span key={code} className="ph-seg" style={{ color: '#c9c4b8', border: '1px dashed #d6d1c6' }}>{code}</span> })}
                   </div></td>
-                  <td className="r num">{money(fee)}</td>
+                  <td style={{ minWidth: 170 }}>{fee > 0 ? <>
+                    <div className="bar" aria-hidden="true"><span style={{ width: Math.min(100, pct) + '%', background: pct >= 90 ? '#d92d20' : pct >= 75 ? '#dc6803' : 'var(--navy)' }} /></div>
+                    <div className="muted num" style={{ fontSize: 12, marginTop: 4 }}>{pct.toFixed(0)}% of {money(fee)}</div></> : <span className="muted" style={{ fontSize: 13 }}>No phase fees yet</span>}</td>
+                  <td className="r num">{o && o.amt > 0.005 ? <><strong style={{ color: o.late ? 'var(--red)' : 'var(--text)' }}>{money(o.amt)}</strong><div style={{ fontSize: 12, color: o.late ? 'var(--red)' : 'var(--muted)' }}>{o.late ? 'past due' : 'outstanding'}</div></> : <span className="muted">—</span>}</td>
                   <td><span className="status" style={{ color: st[1], background: st[2] }}>{st[0]}</span></td>
                 </tr>)
             })}
@@ -62,6 +114,7 @@ export default function Projects() {
           </tbody>
         </table>
       </div>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Phase bar: gray complete, green in progress, red paused, outlined not started, dashed not in the contract. Fee used = hours × billable rates; orange at 75%, red at 90%.</em></p>
     </div>
   )
 }

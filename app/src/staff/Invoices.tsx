@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase, money, SECTOR_COLOR } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
-import { type InvoiceRow, type InvEvent, displayStatus, activityOf, fmtDate, todayIso, daysBetween, eventLabel, EVENT_STYLE, num } from '../lib/invoices'
+import { type InvoiceRow, type InvEvent, displayStatus, activityOf, fmtDate, todayIso, daysBetween, eventLabel, EVENT_STYLE, num, emailInvoice } from '../lib/invoices'
 import './invoices.css'
 
 type Recipient = { invoice_id: string; email: string; kind: string }
@@ -128,6 +128,13 @@ function Panel({ inv, events, recipients, me, onClose, onOpen, onChanged }: { in
     await supabase.from('invoice_events').insert({ invoice_id: inv.id, kind: 'paid', detail: `${full ? 'Paid in full' : 'Partial payment'}: ${money(amt)} by ${pay.method} on ${fmtDate(pay.date)}`, actor: me })
     setPaying(false); setErr(''); onChanged()
   }
+  const [sending, setSending] = useState(false); const [msg, setMsg] = useState('')
+  const remind = async () => {
+    setSending(true); setErr(''); setMsg('')
+    const r = await emailInvoice(inv.id, 'reminder')
+    setSending(false)
+    if (r.ok) { setMsg(r.message); onChanged() } else setErr(r.message)
+  }
   const byRecipient = (email: string) => {
     const evs = events.filter((e) => e.recipient === email)
     if (evs.some((e) => e.kind === 'viewed')) return ['Viewed invoice', '#067647', '#e7f6ec']
@@ -151,8 +158,10 @@ function Panel({ inv, events, recipients, me, onClose, onOpen, onChanged }: { in
       </div>
       <div className="row">
         {['open', 'uncollectible'].includes(inv.status) && <button className="btn small secondary" onClick={() => setPaying(!paying)}>Record payment</button>}
+        {inv.status === 'open' && recipients.length > 0 && <button className="btn small secondary" disabled={sending} onClick={remind}>{sending ? 'Sending…' : 'Send reminder'}</button>}
         <button className="btn small secondary" onClick={onOpen}>{inv.status === 'draft' ? 'Edit draft' : 'Open invoice'}</button>
       </div>
+      {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
       {paying && <div className="stack" style={{ padding: 12, borderRadius: 8, background: '#f6f5f2', gap: 8 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <div><label className="l" htmlFor="rp-a">Amount</label><input id="rp-a" className="input num" inputMode="decimal" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} /></div>

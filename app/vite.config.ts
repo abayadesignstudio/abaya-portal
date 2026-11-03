@@ -12,6 +12,8 @@ export default defineConfig({
         site: resolve(__dirname, 'index.html'),
         portal: resolve(__dirname, 'portal/index.html'),
         work: resolve(__dirname, 'work/index.html'),
+        invoice: resolve(__dirname, 'invoice/index.html'),
+        pages: resolve(__dirname, 'p/index.html'),
       },
     },
   },

@@ -82,3 +82,19 @@ export async function nextInvoiceNumber(projectId: string, projectNumber: string
   while (taken.has(`${projectNumber}-${String(n).padStart(3, '0')}`)) n++
   return `${projectNumber}-${String(n).padStart(3, '0')}`
 }
+
+/** Email an invoice (or a reminder) through the send-invoice function.
+ *  Returns notConfigured when the email provider keys haven't been added yet — nothing is marked sent then. */
+export async function emailInvoice(invoiceId: string, mode: 'invoice' | 'reminder' = 'invoice'): Promise<{ ok: boolean; message: string; notConfigured?: boolean }> {
+  const { data, error } = await supabase.functions.invoke('send-invoice', { body: { invoice_id: invoiceId, mode } })
+  if (!error) {
+    const r = data as { sent: string[]; failed: { email: string; error: string }[] }
+    const what = mode === 'reminder' ? 'Reminder emailed' : 'Invoice emailed'
+    return { ok: true, message: `${what} to ${r.sent.join(', ')}.${r.failed.length ? ` Couldn’t send to ${r.failed.map((f) => f.email).join(', ')}.` : ''}` }
+  }
+  let body: { error?: string; code?: string } = {}
+  const ctx = (error as { context?: unknown }).context
+  if (ctx instanceof Response) body = await ctx.json().catch(() => ({}))
+  if (body.code === 'email_not_configured') return { ok: false, notConfigured: true, message: 'Email isn’t switched on yet, so nothing was sent and the invoice is still a draft. Once the email provider key is added in Supabase, this button sends it.' }
+  return { ok: false, message: body.error ?? error.message }
+}

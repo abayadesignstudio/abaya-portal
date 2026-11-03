@@ -12,3 +12,6 @@
 .gantt-track{position:relative;height:22px;background:#f6f5f2;border-radius:4px}
 .gantt-bar{position:absolute;top:3px;height:16px;border-radius:4px}
 .modal-bg{position:fixed;inset:0;background:rgba(2,37,61,.55);display:grid;place-items:center;z-index:50;padding:16px}
+.cp-inv{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.cp-inv li{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:1px solid var(--line);border-left:4px solid var(--line);border-radius:8px}
+.cp-inv li.late{border-left-color:var(--red);background:#fdf3f2}

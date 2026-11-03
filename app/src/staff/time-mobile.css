@@ -1,0 +1,10 @@
+.ts-days{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.ts-day{display:flex;flex-direction:column;align-items:center;gap:2px;min-height:64px;padding:6px 2px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--text);font:14px Arial,sans-serif;cursor:pointer}
+.ts-day strong{font-size:18px}
+.ts-day .num{font-size:12px;color:var(--muted)}
+.ts-day.today{border-color:var(--navy)}
+.ts-day.on{background:var(--navy);border-color:var(--navy);color:#ede6d6}
+.ts-day.on .num{color:#ede6d6}
+.ts-mrow{display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border-bottom:1px solid #efece6}
+.ts-mrow:last-child{border-bottom:0}
+.ts-mrow .ts-in{width:84px;min-height:52px;font-size:20px}

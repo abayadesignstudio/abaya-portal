@@ -10,7 +10,7 @@ import UpdateCard from './UpdateCard'
 import './client.css'
 
 type P = { id: string; number: string; name: string; sector: string | null; category: string | null; address: string | null; status: string }
-type Inv = { id: string; number: string; status: string; total: number; amount_paid: number; due_date: string | null }
+type Inv = { id: string; number: string; status: string; issue_date?: string | null; total: number; amount_paid: number; due_date: string | null }
 
 export default function ClientProject() {
   const { id } = useParams()
@@ -23,7 +23,7 @@ export default function ClientProject() {
     items: must(await supabase.from('contract_items').select('*').eq('project_id', id!).order('sort')) as ContractItem[],
     meetings: must(await supabase.from('meetings').select('*').eq('project_id', id!)) as Meeting[],
     requests: must(await supabase.from('service_requests').select('*').eq('project_id', id!).order('created_at', { ascending: false })) as ServiceRequest[],
-    invoices: must(await supabase.from('invoices').select('id, number, status, total, amount_paid, due_date').eq('project_id', id!)) as Inv[],
+    invoices: must(await supabase.from('invoices').select('id, number, status, issue_date, total, amount_paid, due_date').eq('project_id', id!).order('issue_date', { ascending: false })) as Inv[],
     models: ((await supabase.storage.from('models').list(id!)).data ?? []).filter((f) => f.name && !f.name.startsWith('.')),
   }), [id])
   const [urls, setUrls] = useState<Record<string, string>>({})
@@ -213,13 +213,32 @@ function RequestPanel({ projectId, me, requests, onSent }: { projectId: string; 
   )
 }
 
+const INV_ST: Record<string, [string, string]> = { open: ['Open', 'var(--amber)'], paid: ['Paid', 'var(--green)'], void: ['Void', 'var(--muted)'], uncollectible: ['Closed', 'var(--muted)'] }
 function InvoicesMini({ invoices }: { invoices: Inv[] }) {
-  const open = invoices.filter((i) => i.status === 'open')
-  if (!invoices.length) return null
+  const today = new Date().toISOString().slice(0, 10)
+  const shown = invoices.filter((i) => i.status !== 'draft')
+  const bal = (i: Inv) => (i.status === 'open' ? Number(i.total) - Number(i.amount_paid) : 0)
+  const owed = shown.reduce((a, i) => a + bal(i), 0)
   return (
     <section className="card pad stack" aria-labelledby="iv-h">
-      <h2 id="iv-h">Invoices</h2>
-      {open.length === 0 ? <p className="muted" style={{ margin: 0 }}>Nothing due. Thank you.</p> : open.map((i) => <div key={i.id} className="row between" style={{ fontSize: 14 }}><span><strong>{i.number}</strong> · due {fmtDate(i.due_date)}</span><strong className="num">{money(Number(i.total) - Number(i.amount_paid))}</strong></div>)}
+      <div className="row between"><h2 id="iv-h">Invoices</h2>{owed > 0 && <span><span className="muted">Balance </span><strong className="num">{money(owed)}</strong></span>}</div>
+      {shown.length === 0 ? <p className="muted" style={{ margin: 0 }}><em>No invoices on this project yet.</em></p> : (
+        <ul className="cp-inv">
+          {shown.map((i) => {
+            const late = i.status === 'open' && !!i.due_date && i.due_date < today
+            const [label, color] = late ? ['Past due', 'var(--red)'] : INV_ST[i.status] ?? [i.status, 'var(--muted)']
+            return (
+              <li key={i.id} className={late ? 'late' : undefined}>
+                <div className="row between"><strong>{i.number}</strong><strong className="num">{money(i.total)}</strong></div>
+                <div className="row between" style={{ fontSize: 14 }}>
+                  <span style={{ color: late ? 'var(--red)' : undefined }}>{i.status === 'paid' ? 'Paid in full' : `Due ${fmtDate(i.due_date)}`}</span>
+                  <strong style={{ color }}>{label}</strong></div>
+                {i.status === 'open' && Number(i.amount_paid) > 0 && <div className="muted" style={{ fontSize: 14 }}>Balance {money(bal(i))}</div>}
+              </li>)
+          })}
+        </ul>)}
+      {owed > 0 && <button type="button" className="btn secondary" disabled aria-describedby="iv-pay">Pay online</button>}
+      {owed > 0 && <p id="iv-pay" className="muted" style={{ margin: 0, fontSize: 14 }}>Pay online — coming soon. For now, please pay by check or bank transfer as noted on the invoice.</p>}
       <Link to="/invoices" style={{ fontWeight: 700 }}>All invoices ›</Link>
     </section>
   )

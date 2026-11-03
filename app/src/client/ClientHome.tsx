@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { supabase, money, SECTOR_COLOR, CATEGORY_NAME } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import { sortPhases, fmtDate, type PhaseRow } from '../lib/projectContent'
@@ -16,6 +16,8 @@ export default function ClientHome() {
   const owed = (data?.invoices ?? []).reduce((a, i) => a + Number(i.total) - Number(i.amount_paid), 0)
   const today = new Date().toISOString().slice(0, 10)
   const late = (data?.invoices ?? []).filter((i) => i.due_date && i.due_date < today)
+  // a client with a single project goes straight to its dashboard
+  if (data?.projects.length === 1) return <Navigate to={`/projects/${data.projects[0].id}`} replace />
   return (
     <div className="stack">
       <h1>Your projects</h1>

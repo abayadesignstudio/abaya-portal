@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase, PHASE_NAME, SECTOR_COLOR } from '../lib/supabase'
+import './time-mobile.css'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import { ACTIVITIES, OVERHEAD, loadProjects, iso, mondayOf, hrs, TIME_CHANGED, announceTimeChange, type Proj } from '../lib/time'
+import Combobox, { sectorColor, type ComboOption } from '../components/Combobox'
+
+const PHONE = '(max-width: 900px)'
+function useIsPhone() {
+  const [m, setM] = useState(() => typeof window !== 'undefined' && window.matchMedia(PHONE).matches)
+  useEffect(() => { const q = window.matchMedia(PHONE); const f = () => setM(q.matches); q.addEventListener('change', f); return () => q.removeEventListener('change', f) }, [])
+  return m
+}
 
 type Entry = { id: string; work_date: string; minutes: number; note: string | null; activity: string | null; role_label: string | null; project_id: string; phase_id: string | null }
 type RowDef = { id?: string; project_id: string; phase_id: string | null; role_label: string | null; activity: string | null }
@@ -82,23 +91,27 @@ export default function Time() {
   }
 
   const overhead = (projects.data ?? []).find((p) => p.number === 'OH')
-  const phaseOptions = (projects.data ?? []).filter((p) => p.number !== 'OH').flatMap((p) => (p.phases.length ? p.phases.map((ph) => ({ value: `${p.id}|${ph.id}`, label: `${p.number} · ${p.name} — ${ph.code}` })) : [{ value: `${p.id}|`, label: `${p.number} · ${p.name} — no phases yet` }]))
+  const phaseOptions: ComboOption[] = (projects.data ?? []).filter((p) => p.number !== 'OH').flatMap((p): ComboOption[] => (p.phases.length
+    ? p.phases.map((ph) => ({ value: `${p.id}|${ph.id}`, chip: p.number, color: sectorColor(p.sector), label: `${p.name} — ${ph.code} · ${PHASE_NAME[ph.code] ?? ''}`, search: ph.code }))
+    : [{ value: `${p.id}|`, chip: p.number, color: sectorColor(p.sector), label: p.name, hint: '— no phases yet' }]))
+  const phone = useIsPhone()
+  const [dayIdx, setDayIdx] = useState(() => { const i = (new Date().getDay() + 6) % 7; return i })
+  const day = days[dayIdx]
   const groups = Array.from(new Set(rows.map((r) => r.project_id)))
   const today = iso(new Date())
 
   return (
     <div className="stack">
-      <div className="row between"><h1>Timesheet</h1><span className="muted" style={{ fontSize: 14 }}>Use the <strong>Timer</strong> at the bottom of the sidebar to track time live.</span></div>
+      <div className="row between"><h1>Timesheet</h1><span className="muted" style={{ fontSize: 14 }}>Use the <strong>Timer</strong> {phone ? 'bar at the bottom of the screen' : 'at the bottom of the sidebar'} to track time live.</span></div>
       <div className="row between">
-        <div className="row">
-          <label className="sr" htmlFor="ts-add">Add project and phase</label>
-          <select id="ts-add" className="input" style={{ width: 340 }} value="" onChange={(e) => { const [project_id, phase_id] = e.target.value.split('|'); if (project_id) addRow({ project_id, phase_id: phase_id || null, role_label: null, activity: null }) }}>
-            <option value="">Search for project and add phase</option>{phaseOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
+        <div className="row" style={phone ? { width: '100%' } : undefined}>
+          <Combobox id="ts-add" label="Add project and phase" placeholder="Search for project and add phase" style={{ width: phone ? '100%' : 380 }} clearOnSelect value=""
+            options={phaseOptions} onChange={(x) => { const [project_id, phase_id] = x.split('|'); if (project_id) addRow({ project_id, phase_id: phase_id || null, role_label: null, activity: null }) }} />
           <label className="sr" htmlFor="ts-oh">Add overhead</label>
-          <select id="ts-oh" className="input" style={{ width: 200 }} value="" onChange={(e) => { if (e.target.value && overhead) addRow({ project_id: overhead.id, phase_id: null, role_label: null, activity: e.target.value }) }}>
+          <select id="ts-oh" className="input" style={{ width: phone ? '100%' : 200 }} value="" onChange={(e) => { if (e.target.value && overhead) addRow({ project_id: overhead.id, phase_id: null, role_label: null, activity: e.target.value }) }}>
             <option value="">Add overhead</option>{OVERHEAD.map((o) => <option key={o}>{o}</option>)}</select>
         </div>
-        <div className="row" style={{ gap: 0 }}>
+        <div className="row" style={{ gap: 0, flexWrap: 'nowrap' }}>
           <button className="btn small secondary" aria-label="Previous week" onClick={() => { const d = new Date(week); d.setDate(d.getDate() - 7); setWeek(d) }}>‹</button>
           <label className="sr" htmlFor="ts-wk">Week of</label>
           <input id="ts-wk" type="date" className="input" style={{ width: 170, margin: '0 6px' }} value={iso(week)} onChange={(e) => { if (e.target.value) { const [y, m, d] = e.target.value.split('-').map(Number); setWeek(mondayOf(new Date(y, m - 1, d))) } }} />
@@ -108,6 +121,45 @@ export default function Time() {
       </div>
       {err && <p className="err" role="alert">{err}</p>}
 
+      {phone ? (
+        <>
+          <div className="ts-days" role="group" aria-label="Day">
+            {days.map((d, i) => <button key={iso(d)} type="button" className={'ts-day' + (i === dayIdx ? ' on' : '') + (iso(d) === today ? ' today' : '')} aria-pressed={i === dayIdx} onClick={() => setDayIdx(i)}>
+              <span>{d.toLocaleDateString('en-US', { weekday: 'short' })}</span><strong>{d.getDate()}</strong><span className="num">{hrs(dayTotal(d))}</span></button>)}
+          </div>
+          <div className="card pad row between" style={{ padding: '12px 16px' }}>
+            <strong>{day.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</strong>
+            <span><span className="num" style={{ fontWeight: 700 }}>{hrs(dayTotal(day))}</span> <span className="muted">h · week {hrs(weekTotal)} h</span></span>
+          </div>
+          {groups.map((pid) => {
+            const p = pById[pid]
+            const isOH = p?.number === 'OH'
+            return (
+              <section key={pid} className="card">
+                <h2 className="row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', gap: 10, fontSize: 18 }}>
+                  {p && !isOH && <span className="tag" style={{ background: sectorColor(p.sector) }}>{p.number}</span>}{isOH ? 'Overhead' : (p?.name ?? 'Project')}</h2>
+                <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                  {rows.filter((r) => r.project_id === pid).map((r) => {
+                    const code = p?.phases.find((x) => x.id === r.phase_id)?.code
+                    return (
+                      <li key={keyOf(r)} className="ts-mrow">
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          {!isOH && <div style={{ fontWeight: 700 }}>{code ? `${code} · ${PHASE_NAME[code]}` : 'No phase'}</div>}
+                          <label className="sr" htmlFor={'mact-' + keyOf(r)}>Activity</label>
+                          <select id={'mact-' + keyOf(r)} className="input" style={{ marginTop: 6 }} value={r.activity ?? ''} onChange={(e) => changeActivity(r, e.target.value)}>
+                            <option value="">{isOH ? 'Overhead type' : 'Activity'}</option>{(isOH ? OVERHEAD : ACTIVITIES).map((x) => <option key={x}>{x}</option>)}</select>
+                        </div>
+                        <div className="stack" style={{ gap: 4, alignItems: 'center' }}>
+                          <Cell value={cell(r, day)} today={false} label={`Hours, ${isOH ? 'Overhead' : `${p?.number ?? ''} ${p?.name ?? ''} ${code ?? ''}`} ${r.activity ?? ''}, ${day.toDateString()}`} onCommit={(t) => setCell(r, day, t)} />
+                          <button className="linkbtn" style={{ color: 'var(--muted)', fontSize: 14 }} aria-label="Remove row" onClick={() => removeRow(r)}>Remove</button>
+                        </div>
+                      </li>)
+                  })}
+                </ul>
+              </section>)
+          })}
+        </>
+      ) : (<>
       <div className="card" style={{ overflowX: 'auto' }}>
         <div style={{ minWidth: 980 }}>
           <div className="ts-grid" style={{ background: '#f6f5f2', borderBottom: '1px solid var(--line)', fontWeight: 700, fontSize: 14 }}>
@@ -155,6 +207,7 @@ export default function Time() {
             </div>
           </section>)
       })}
+      </>)}
       {data.data && rows.length === 0 && <p className="muted card pad" style={{ textAlign: 'center' }}><em>Nothing on this week yet. Add a project and phase above, or start the timer in the sidebar.</em></p>}
     </div>
   )

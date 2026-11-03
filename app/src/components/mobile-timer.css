@@ -1,0 +1,15 @@
+.tm-pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.mtimer{display:none}
+@media (max-width:900px){
+  .mtimer{display:block}
+  .main{padding-bottom:104px}
+  .mtimer-bar{position:fixed;left:0;right:0;bottom:0;z-index:25;display:flex;align-items:center;gap:10px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--line);box-shadow:0 -6px 18px rgba(0,0,0,.08)}
+  .mtimer-open{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-height:52px;padding:4px 6px;border:0;background:none;text-align:left;cursor:pointer;font-family:Arial,sans-serif}
+  .mtimer-clock{font-size:24px;font-weight:700;line-height:1}
+  .mtimer-label{font-size:14px;color:var(--text);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mtimer-go{min-height:52px;padding:0 16px;flex:none}
+  .mtimer-sheet{position:fixed;inset:0;z-index:40;background:#fff;overflow-y:auto;display:flex;flex-direction:column}
+  .mtimer-sheet .input{min-height:52px;font-size:17px}
+  .mtimer-sheet .btn{min-height:52px}
+  .mtimer-sheet .tm-pair{grid-template-columns:1fr}
+}
