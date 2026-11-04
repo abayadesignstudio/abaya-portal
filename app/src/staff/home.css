@@ -61,3 +61,13 @@
 .tk-bill .tk-who{color:#7d7550}
 .tk-bill.over{background:#fdf0ee;border-left-color:#b42318}
 .tk-bill.over .tk-who,.tk-bill.over .tk-title{color:#b42318}
+/* project tag on tasks/meetings; click-to-edit text; Google meetings */
+.tk-proj{display:inline-block;margin-left:4px;padding:0 5px;border-radius:4px;color:#fff;font-size:10.5px;font-weight:700;line-height:15px;vertical-align:1px;white-space:nowrap}
+.tk.done .tk-proj{opacity:.55}
+.tk-open{all:unset;cursor:pointer;min-width:0;overflow-wrap:anywhere;border-radius:3px}
+.tk-open:hover .tk-title{text-decoration:underline;text-decoration-color:#b7bcc4}
+.tk.done .tk-open:hover .tk-title{text-decoration:line-through}
+.tk-open:focus-visible{outline:2px solid var(--navy);outline-offset:1px}
+.tk-g{background:#f6f8fb}
+.tk-g .tk-title{font-weight:600}
+.tk-gicon{flex:none;width:15px;text-align:center;color:#6b7686;font-size:12px;line-height:16px}

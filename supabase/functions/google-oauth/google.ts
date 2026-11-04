@@ -3,7 +3,8 @@ import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 
 export const googleConfigured = () => !!Deno.env.get('GOOGLE_CLIENT_ID') && !!Deno.env.get('GOOGLE_CLIENT_SECRET')
 export const GOOGLE_NOT_CONFIGURED = { error: 'Google sync is not set up yet: add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to the Supabase function secrets.', code: 'google_not_configured' }
-export const SCOPES = ['openid', 'email', 'https://www.googleapis.com/auth/tasks']
+// tasks: write portal tasks into Google Tasks. calendar.readonly: show each person's meetings on the portal calendar.
+export const SCOPES = ['openid', 'email', 'https://www.googleapis.com/auth/tasks', 'https://www.googleapis.com/auth/calendar.readonly']
 export const redirectUri = () => `${Deno.env.get('SUPABASE_URL')}/functions/v1/google-oauth`
 
 // ---- signed state (so the callback knows who connected, and can't be forged) ----
@@ -101,4 +102,37 @@ export async function deleteTask(db: SupabaseClient, assignee: string, googleTas
     const r = await gt(token, 'DELETE', `/lists/${encodeURIComponent(c.tasklist_id || '@default')}/tasks/${encodeURIComponent(googleTaskId)}`)
     return r.status < 300 || r.status === 404 ? 'deleted' : `google error ${r.status}`
   } catch { return 'google access expired' }
+}
+
+// ---- Google Calendar (read only) ----
+export type FeedEvent = { id: string; profile_id: string; title: string; start: string; end: string; all_day: boolean; location: string | null; hint: string; busy_only: boolean }
+/** One person's primary-calendar events between two dates (inclusive), recurring events expanded.
+ *  Events the owner marked Private show as "Busy" with no details. `hint` is extra text used only to spot a project number. */
+export async function listEvents(token: string, profileId: string, from: string, to: string): Promise<FeedEvent[] | null> {
+  const out: FeedEvent[] = []
+  let page = ''
+  for (let i = 0; i < 5; i++) {
+    const q = new URLSearchParams({ timeMin: `${from}T00:00:00-12:00`, timeMax: `${to}T23:59:59+14:00`, singleEvents: 'true', orderBy: 'startTime', maxResults: '250' })
+    if (page) q.set('pageToken', page)
+    const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`, { headers: { Authorization: `Bearer ${token}` } })
+    if (!r.ok) return out.length ? out : null
+    const j = await r.json()
+    for (const e of j.items ?? []) {
+      if (e.status === 'cancelled' || e.eventType === 'workingLocation') continue
+      const mine = (e.attendees ?? []).find((a: { self?: boolean }) => a.self)
+      if (mine?.responseStatus === 'declined') continue
+      const priv = e.visibility === 'private' || e.visibility === 'confidential'
+      const allDay = !!e.start?.date
+      out.push({
+        id: String(e.id), profile_id: profileId, all_day: allDay, busy_only: priv,
+        title: priv ? 'Busy' : String(e.summary ?? '(No title)'),
+        start: allDay ? e.start.date : e.start?.dateTime, end: allDay ? e.end.date : e.end?.dateTime,
+        location: priv ? null : (e.location ?? null),
+        hint: priv ? '' : String(e.description ?? '').slice(0, 400),
+      })
+    }
+    page = j.nextPageToken ?? ''
+    if (!page) break
+  }
+  return out
 }

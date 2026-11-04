@@ -26,7 +26,7 @@ export default function Account() {
   )
 }
 
-/** Connect Google so tasks assigned to me also appear in my Google Calendar (as Google Tasks). */
+/** Connect Google: my portal tasks go to Google Tasks, and my Google Calendar meetings show on the portal calendar. */
 function GoogleSection() {
   const loc = useLocation()
   const [conn, setConn] = useState<{ google_email: string | null; connected_at: string } | null | undefined>(undefined)
@@ -37,7 +37,7 @@ function GoogleSection() {
   useEffect(() => {
     const r = new URLSearchParams(loc.search).get('google')
     if (r) { load(); setBusy(false) }
-    if (r === 'connected') setMsg({ ok: true, t: 'Google connected. Tasks assigned to you now appear in Google Calendar under Tasks.' })
+    if (r === 'connected') setMsg({ ok: true, t: 'Google connected. Your tasks now go to Google Calendar (under Tasks), and your meetings show on the portal calendar.' })
     else if (r === 'cancelled') setMsg({ ok: false, t: 'Google wasn’t connected (you cancelled on Google’s page).' })
     else if (r === 'error') setMsg({ ok: false, t: 'Google couldn’t be connected. Try again; if it keeps failing, Google sync may not be fully set up yet.' })
   }, [loc.search])
@@ -53,13 +53,13 @@ function GoogleSection() {
     window.location.href = data.url
   }
   const disconnect = async () => {
-    if (!window.confirm('Stop sending your portal tasks to Google? Tasks already in Google stay there.')) return
+    if (!window.confirm('Disconnect Google? Your portal tasks stop going to Google (ones already there stay), and your meetings stop showing on the portal calendar.')) return
     setBusy(true); await supabase.rpc('disconnect_google'); setBusy(false); setMsg({ ok: true, t: 'Google disconnected.' }); load()
   }
   return (
     <section className="card pad stack" aria-labelledby="gg-h">
       <h2 id="gg-h" style={{ margin: 0 }}>Google Calendar</h2>
-      <p className="muted" style={{ margin: 0 }}>Connect your Google account and every task assigned to you in the portal also shows in Google Calendar (as a Google Task). Checking it off in the portal checks it off there too.</p>
+      <p className="muted" style={{ margin: 0 }}>Connect your Google account and every task assigned to you in the portal also shows in Google Calendar (as a Google Task); checking it off in the portal checks it off there too. Your Google Calendar meetings also show on the portal’s Home calendar, with titles, for the whole team. Events you mark Private in Google show only as “Busy”.</p>
       {conn === undefined ? <p className="muted" style={{ margin: 0 }}>Checking…</p>
         : conn ? <p style={{ margin: 0 }}><span className="badge b-paid">Connected</span> {conn.google_email ?? 'Google account'} · since {new Date(conn.connected_at).toLocaleDateString()}</p>
         : <p style={{ margin: 0 }}><span className="badge">Not connected</span></p>}

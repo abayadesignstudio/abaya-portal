@@ -10,7 +10,7 @@ import './home.css'
 
 type Dl = { id: string; title: string; due_date: string | null; status: string; created_at: string; projects: { number: string; name: string; sector: string | null } | null; phases: { code: string } | null }
 type Note = { id: number; kind: string; text: string; href: string | null; read_at: string | null; created_at: string }
-type P = { id: string; number: string; name: string }
+type P = { id: string; number: string; name: string; sector: string | null }
 
 const STATUS: Record<string, [string, string, string]> = {
   todo: ['Not started', '#475467', '#f2f4f7'], in_progress: ['In progress', '#ffffff', '#039855'], in_review: ['In review', '#ffffff', '#b54708'], done: ['Done', '#344054', '#e4e7ec'],
@@ -32,7 +32,7 @@ export default function StaffHome() {
   const dls = useLoad(async () => must(await supabase.from('deliverables').select('id, title, due_date, status, created_at, projects(number, name, sector), phases(code)')
     .eq('assignee', me).order('due_date', { nullsFirst: false })) as unknown as Dl[], [me])
   const notes = useLoad(async () => must(await supabase.from('notifications').select('id, kind, text, href, read_at, created_at').eq('profile_id', me).order('created_at', { ascending: false }).limit(30)) as Note[], [me])
-  const projects = useLoad(async () => must(await supabase.from('projects').select('id, number, name').in('status', ['active', 'paused']).order('number', { ascending: false })) as P[])
+  const projects = useLoad(async () => must(await supabase.from('projects').select('id, number, name, sector').in('status', ['active', 'paused']).order('number', { ascending: false })) as P[])
 
   // hours card
   const entries = hours.data ?? []
