@@ -1,0 +1,9 @@
+.rowmenu-btn{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;fill:currentColor}
+.rowmenu-btn:hover,.rowmenu-btn[aria-expanded="true"]{background:#efede7;border-color:var(--line);color:var(--text)}
+.rowmenu-btn:focus-visible{outline:3px solid #7aa2c2;outline-offset:2px}
+.rowmenu{position:fixed;z-index:1000;min-width:200px;padding:6px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.14)}
+.rowmenu button{display:block;width:100%;text-align:left;padding:9px 12px;border:0;border-radius:6px;background:none;font:14px Arial,sans-serif;color:var(--text);cursor:pointer}
+.rowmenu button:hover:not(:disabled),.rowmenu button:focus-visible{background:#f2f0ea;outline:none}
+.rowmenu button.danger{color:var(--red)}
+.rowmenu button:disabled{color:#a0a4a8;cursor:not-allowed}
+.rowmenu-div{height:1px;margin:5px 4px;background:var(--line)}
