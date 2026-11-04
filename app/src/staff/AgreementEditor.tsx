@@ -391,7 +391,7 @@ function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model
   if (c.kind === 'program') return <>
     <Field id="ag-pgt" label="Program heading"><input id="ag-pgt" className="input" value={v.progTitle} onChange={setV('progTitle')} /></Field>
     <Field id="ag-pgi" label="Program description" hint="Each line becomes a paragraph."><textarea id="ag-pgi" className="input" rows={4} value={v.progIntro} onChange={setV('progIntro')} /></Field>
-    <Field id="ag-pgl" label="“The project shall include”" hint="One per line. Text before a colon is set in bold."><textarea id="ag-pgl" className="input" rows={5} value={v.progItems} onChange={setV('progItems')} /></Field>
+    <Field id="ag-pgl" label="“The Project shall include”" hint="One per line. Text before a colon is set in bold."><textarea id="ag-pgl" className="input" rows={5} value={v.progItems} onChange={setV('progItems')} /></Field>
   </>
   if (c.kind === 'phases') return <>
     <p className="muted" style={{ margin: 0, fontSize: 12 }}><em>[meetings] and [revisions] are written out as words and numerals — “three (3)”. Phases you untick become “Intentionally omitted” in the final.</em></p>
@@ -501,7 +501,7 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
       <div style={{ margin: '8px 0 8px 28px' }}>
         {v.progTitle && <p style={{ fontWeight: 700 }}>{v.progTitle}</p>}
         {lines(v.progIntro).map((t, i) => <p key={i}>{t}</p>)}
-        {lines(v.progItems).length > 0 && <><p>The project shall include:</p>
+        {lines(v.progItems).length > 0 && <><p>The Project shall include:</p>
           <ul>{lines(v.progItems).map((x, i) => { const k = x.indexOf(':'); return <li key={i}>{k > 0 ? <><strong>{x.slice(0, k + 1)}</strong>{x.slice(k + 1)}</> : x}</li> })}</ul></>}
       </div>)
     if (c.kind === 'phases') return PHN.map(([ab, name], i) => {
@@ -546,15 +546,15 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
         <tr style={{ fontWeight: 700 }}><td>Size</td><td>Color</td><td>Black &amp; White</td></tr>
         {[['11” x 17”', 2, 1], ['18” x 24”', 5, 2], ['24” x 36”', 10, 5], ['36” x 48”', 20, 10]].map(([s, c1, c2]) => <tr key={s as string}><td>{s}</td><td>${c1} / per sheet</td><td>${c2} / per sheet</td></tr>)}
       </tbody></table>
-      <p>No expense beyond the compensation mentioned above (<span className="ag-fp" style={{ background: draft ? '#e4e4e4' : 'transparent' }}>{money(fee)}</span>) will be incurred by the Owner unless the Owner approves a written proposal for additional services from the Architect. No additional services will be performed by the Architect without such written consent.</p>
+      <p>No expense beyond the compensation mentioned above (<span className="ag-fp" style={{ background: draft ? '#e4e4e4' : 'transparent' }}>{money(fee)}</span>) will be incurred by the Owner unless the Owner approves a written proposal for Additional Services from the Architect. No Additional Services will be performed by the Architect without such written consent.</p>
     </>
     return null
   }
 
   const report = model.changes
   const notice = report.length
-    ? `This agreement is based on the Abaya Design Studio standard form. ${report.length} ${report.length === 1 ? 'change was' : 'changes were'} made to the standard text${changesIn === 'text' ? '; additions are underlined and deletions are struck through, and every change is also listed' : '; every change is listed'} in the Modifications Report at the end of this document.`
-    : 'This agreement uses the Abaya Design Studio standard form without changes to its text.'
+    ? `This Agreement is based on the Abaya Design Studio standard form. ${report.length} ${report.length === 1 ? 'change was' : 'changes were'} made to the standard text${changesIn === 'text' ? '; additions are underlined and deletions are struck through, and every change is also listed' : '; every change is listed'} in the Modifications Report at the end of this document.`
+    : 'This Agreement uses the Abaya Design Studio standard form without changes to its text.'
   const fpStyle = (val: string) => ({ background: draft ? (val ? '#e4e4e4' : '#fde7c4') : 'transparent', fontStyle: val ? 'normal' : 'italic', color: val ? undefined : (draft ? '#8a4b00' : RED) })
 
   return (
@@ -568,7 +568,7 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
       </header>
       <div style={{ margin: '14px 0 0', padding: '8px 10px', border: '1px solid #000', fontSize: 11, lineHeight: 1.35 }}><strong>MODIFICATIONS:</strong> {notice}</div>
       <h1 style={{ margin: '18px 0 0', fontSize: 19 }}>Standard Agreement between Owner and Architect</h1>
-      <p style={{ margin: '2px 0 16px', fontStyle: 'italic', fontSize: 15 }}>This agreement is made <span className="ag-fp" style={fpStyle(longDate)}>{longDate || '[Agreement date]'}</span> between…</p>
+      <p style={{ margin: '2px 0 16px', fontStyle: 'italic', fontSize: 15 }}>This Agreement is made <span className="ag-fp" style={fpStyle(longDate)}>{longDate || '[Agreement date]'}</span> between…</p>
       <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 24, fontSize: 12.5 }}>
         <div><p style={{ margin: '0 0 4px', fontWeight: 700 }}>Owner:</p>
           <table className="ag-box"><tbody>
@@ -581,7 +581,7 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
           <p style={{ margin: 0 }}><u>Name:</u> Abaya Design Studio, LLC.<br /><u>Business Address:</u> 215 S Denton Tap Rd, Suite 215, Coppell, Texas 75019</p>
           {lines(v.archContacts).map((t, i) => <div key={i}>{t}</div>)}</div>
       </div>
-      <p style={{ margin: '16px 0 6px', fontStyle: 'italic', fontWeight: 700 }}>For the project…</p>
+      <p style={{ margin: '16px 0 6px', fontStyle: 'italic', fontWeight: 700 }}>For the Project…</p>
       <p style={{ margin: '0 0 4px', fontWeight: 700 }}>Project:</p>
       <table className="ag-box" style={{ fontSize: 12.5, maxWidth: 520 }}><tbody>
         <tr><td className="k">Name:</td><td>{v.projName}</td></tr><tr><td className="k">Address:</td><td>{v.projAddr}</td></tr>
