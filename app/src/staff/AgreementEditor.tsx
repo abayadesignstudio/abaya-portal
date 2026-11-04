@@ -8,6 +8,8 @@ import FillablePanel from './FillablePanel'
 import SignatureField from './SignatureField'
 import { measureLayout } from './fillablePdf'
 import { buildPages, buildPrintPages, removePrintPages, sourceDoc } from './printPages'
+import '@fontsource/lato/700.css'
+import '@fontsource/lato/700-italic.css'
 import './agreement.css'
 
 // ---------- helpers
@@ -185,7 +187,7 @@ export default function AgreementEditor() {
   const [pageCount, setPageCount] = useState(0)
   useEffect(() => {
     if (!ui.pages) return
-    const t = setTimeout(() => { const src = sourceDoc(), host = pagesRef.current; if (src && host) setPageCount(buildPages(src, host)) }, 200)
+    const t = setTimeout(() => { document.fonts.ready.then(() => { const src = sourceDoc(), host = pagesRef.current; if (src && host) setPageCount(buildPages(src, host)) }) }, 200)
     return () => clearTimeout(t)
   }, [ui.pages, doc, ui.mode, ui.changesIn])
 
@@ -516,7 +518,7 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
   const special = (c: CView) => {
     if (c.kind === 'program') return (
       <div style={{ margin: '8px 0 8px 28px' }}>
-        {v.progTitle && <p style={{ fontWeight: 700 }}>{v.progTitle}</p>}
+        {v.progTitle && <p className="ag-hd" style={{ fontWeight: 700 }}>{v.progTitle}</p>}
         {lines(v.progIntro).map((t, i) => <p key={i}>{t}</p>)}
         {lines(v.progItems).length > 0 && <><p>The Project shall include:</p>
           <ul>{lines(v.progItems).map((x, i) => { const k = x.indexOf(':'); return <li key={i}>{k > 0 ? <><strong>{x.slice(0, k + 1)}</strong>{x.slice(k + 1)}</> : x}</li> })}</ul></>}
@@ -526,10 +528,10 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
       const rep = (x: string) => x.replace(/\[meetings\]/g, words(p.meet)).replace(/\[revisions\]/g, words(p.rev))
       return (
         <div key={ab} className="ag-keep" style={{ margin: '10px 0 0 24px', ...(p.on || !draft ? {} : struck(false)) }}>
-          <p style={{ fontWeight: 700 }}>2.11.{i + 1} {name.toUpperCase()} ({ab}){!p.on && (draft ? ' — not included' : <span style={{ fontWeight: 400 }}> Intentionally omitted.</span>)}</p>
+          <p className="ag-hd" style={{ fontWeight: 700 }}>2.11.{i + 1} {name.toUpperCase()} ({ab}){!p.on && (draft ? ' — not included' : <span className="ag-nb" style={{ fontWeight: 400 }}> Intentionally omitted.</span>)}</p>
           {p.on && <div style={{ display: 'grid', gridTemplateColumns: '2.1fr 1fr', border: '1px solid #000', marginBottom: 10 }}>
-            <div style={{ padding: '4px 8px', borderRight: '1px solid #000', borderBottom: '1px solid #000', textAlign: 'center', fontWeight: 700 }}>SCOPE</div>
-            <div style={{ padding: '4px 8px', borderBottom: '1px solid #000', textAlign: 'center', fontWeight: 700 }}>DELIVERABLES</div>
+            <div className="ag-hd" style={{ padding: '4px 8px', borderRight: '1px solid #000', borderBottom: '1px solid #000', textAlign: 'center', fontWeight: 700 }}>SCOPE</div>
+            <div className="ag-hd" style={{ padding: '4px 8px', borderBottom: '1px solid #000', textAlign: 'center', fontWeight: 700 }}>DELIVERABLES</div>
             <ul style={{ margin: 0, padding: '8px 10px 8px 26px', borderRight: '1px solid #000' }}>{lines(p.scope).map((x, k) => <li key={k}>{rep(x)}</li>)}</ul>
             <ul style={{ margin: 0, padding: '8px 10px 8px 26px' }}>{lines(p.deliv).map((x, k) => <li key={k}>{x}</li>)}</ul>
           </div>}
@@ -544,7 +546,7 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
             <div className="num" style={{ padding: '5px 8px', borderLeft: '1px solid #000', textAlign: 'right', fontWeight: 700 }}>{+p.pct || 0}%</div>
             <div className="num" style={{ padding: '5px 8px', borderLeft: '1px solid #000', textAlign: 'right' }}>{money(fee * (+p.pct || 0) / 100)}</div>
           </div>))}
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 60px 110px', borderBottom: '1px solid #000', fontWeight: 700 }}>
+        <div className="ag-hd" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 60px 110px', borderBottom: '1px solid #000', fontWeight: 700 }}>
           <div style={{ padding: '5px 8px', textAlign: 'right' }}>Total Fee:</div>
           <div className="num" style={{ padding: '5px 8px', borderLeft: '1px solid #000', textAlign: 'right', color: model.pctSum === 100 ? undefined : RED }}>{model.pctSum}%</div>
           <div className="num" style={{ padding: '5px 8px', borderLeft: '1px solid #000', textAlign: 'right' }}>{money(fee)}</div>
@@ -560,7 +562,7 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
       </div>)
     if (c.kind === 'prints') return <>
       <table style={{ width: 420, margin: '4px auto 10px', textAlign: 'center' }}><tbody>
-        <tr style={{ fontWeight: 700 }}><td>Size</td><td>Color</td><td>Black &amp; White</td></tr>
+        <tr className="ag-hd" style={{ fontWeight: 700 }}><td>Size</td><td>Color</td><td>Black &amp; White</td></tr>
         {[['11” x 17”', 2, 1], ['18” x 24”', 5, 2], ['24” x 36”', 10, 5], ['36” x 48”', 20, 10]].map(([s, c1, c2]) => <tr key={s as string}><td>{s}</td><td>${c1} / per sheet</td><td>${c2} / per sheet</td></tr>)}
       </tbody></table>
       <p>No expense beyond the compensation mentioned above (<span className="ag-fp" style={{ background: draft ? '#e4e4e4' : 'transparent' }}>{money(fee)}</span>) will be incurred by the Owner unless the Owner approves a written proposal for Additional Services from the Architect. No Additional Services will be performed by the Architect without such written consent.</p>
@@ -581,25 +583,25 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
           ? <div style={{ height: 74, flex: 'none', display: 'flex', alignItems: 'center' }}><img src={logo} alt="Abaya Design Studio" style={{ display: 'block', height: 'auto', width: 'auto', maxWidth: 260, maxHeight: 74 }} /></div>
           : <div style={{ width: 170, height: 74, flex: 'none', background: '#02253d', color: '#ede6d6', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: "'EB Garamond', Georgia, serif" }}>
               <span style={{ fontSize: 26, letterSpacing: '.18em' }}>ABAYA</span><span style={{ fontSize: 9, letterSpacing: '.32em' }}>DESIGN STUDIO</span></div>}
-        <div style={{ fontSize: 12, lineHeight: 1.35 }}><strong>Abaya Design Studio, LLC.</strong><br />215 S Denton Tap Road, Suite 215<br />Coppell, Texas 75019<br />info@abayadesignstudio.com<br />Abayadesignstudio.com</div>
+        <div style={{ fontSize: 12, lineHeight: 1.35 }}><strong className="ag-hd">Abaya Design Studio, LLC.</strong><br />215 S Denton Tap Road, Suite 215<br />Coppell, Texas 75019<br />info@abayadesignstudio.com<br />Abayadesignstudio.com</div>
       </header>
       <div style={{ margin: '14px 0 0', padding: '8px 10px', border: '1px solid #000', fontSize: 11, lineHeight: 1.35 }}><strong>MODIFICATIONS:</strong> {notice}</div>
       <h1 style={{ margin: '18px 0 0', fontSize: 19 }}>Standard Agreement between Owner and Architect</h1>
       <p style={{ margin: '2px 0 16px', fontStyle: 'italic', fontSize: 15 }}>This Agreement is made <span className="ag-fp" style={fpStyle(longDate)}>{longDate || '[Agreement date]'}</span> between…</p>
       <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 24, fontSize: 12.5 }}>
-        <div><p style={{ margin: '0 0 4px', fontWeight: 700 }}>Owner:</p>
+        <div><p className="ag-hd" style={{ margin: '0 0 4px', fontWeight: 700 }}>Owner:</p>
           <table className="ag-box"><tbody>
             <tr><td className="k">Name</td><td>{v.ownerName || <em style={fpStyle('')}>[Owner name]</em>}</td></tr>
             <tr><td className="k">Business Address:</td><td>{lines(v.ownerAddr).map((t, i) => <div key={i}>{t}</div>)}</td></tr>
             <tr><td className="k">Telephone</td><td>{v.ownerPhone}</td></tr>
             <tr><td className="k">Email</td><td>{lines(v.ownerEmail).map((t, i) => <div key={i}>{t}</div>)}</td></tr>
           </tbody></table></div>
-        <div><p style={{ margin: '0 0 4px', fontWeight: 700 }}>Architect:</p>
+        <div><p className="ag-hd" style={{ margin: '0 0 4px', fontWeight: 700 }}>Architect:</p>
           <p style={{ margin: 0 }}><u>Name:</u> Abaya Design Studio, LLC.<br /><u>Business Address:</u> 215 S Denton Tap Rd, Suite 215, Coppell, Texas 75019</p>
           {lines(v.archContacts).map((t, i) => <div key={i}>{t}</div>)}</div>
       </div>
-      <p style={{ margin: '16px 0 6px', fontStyle: 'italic', fontWeight: 700 }}>For the Project…</p>
-      <p style={{ margin: '0 0 4px', fontWeight: 700 }}>Project:</p>
+      <p className="ag-hd" style={{ margin: '16px 0 6px', fontStyle: 'italic', fontWeight: 700 }}>For the Project…</p>
+      <p className="ag-hd" style={{ margin: '0 0 4px', fontWeight: 700 }}>Project:</p>
       <table className="ag-box" style={{ fontSize: 12.5, maxWidth: 520 }}><tbody>
         <tr><td className="k">Name:</td><td>{v.projName}</td></tr><tr><td className="k">Address:</td><td>{v.projAddr}</td></tr>
         <tr><td className="k">Size:</td><td>{v.projSize}</td></tr><tr><td className="k">Type:</td><td>{TYPES[v.projType] || ''}</td></tr>
@@ -624,7 +626,7 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
               return (
                 <div key={c.id} className={'ag-clause' + (hasBreak('c' + c.id) ? ' ag-pagebreak' : '')} style={{ marginLeft: c.sub ? 9 : -13, borderLeftColor: bar, ...(c.off && draft ? struck(false) : {}) }}>
                   <BreakUI id={'c' + c.id} what={`clause ${c.num}`} />
-                  <p className="ag-ct" style={{ margin: '0 0 2px', fontWeight: 700 }}><span onClick={open} style={{ cursor: 'pointer' }}>{c.num}</span> <Segs segs={titleSegs} onClick={open} />{omittedFinal && <span style={{ fontWeight: 400 }}> Intentionally omitted.</span>}</p>
+                  <p className="ag-ct" style={{ margin: '0 0 2px', fontWeight: 700 }}><span onClick={open} style={{ cursor: 'pointer' }}>{c.num}</span> <Segs segs={titleSegs} onClick={open} />{omittedFinal && <span className="ag-nb" style={{ fontWeight: 400 }}> Intentionally omitted.</span>}</p>
                   {!omittedFinal && <>
                     {toParas(runsOf(c)).map((segs, i) => <p key={i} style={{ paddingLeft: pad(segs) }}><Segs segs={segs} onClick={open} /></p>)}
                     {special(c)}
@@ -640,7 +642,7 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
         <div><p>Date: {longDate}</p><div style={{ height: 64 }} /><p className="ag-f-osig" style={{ margin: '0 0 30px', borderTop: '1px solid #000', paddingTop: 4 }}>Owner (Signature)</p><p className="ag-f-oprint" style={{ margin: 0, borderTop: '1px solid #000', paddingTop: 4 }}>Owner (Print)</p></div>
       </div>
       <p style={{ margin: '18px 0 0', textAlign: 'center', fontStyle: 'italic' }}>If you have any further questions, please do not hesitate to contact us!</p>
-      <p style={{ margin: '6px 0 0', paddingTop: 6, borderTop: RULE, textAlign: 'center', fontWeight: 700 }}>END OF DOCUMENT</p>
+      <p className="ag-hd" style={{ margin: '6px 0 0', paddingTop: 6, borderTop: RULE, textAlign: 'center', fontWeight: 700 }}>END OF DOCUMENT</p>
 
       {!draft && report.length > 0 && (
         <section aria-label="Modifications report" className="ag-pagebreak" style={{ marginTop: 36, paddingTop: 18, borderTop: RULE, breakBefore: 'page' }}>
@@ -648,7 +650,7 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
           <p style={{ textAlign: 'center', fontSize: 12 }}><em>Changes to the Abaya Design Studio standard form text. Additions are underlined; deletions are struck through.</em></p>
           {report.map((c) => (
             <div key={c.id} style={{ margin: '0 0 12px' }}>
-              <p style={{ margin: '0 0 2px', fontWeight: 700 }}>{c.num} {c.title.replace(/\{[^}]+\}/g, '…')}</p>
+              <p className="ag-hd" style={{ margin: '0 0 2px', fontWeight: 700 }}>{c.num} {c.title.replace(/\{[^}]+\}/g, '…')}</p>
               <p style={{ margin: '0 0 4px', fontStyle: 'italic' }}>{c.off ? 'Deleted in full (intentionally omitted).' : c.added ? 'Added (not part of the standard form):' : 'Standard text revised:'}</p>
               {!c.off && toParas(runsOf(c), true).map((segs, i) => <p key={i} style={{ paddingLeft: 18 }}><Segs segs={segs} force /></p>)}
             </div>))}

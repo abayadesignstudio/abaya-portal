@@ -62,3 +62,7 @@
 .ag-drop-h{font-size:12px;color:var(--muted)}
 
 .ag-screen-pages .ag-foot{right:48px;bottom:48px}
+
+/* headings in the agreement: Lato Bold (bundled via @fontsource/lato); body text stays Arial */
+.ag-doc h1,.ag-doc h2,.ag-doc h3,.ag-doc .ag-ct,.ag-doc .ag-hd,.ag-foot{font-family:'Lato',Arial,Helvetica,sans-serif;font-weight:700}
+.ag-doc .ag-nb{font-family:Arial,Helvetica,sans-serif}
