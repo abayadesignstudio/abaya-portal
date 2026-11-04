@@ -1,5 +1,7 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/auth'
+import SetPassword from './pages/SetPassword'
+import Account from './pages/Account'
 import SignIn from './pages/SignIn'
 import StaffLayout from './staff/StaffLayout'
 import StaffHome from './staff/Home'
@@ -23,9 +25,10 @@ import ClientInvoices from './client/ClientInvoices'
 import ClientHome from './client/ClientHome'
 
 function Gate() {
-  const { session, profile, loading, signOut } = useAuth()
+  const { session, profile, loading, signOut, recovering, endRecovery } = useAuth()
   if (loading) return <p style={{ padding: 40 }}>Loading…</p>
   if (!session) return <SignIn />
+  if (recovering) return <SetPassword onDone={endRecovery} />
   if (!profile || profile.role === 'none') return (
     <div style={{ maxWidth: 520, margin: '80px auto' }} className="card pad stack">
       <h1>No access yet</h1>
@@ -54,6 +57,7 @@ function Gate() {
         <Route path="invoices" element={<Invoices />} />
         <Route path="invoices/new" element={<InvoiceBuilder />} />
         <Route path="invoices/:id" element={<InvoiceBuilder />} />
+        <Route path="account" element={<Account />} />
         <Route path="proposals" element={<Proposals />} />
         <Route path="proposals/:id" element={<AgreementEditor />} />
         <Route path="notifications" element={<ClientUpdates />} />

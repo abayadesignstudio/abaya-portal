@@ -36,7 +36,7 @@ export default function StaffLayout() {
           </NavLink>
           <div className="me">
             <span aria-hidden="true" style={{ width: 36, height: 36, border: '1px solid var(--pat)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{ini}</span>
-            <div><div>{profile?.full_name || profile?.email}</div><button onClick={signOut}>Sign out</button></div>
+            <div><NavLink to="/account" onClick={() => setOpen(false)} title="My account and password" style={{ color: 'inherit', textDecoration: 'none', display: 'block' }}>{profile?.full_name || profile?.email}</NavLink><button onClick={signOut}>Sign out</button></div>
           </div>
         </div>
       </aside>

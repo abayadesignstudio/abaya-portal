@@ -2,8 +2,8 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import type { Session } from '@supabase/supabase-js'
 import { supabase, type Profile } from './supabase'
 
-type Auth = { session: Session | null; profile: Profile | null; loading: boolean; signOut: () => Promise<void> }
-const Ctx = createContext<Auth>({ session: null, profile: null, loading: true, signOut: async () => {} })
+type Auth = { session: Session | null; profile: Profile | null; loading: boolean; recovering: boolean; endRecovery: () => void; signOut: () => Promise<void> }
+const Ctx = createContext<Auth>({ session: null, profile: null, loading: true, recovering: false, endRecovery: () => {}, signOut: async () => {} })
 
 /**
  * Sign-in state for the whole portal.
@@ -19,10 +19,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const loadedFor = useRef<string | null>(null) // user id whose profile is currently loaded
+  const [recovering, setRecovering] = useState(false) // opened a password-reset link: ask for a new password first
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); if (!data.session) setLoading(false) })
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'PASSWORD_RECOVERY') setRecovering(true)
       // keep the same object when nothing that matters changed, so screens don't re-render for nothing
       setSession((old) => (old && s && old.user.id === s.user.id && old.access_token === s.access_token ? old : s))
     })
@@ -45,6 +47,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [uid, session?.access_token])
 
   const signOut = async () => { await supabase.auth.signOut(); loadedFor.current = null; setProfile(null) }
-  return <Ctx.Provider value={{ session, profile, loading, signOut }}>{children}</Ctx.Provider>
+  return <Ctx.Provider value={{ session, profile, loading, recovering, endRecovery: () => setRecovering(false), signOut }}>{children}</Ctx.Provider>
 }
 export const useAuth = () => useContext(Ctx)
