@@ -33,10 +33,10 @@ const time12 = (t: string | null) => { if (!t) return ''; const [h, m] = t.split
 const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
 const sectorColor = (s?: string | null) => SECTOR_COLOR[s ?? 'internal'] ?? '#9aa4b2'
 
-/** Small colored project-number tag (hover shows the project name). */
+/** Project on a calendar item: colored number tag plus the project name on its own line. */
 function ProjTag({ p }: { p: { number: string; name: string; sector?: string | null } | null | undefined }) {
   if (!p) return null
-  return <span className="tk-proj" style={{ background: sectorColor(p.sector) }} title={`${p.number} · ${p.name}`}>{p.number}</span>
+  return <span className="tk-pline" title={`${p.number} · ${p.name}`}><span className="tk-proj" style={{ background: sectorColor(p.sector) }}>{p.number}</span><span className="tk-pname">{p.name}</span></span>
 }
 
 /** The days (YYYY-MM-DD, local time) a Google event covers. All-day end dates are exclusive in Google. */
