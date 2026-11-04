@@ -6,6 +6,8 @@ create table public.calendar_event_projects (
   set_by uuid references public.profiles(id) on delete set null default auth.uid(),
   updated_at timestamptz not null default now()
 );
+create index calendar_event_projects_project_idx on public.calendar_event_projects (project_id);
+create index calendar_event_projects_set_by_idx on public.calendar_event_projects (set_by);
 alter table public.calendar_event_projects enable row level security;
 create policy "staff read event links"   on public.calendar_event_projects for select to authenticated using ((select private.is_staff()));
 create policy "staff add event links"    on public.calendar_event_projects for insert to authenticated with check ((select private.is_staff()));

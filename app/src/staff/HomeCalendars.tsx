@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { supabase, SECTOR_COLOR, money } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import { isoDate, parseDate } from './workload'
@@ -17,7 +18,11 @@ export type Task = { id: string; title: string; notes: string | null; assignee: 
   project_id: string | null; projects: { number: string; name: string; sector: string | null } | null }
 type Ev = { id: string; profile_id: string; project_id?: string | null; title: string; starts_on: string; ends_on: string; start_time: string | null; projects: { number: string; name: string; sector: string | null } | null }
 export type Proj = { id: string; number: string; name: string; sector?: string | null }
-type GEv = { id: string; profile_id: string; title: string; start: string; end: string; all_day: boolean; location: string | null; hint: string; busy_only: boolean }
+/** One Google Calendar event as the calendar-feed function returns it (one copy per connected calendar it's on). */
+type GEv = { id: string; uid: string; profile_id: string; title: string; start: string; end: string; all_day: boolean; location: string | null; busy_only: boolean
+  guests: string[]; organizer: string | null; auto_project_id: string | null; can_edit: boolean; description?: string; link: string | null }
+/** The same meeting merged across everyone's calendars: shown once, with everyone in it. */
+type GM = GEv & { key: string; people: string[] }
 type Link = { google_event_id: string; project_id: string | null }
 
 const TASK_SELECT = 'id, title, notes, assignee, created_by, due_on, due_time, done_at, project_id, projects(number, name, sector)'
@@ -32,12 +37,6 @@ const sectorColor = (s?: string | null) => SECTOR_COLOR[s ?? 'internal'] ?? '#9a
 function ProjTag({ p }: { p: { number: string; name: string; sector?: string | null } | null | undefined }) {
   if (!p) return null
   return <span className="tk-proj" style={{ background: sectorColor(p.sector) }} title={`${p.number} · ${p.name}`}>{p.number}</span>
-}
-
-/** Find a project number in a meeting's title, location or description ("2608B site visit" → 2608B). Longest number wins. */
-export function matchProject(text: string, projects: Proj[]): Proj | undefined {
-  const cands = projects.filter((p) => p.number && p.number !== 'OH' && p.number.length >= 3).sort((a, b) => b.number.length - a.number.length)
-  return cands.find((p) => new RegExp(`(^|[^A-Za-z0-9])${p.number.replace(/[^A-Za-z0-9]/g, '\\$&')}([^A-Za-z0-9]|$)`, 'i').test(text))
 }
 
 /** The days (YYYY-MM-DD, local time) a Google event covers. All-day end dates are exclusive in Google. */
@@ -68,7 +67,7 @@ export function useTasks(from: string, to: string, assignee?: string) {
 }
 
 /** One task line: checkbox (crosses it out), title, time/project, and remove for its owner or an admin. */
-export function TaskItem({ t, me, admin, people, showWho, prefixName, onChange, onEdit }: { t: Task; me: string; admin: boolean; people: Person[]; showWho?: boolean; prefixName?: boolean; onChange: () => void; onEdit?: (t: Task) => void }) {
+export function TaskItem({ t, me, admin, people, showWho, prefixName, onChange, onEdit }: { t: Task; me: string; admin: boolean; people: Person[]; showWho?: boolean; prefixName?: boolean; onChange: () => void; onEdit?: (t: Task, el: HTMLElement) => void }) {
   const [busy, setBusy] = useState(false)
   const [optimistic, setOptimistic] = useState<{ v: boolean; was: string | null } | null>(null) // flips instantly; cleared once the list reloads
   const done = optimistic && optimistic.was === t.done_at ? optimistic.v : !!t.done_at
@@ -99,7 +98,7 @@ export function TaskItem({ t, me, admin, people, showWho, prefixName, onChange, 
             <ProjTag p={t.projects} />
           </>
           return mine && onEdit
-            ? <button type="button" className="tk-text tk-open" title={t.notes ? `${t.notes}\n\nClick to edit` : 'Click to edit'} onClick={() => onEdit(t)}>{body}</button>
+            ? <button type="button" className="tk-text tk-open" title={t.notes ? `${t.notes}\n\nClick to edit` : 'Click to edit'} onClick={(ev) => { ev.stopPropagation(); onEdit(t, ev.currentTarget) }}>{body}</button>
             : <span className="tk-text" title={t.notes || undefined}>{body}</span>
         })()}
       </div>
@@ -139,56 +138,195 @@ export function EventItem({ e, me, admin, people, onChange }: { e: Ev; me: strin
 }
 
 
-/** A Google Calendar meeting (read-only here). Click it to tie it to a project. */
-function GEventItem({ e, people, project, onOpen }: { e: GEv; people: Person[]; project?: Proj; onOpen?: (e: GEv) => void }) {
-  const who = people.find((p) => p.id === e.profile_id)
+const tz = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago'
+const names = (ids: string[], people: Person[], _me?: string) => ids.map((id) => firstName(people.find((p) => p.id === id))).join(', ') // "Joshua, Micah" (same as tasks)
+function whenText(e: GEv) {
+  const opts: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'long', day: 'numeric' }
+  if (e.all_day) {
+    const s = parseDate(e.start), last = addDays(parseDate(e.end), -1)
+    return isoDate(s) === isoDate(last) ? `${s.toLocaleDateString('en-US', opts)} · All day` : `${s.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${last.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · All day`
+  }
+  const s = new Date(e.start), en = new Date(e.end)
+  const t = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(':00', '')
+  return `${s.toLocaleDateString('en-US', opts)} · ${t(s)} – ${t(en)}`
+}
+/** Read a Supabase function error's message ({ error, code } JSON). */
+async function fnError(error: unknown, fallback: string) {
+  try { const j = await (error as { context?: Response }).context?.json(); return { msg: String(j?.error || fallback), code: String(j?.code || '') } } catch { return { msg: fallback, code: '' } }
+}
+
+/** A Google Calendar meeting on the month grid. Click it for details (like Google Calendar). */
+function GEventItem({ e, people, me, project, onOpen }: { e: GM; people: Person[]; me: string; project?: Proj; onOpen: (e: GM, el: HTMLElement) => void }) {
   const body = <>
     {!e.all_day && <span className="num tk-time">{time12(hhmm(e.start))} </span>}
-    <span className="tk-title"><span className="tk-who">{firstName(who)}: </span>{e.title}</span>
+    <span className="tk-title"><span className="tk-who">{names(e.people, people, me)}: </span>{e.title}</span>
     <ProjTag p={project} />
   </>
-  const tip = [e.title, e.location, 'Google Calendar', onOpen ? 'Click to link a project' : ''].filter(Boolean).join('\n')
   return (
-    <li className="tk tk-g" style={{ borderLeftColor: project ? sectorColor(project.sector) : '#9aa4b2' }}>
+    <li className={'tk tk-g' + (e.all_day ? ' allday' : '')} style={{ borderLeftColor: project ? sectorColor(project.sector) : '#9aa4b2' }}>
       <div className="tk-main">
         <span className="tk-gicon" aria-hidden="true">◷</span>
-        {onOpen ? <button type="button" className="tk-text tk-open" title={tip} onClick={() => onOpen(e)}>{body}</button>
-          : <span className="tk-text" title={tip}>{body}</span>}
+        <button type="button" className="tk-text tk-open" title={[e.title, e.location].filter(Boolean).join('\n')} onClick={(ev) => { ev.stopPropagation(); onOpen(e, ev.currentTarget) }}>{body}</button>
       </div>
     </li>
   )
 }
 
-/** Choose which project a Google meeting belongs to. "Automatic" = whatever project number is in its title. */
-function EventLinkForm({ e, people, projects, link, auto, onDone, onCancel }: { e: GEv; people: Person[]; projects: Proj[]; link?: Link; auto?: Proj; onDone: () => void; onCancel: () => void }) {
-  const [v, setV] = useState(link ? (link.project_id ?? 'none') : 'auto')
-  const [err, setErr] = useState(''); const [busy, setBusy] = useState(false)
-  const who = people.find((p) => p.id === e.profile_id)
-  const save = async (ev: React.FormEvent) => {
-    ev.preventDefault(); setBusy(true); setErr('')
-    const { error } = v === 'auto'
-      ? await supabase.from('calendar_event_projects').delete().eq('google_event_id', e.id)
-      : await supabase.from('calendar_event_projects').upsert({ google_event_id: e.id, project_id: v === 'none' ? null : v, updated_at: new Date().toISOString() })
+/** A floating card next to what was clicked, like Google Calendar's quick view. Esc or a click outside closes it. */
+function Pop({ anchor, label, onClose, children }: { anchor: DOMRect; label: string; onClose: () => void; children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+  useLayoutEffect(() => {
+    const el = ref.current; if (!el) return
+    const W = el.offsetWidth, H = el.offsetHeight, vw = window.innerWidth, vh = window.innerHeight
+    let left = anchor.right + 8
+    if (left + W > vw - 8) left = anchor.left - W - 8
+    if (left < 8) left = Math.max(8, Math.min(vw - W - 8, anchor.left))
+    const top = Math.max(8, Math.min(anchor.top, vh - H - 8))
+    if (!pos || pos.left !== left || pos.top !== top) setPos({ left, top })
+  })
+  const close = useRef(onClose); close.current = onClose
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current() }
+    const down = (e: MouseEvent) => { const t = e.target as Node; if (t.isConnected && ref.current && !ref.current.contains(t)) close.current() }
+    document.addEventListener('keydown', key); document.addEventListener('mousedown', down)
+    return () => { document.removeEventListener('keydown', key); document.removeEventListener('mousedown', down) }
+  }, [])
+  return createPortal(
+    <div ref={ref} className="qp" role="dialog" aria-label={label} style={pos ?? { left: 0, top: 0, visibility: 'hidden' }}>
+      <button type="button" className="qp-x" onClick={onClose} aria-label="Close">×</button>
+      {children}
+    </div>, document.body)
+}
+
+const nextHour = () => { const d = new Date(); return `${String(Math.min(23, d.getHours() + 1)).padStart(2, '0')}:00` }
+const plusHour = (t: string) => { const [h, m] = t.split(':').map(Number); return `${String((h + 1) % 24).padStart(2, '0')}:${String(m).padStart(2, '0')}` }
+const minutes = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
+const fromMinutes = (n: number) => { const x = ((n % 1440) + 1440) % 1440; return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}` }
+
+/** Google-style quick create: a title, Event / Task tabs, then the few fields each needs. Also edits an event. */
+function QuickCreate({ me, admin, people, projects, day, connected, edit, linkProject, onDone, onCancel }: {
+  me: string; admin: boolean; people: Person[]; projects: Proj[]; day: string; connected: boolean; edit?: GM; linkProject?: string | null
+  onDone: (msg: string, kind: 'event' | 'task') => void; onCancel: () => void }) {
+  const today = isoDate(new Date())
+  const st = edit && !edit.all_day ? hhmm(edit.start) : day === today ? nextHour() : '09:00'
+  const [f, setF] = useState(() => ({
+    kind: (edit ? 'event' : connected ? 'event' : 'task') as 'event' | 'task',
+    title: edit?.title ?? '', date: edit ? (edit.all_day ? edit.start : isoDate(new Date(edit.start))) : day,
+    end_date: edit ? (edit.all_day ? isoDate(addDays(parseDate(edit.end), -1)) : isoDate(new Date(edit.end))) : day,
+    all_day: edit?.all_day ?? false, start_time: st, end_time: edit && !edit.all_day ? hhmm(edit.end) : plusHour(st),
+    task_time: '', assignee: me, guests: edit ? edit.guests.filter((g) => g !== me) : [] as string[],
+    location: edit?.location ?? '', project_id: edit ? (linkProject ?? edit.auto_project_id ?? '') : '', notes: edit?.description ?? '',
+  }))
+  const [err, setErr] = useState<{ msg: string; code: string } | null>(null); const [busy, setBusy] = useState(false)
+  const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((o) => ({ ...o, [k]: v }))
+  const setStart = (v: string) => setF((o) => ({ ...o, start_time: v, end_time: v && o.start_time && o.end_time ? fromMinutes(minutes(o.end_time) + minutes(v) - minutes(o.start_time)) : o.end_time })) // keeps the length, like Google
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault(); setErr(null)
+    if (!f.title.trim()) return setErr({ msg: 'Add a title.', code: '' })
+    setBusy(true)
+    if (f.kind === 'event') {
+      const { data, error } = await supabase.functions.invoke('calendar-event', { body: {
+        op: edit ? 'update' : 'create', id: edit?.id, title: f.title, all_day: f.all_day, date: f.date, end_date: f.all_day ? f.end_date : f.date,
+        start_time: f.start_time, end_time: f.end_time, time_zone: tz(), location: f.location, description: f.notes, guests: f.guests, project_id: f.project_id || null } })
+      setBusy(false)
+      if (error || !data?.ok) return setErr(await fnError(error, 'Couldn’t save the event to Google Calendar.'))
+      return onDone(edit ? 'Event updated.' : f.guests.length ? `Event added. ${names(f.guests, people, me)} ${f.guests.length > 1 ? 'were' : 'was'} invited.` : 'Event added to your Google Calendar.', 'event')
+    }
+    const { data, error } = await supabase.from('tasks').insert({ title: f.title.trim(), due_on: f.date, due_time: f.task_time || null, assignee: f.assignee,
+      project_id: f.project_id || null, notes: f.notes.trim() || null, created_by: me }).select('id').single()
     setBusy(false)
-    if (error) return setErr(/calendar_event_projects/.test(error.message) ? 'Linking meetings to projects isn’t switched on yet.' : error.message)
-    onDone()
+    if (error) return setErr({ msg: error.message, code: '' })
+    syncTask((data as { id: string }).id, 'upsert')
+    onDone(f.assignee === me ? 'Task added.' : `Task added for ${firstName(people.find((p) => p.id === f.assignee))}.`, 'task')
   }
-  const when = e.all_day ? parseDate(e.start).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-    : new Date(e.start).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  const others = people.filter((p) => p.id !== me)
   return (
-    <form onSubmit={save} className="tk-form">
-      <p style={{ gridColumn: '1 / -1', margin: 0 }}><b>{e.title}</b> <span className="muted">· {firstName(who)} · {when} · Google Calendar</span></p>
-      <div style={{ gridColumn: '1 / -1' }}><label className="l" htmlFor="ge-p">Project</label>
-        <select id="ge-p" className="input" value={v} onChange={(x) => setV(x.target.value)} autoFocus>
-          <option value="auto">Automatic{auto ? ` (found ${auto.number} in the title)` : ' (no project number in the title)'}</option>
+    <form onSubmit={save} className="qp-form">
+      <input className="qp-title" aria-label="Title" placeholder="Add title" autoFocus value={f.title} onChange={(e) => set('title', e.target.value)} />
+      {!edit && <div className="qp-tabs" role="tablist" aria-label="Type">
+        {(['event', 'task'] as const).map((k) => <button key={k} type="button" role="tab" aria-selected={f.kind === k} className={'qp-tab' + (f.kind === k ? ' on' : '')} onClick={() => { set('kind', k); setErr(null) }}>{k === 'event' ? 'Event' : 'Task'}</button>)}
+      </div>}
+      {f.kind === 'event' ? <>
+        {!connected && <p className="qp-note">Events are saved in your Google Calendar. <a href="#/account">Connect Google on My account</a> first.</p>}
+        <div className="qp-row">
+          <input type="date" className="input" aria-label="Date" value={f.date} onChange={(e) => setF((o) => ({ ...o, date: e.target.value, end_date: o.end_date < e.target.value ? e.target.value : o.end_date }))} required />
+          {f.all_day && <><span className="qp-dash">–</span><input type="date" className="input" aria-label="End date" value={f.end_date} min={f.date} onChange={(e) => set('end_date', e.target.value)} /></>}
+        </div>
+        {!f.all_day && <div className="qp-row qp-times">
+          <input type="time" className="input" aria-label="Start time" value={f.start_time} onChange={(e) => setStart(e.target.value)} required step={300} />
+          <span className="qp-dash">–</span><input type="time" className="input" aria-label="End time" value={f.end_time} onChange={(e) => set('end_time', e.target.value)} required step={300} />
+        </div>}
+        <label className="qp-check"><input type="checkbox" checked={f.all_day} onChange={(e) => set('all_day', e.target.checked)} /> All day</label>
+        {others.length > 0 && <fieldset className="qp-guests"><legend className="l">Invite</legend>
+          {others.map((p) => <label key={p.id} className={'qp-chip' + (f.guests.includes(p.id) ? ' on' : '')}><input type="checkbox" checked={f.guests.includes(p.id)}
+            onChange={(e) => set('guests', e.target.checked ? [...f.guests, p.id] : f.guests.filter((g) => g !== p.id))} />{firstName(p)}</label>)}
+        </fieldset>}
+        <input className="input" aria-label="Location" placeholder="Add location" value={f.location} onChange={(e) => set('location', e.target.value)} />
+      </> : <>
+        <div className="qp-row">
+          <input type="date" className="input" aria-label="Date" value={f.date} onChange={(e) => set('date', e.target.value)} required />
+          <input type="time" className="input" aria-label="Time (optional)" title="Time (optional)" value={f.task_time} onChange={(e) => set('task_time', e.target.value)} step={300} />
+        </div>
+        <label className="qp-lab">Assign to
+          <select className="input" value={f.assignee} onChange={(e) => set('assignee', e.target.value)} disabled={!admin}>
+            {(admin ? people : people.filter((p) => p.id === me)).map((p) => <option key={p.id} value={p.id}>{p.id === me ? `Me (${nameOf(p)})` : nameOf(p)}</option>)}
+          </select></label>
+      </>}
+      <select className="input" aria-label="Project" value={f.project_id} onChange={(e) => set('project_id', e.target.value)}>
+        <option value="">No project</option>
+        {projects.filter((p) => p.number !== 'OH').map((p) => <option key={p.id} value={p.id}>{p.number} · {p.name}</option>)}
+      </select>
+      <textarea className="input" rows={2} aria-label="Description" placeholder="Add description" value={f.notes} onChange={(e) => set('notes', e.target.value)} />
+      {err && <p className="err" role="alert" style={{ margin: 0 }}>{err.msg}{err.code === 'reconnect' || err.code === 'not_connected' ? <> <a href="#/account">Open My account</a></> : null}</p>}
+      <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
+        <button type="button" className="btn secondary small" onClick={onCancel}>Cancel</button>
+        <button className="btn small" disabled={busy || (f.kind === 'event' && !connected)}>{busy ? 'Saving…' : 'Save'}</button>
+      </div>
+    </form>
+  )
+}
+
+/** Google-style details card for a meeting: when, where, who, its project; edit/delete for the organizer. */
+function EventView({ e, me, people, projects, project, link, onEdit, onChanged, onClose }: { e: GM; me: string; people: Person[]; projects: Proj[]; project?: Proj
+  link?: Link; onEdit: () => void; onChanged: (msg: string, what: 'link' | 'event') => void; onClose: () => void }) {
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
+  const auto = projects.find((p) => p.id === e.auto_project_id)
+  const [v, setV] = useState(link ? (link.project_id ?? 'none') : 'auto')
+  const saveLink = async (val: string) => {
+    setV(val); setErr('')
+    const { error } = val === 'auto' ? await supabase.from('calendar_event_projects').delete().eq('google_event_id', e.id)
+      : await supabase.from('calendar_event_projects').upsert({ google_event_id: e.id, project_id: val === 'none' ? null : val, updated_at: new Date().toISOString() })
+    if (error) setErr(error.message); else onChanged('Project saved.', 'link')
+  }
+  const remove = async () => {
+    if (!window.confirm(`Delete “${e.title}”? ${e.guests.some((g) => g !== me) ? 'Guests will get a cancellation from Google.' : ''}`)) return
+    setBusy(true)
+    const { data, error } = await supabase.functions.invoke('calendar-event', { body: { op: 'delete', id: e.id } })
+    setBusy(false)
+    if (error || !data?.ok) return setErr((await fnError(error, 'Couldn’t delete the event.')).msg)
+    onChanged('Event deleted.', 'event'); onClose()
+  }
+  const organizer = e.organizer ?? (e.can_edit ? me : null)
+  return (
+    <div className="qp-view">
+      <h3 className="qp-h"><span className="qp-swatch" style={{ background: project ? sectorColor(project.sector) : '#9aa4b2' }} />{e.title}</h3>
+      <p className="qp-line">{whenText(e)}</p>
+      {e.location && <p className="qp-line">⌖ {e.location}</p>}
+      <p className="qp-line">👥 {names(e.people, people, me)}{organizer && e.people.length > 1 ? ` · organized by ${organizer === me ? 'you' : firstName(people.find((p) => p.id === organizer))}` : ''}</p>
+      {!e.busy_only && <label className="qp-lab">Project
+        <select className="input" value={v} onChange={(x) => saveLink(x.target.value)}>
+          <option value="auto">Automatic{auto ? ` (${auto.number})` : ' (none found)'}</option>
           <option value="none">No project</option>
           {projects.filter((p) => p.number !== 'OH').map((p) => <option key={p.id} value={p.id}>{p.number} · {p.name}</option>)}
-        </select></div>
-      {err && <p className="err" role="alert" style={{ gridColumn: '1 / -1', margin: 0 }}>{err}</p>}
-      <div className="row" style={{ gridColumn: '1 / -1', gap: 8 }}>
-        <button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
-        <button type="button" className="btn secondary" onClick={onCancel}>Cancel</button></div>
-    </form>
+        </select></label>}
+      {err && <p className="err" role="alert" style={{ margin: 0 }}>{err}</p>}
+      <div className="row" style={{ gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+        {e.link && <a className="btn secondary small" href={e.link} target="_blank" rel="noreferrer">Open in Google</a>}
+        {e.can_edit && <button type="button" className="btn secondary small" onClick={remove} disabled={busy}>Delete</button>}
+        {e.can_edit && <button type="button" className="btn small" onClick={onEdit}>Edit</button>}
+      </div>
+    </div>
   )
 }
 
@@ -265,18 +403,29 @@ export function AddTask({ me, admin, people, projects, day, edit, onDone, onCanc
   )
 }
 
-/** Home: month calendar of everyone's tasks, Google meetings (and older events), shown as "Name: item", filterable by person.
- *  Admins can assign to anyone; staff add their own. Check a task off and it stays, crossed out. */
+/** Merge copies of the same meeting from different people's calendars into one item listing everyone in it. */
+function mergeEvents(list: GEv[], me: string): GM[] {
+  const m = new Map<string, GM>()
+  for (const e of list) {
+    const key = `${e.uid}|${e.start}`
+    const prev = m.get(key)
+    const people = [...new Set([...(prev?.people ?? []), e.profile_id, ...e.guests, ...(e.organizer ? [e.organizer] : [])])]
+    const base = !prev || e.can_edit || (e.profile_id === me && !prev.can_edit) ? e : prev // prefer my editable copy
+    m.set(key, { ...base, key, people, guests: [...new Set([...(prev?.guests ?? []), ...e.guests])] })
+  }
+  return [...m.values()]
+}
+
+type Open = { kind: 'new'; day: string } | { kind: 'task'; task: Task } | { kind: 'event'; ev: GM } | { kind: 'edit'; ev: GM }
+
+/** Home: month calendar of everyone's tasks and Google meetings, shown as "Name: item", filterable by person.
+ *  Works like Google Calendar: click an empty spot on a day to add an event or a task; click an item for details. */
 export function MonthCalendar({ me, admin, people, projects }: { me: string; admin: boolean; people: Person[]; projects: Proj[] }) {
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
   const [who, setWho] = useState<string>('all')
-  const [adding, setAdding] = useState<string | null>(null)
-  const [editing, setEditing] = useState<Task | null>(null)
-  const [linking, setLinking] = useState<GEv | null>(null)
+  const [open, setOpen] = useState<(Open & { anchor: DOMRect }) | null>(null)
   const [msg, setMsg] = useState('')
-  const panel = (k: 'add' | 'edit' | 'link' | null, v?: unknown) => {
-    setAdding(k === 'add' ? (v as string) : null); setEditing(k === 'edit' ? (v as Task) : null); setLinking(k === 'link' ? (v as GEv) : null); setMsg('')
-  }
+  const pop = (o: Open, el: HTMLElement) => { setOpen({ ...o, anchor: el.getBoundingClientRect() }); setMsg('') }
   const start = addDays(month, -month.getDay()) // Sunday on or before the 1st
   const cells = useMemo(() => Array.from({ length: 42 }, (_, i) => addDays(start, i)), [start.getTime()]) // eslint-disable-line react-hooks/exhaustive-deps
   const from = isoDate(cells[0]), to = isoDate(cells[41])
@@ -285,24 +434,24 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   // bills due (admins only; bills include salaries)
   const bills = useLoad(async () => admin ? must(await supabase.from('company_bills').select('id, name, amount, due_on, paid_on').gte('due_on', from).lte('due_on', to)) as BillRow[] : [], [admin, from, to])
   const [showBills, setShowBills] = useState(true)
-  // Google Calendar meetings for everyone who connected Google (empty until Google is set up)
+  // Google Calendar meetings for everyone who connected Google
   const feed = useLoad(async () => {
     const { data, error } = await supabase.functions.invoke('calendar-feed', { body: { from, to } })
     return (error || !data?.events ? { events: [], me_connected: false } : data) as { events: GEv[]; me_connected: boolean }
   }, [from, to])
   const links = useLoad(async () => {
     const { data, error } = await supabase.from('calendar_event_projects').select('google_event_id, project_id')
-    return (error ? [] : data) as Link[] // table not there yet → automatic matching only
+    return (error ? [] : data) as Link[]
   }, [])
   const linkOf = (id: string) => (links.data ?? []).find((l) => l.google_event_id === id)
-  const autoProj = (e: GEv) => e.busy_only ? undefined : matchProject(`${e.title} ${e.location ?? ''} ${e.hint}`, projects)
-  const projOf = (e: GEv) => { const l = linkOf(e.id); return l ? projects.find((p) => p.id === l.project_id) : autoProj(e) }
+  const projOf = (e: GEv) => { const l = linkOf(e.id); return projects.find((p) => p.id === (l ? l.project_id : e.auto_project_id)) }
+  const connected = !!feed.data?.me_connected
   const gByDay = useMemo(() => {
-    const m = new Map<string, GEv[]>()
-    for (const e of feed.data?.events ?? []) for (const k of eventDays(e)) m.set(k, [...(m.get(k) ?? []), e])
+    const m = new Map<string, GM[]>()
+    for (const e of mergeEvents(feed.data?.events ?? [], me)) for (const k of eventDays(e)) m.set(k, [...(m.get(k) ?? []), e])
     for (const l of m.values()) l.sort((a, b) => (a.all_day === b.all_day ? a.start.localeCompare(b.start) : a.all_day ? -1 : 1))
     return m
-  }, [feed.data])
+  }, [feed.data, me])
   const reload = () => { tasks.reload(); evs.reload(); bills.reload() }
   const today = isoDate(new Date())
   const shift = (n: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1))
@@ -311,6 +460,8 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   const show = (pid: string) => who === 'all' || pid === who
   const order = [...people].sort((a, b) => (a.id === me ? -1 : b.id === me ? 1 : nameOf(a).localeCompare(nameOf(b))))
   const rank = (pid: string) => order.findIndex((p) => p.id === pid)
+  const done = (m: string, what: 'event' | 'task' | 'link') => { setOpen(null); setMsg(m); if (what === 'task') tasks.reload(); else if (what === 'event') { feed.reload(); links.reload() } else links.reload() }
+  const close = () => setOpen(null)
   return (
     <section className="card pad stack" aria-labelledby="mc-h">
       <div className="row between">
@@ -319,18 +470,15 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
           <button className="btn small secondary" aria-label="Previous month" onClick={() => shift(-1)}>‹</button>
           <button className="btn small secondary" onClick={() => { const d = new Date(); setMonth(new Date(d.getFullYear(), d.getMonth(), 1)) }}>Today</button>
           <button className="btn small secondary" aria-label="Next month" onClick={() => shift(1)}>›</button>
-          <button className="btn small" onClick={() => panel(adding || editing || linking ? null : 'add', today)}>{adding || editing || linking ? 'Close' : admin ? '+ Assign task' : '+ Task'}</button>
+          <button className="btn small" onClick={(e) => pop({ kind: 'new', day: today }, e.currentTarget)}>+ Create</button>
         </div>
       </div>
-      <div className="row" role="group" aria-label="Show tasks for" style={{ gap: 6 }}>
+      <div className="row" role="group" aria-label="Show calendar for" style={{ gap: 6 }}>
         <button type="button" className={'btn small' + (who === 'all' ? '' : ' secondary')} aria-pressed={who === 'all'} onClick={() => setWho('all')}>Everyone</button>
         {order.map((p) => <button key={p.id} type="button" className={'btn small' + (who === p.id ? '' : ' secondary')} aria-pressed={who === p.id} onClick={() => setWho(p.id)}>{p.id === me ? 'Me' : firstName(p)}</button>)}
         {admin && <label className="row" style={{ gap: 6, marginLeft: 'auto', fontSize: 14 }}><input type="checkbox" checked={showBills} onChange={(e) => setShowBills(e.target.checked)} style={{ width: 16, height: 16 }} /> Show bills</label>}
       </div>
-      {feed.data && !feed.data.me_connected && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Your Google Calendar meetings can show here: <a href="#/account">connect Google on My account</a>.</p>}
-      {adding && <AddTask me={me} admin={admin} people={people} projects={projects} day={adding} onCancel={() => panel(null)} onDone={(m) => { panel(null); setMsg(m); tasks.reload() }} />}
-      {editing && <AddTask key={editing.id} me={me} admin={admin} people={people} projects={projects} day={editing.due_on} edit={editing} onCancel={() => panel(null)} onDone={(m) => { panel(null); setMsg(m); tasks.reload() }} />}
-      {linking && <EventLinkForm key={linking.id} e={linking} people={people} projects={projects} link={linkOf(linking.id)} auto={autoProj(linking)} onCancel={() => panel(null)} onDone={() => { panel(null); setMsg('Meeting linked.'); links.reload() }} />}
+      {feed.data && !connected && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Your Google Calendar meetings can show here, and events you add go to your Google Calendar: <a href="#/account">connect Google on My account</a>.</p>}
       {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
       {(tasks.error || evs.error) && <p className="err">{tasks.error || evs.error}</p>}
       <div style={{ overflowX: 'auto' }}><div className="mc" style={{ minWidth: 760 }}>
@@ -340,20 +488,31 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
           const dayTasks = (tasks.data ?? []).filter((t) => t.due_on === k && show(t.assignee)).sort((a, b) => rank(a.assignee) - rank(b.assignee))
           const dayEvs = (evs.data ?? []).filter((e) => e.starts_on <= k && e.ends_on >= k && show(e.profile_id))
           return (
-            <div key={k} className={'mc-cell' + (out ? ' out' : '') + (k === today ? ' today' : '')}>
+            // clicking empty space in a day opens quick-create for that day (the + button does the same, for keyboards)
+            <div key={k} className={'mc-cell' + (out ? ' out' : '') + (k === today ? ' today' : '')}
+              onClick={(e) => { if (!(e.target as HTMLElement).closest('.tk, .mc-add, button, input, a, label')) pop({ kind: 'new', day: k }, e.currentTarget) }}>
               <div className="row between" style={{ gap: 4 }}>
                 <span className="mc-d">{d.getDate()}</span>
-                <button type="button" className="mc-add" onClick={() => panel('add', k)} aria-label={`Add a task on ${d.toDateString()}`}>+</button>
+                <button type="button" className="mc-add" onClick={(e) => pop({ kind: 'new', day: k }, e.currentTarget.closest('.mc-cell') as HTMLElement)} aria-label={`Add an event or task on ${d.toDateString()}`}>+</button>
               </div>
               <ul className="tk-list">
                 {showBills && (bills.data ?? []).filter((b) => b.due_on === k).map((b) => <BillItem key={b.id} b={b} onChange={bills.reload} />)}
-                {(gByDay.get(k) ?? []).filter((e) => show(e.profile_id)).map((e) => <GEventItem key={e.id + e.profile_id} e={e} people={people} project={projOf(e)} onOpen={e.busy_only ? undefined : (x) => panel('link', x)} />)}
+                {(gByDay.get(k) ?? []).filter((e) => who === 'all' || e.people.includes(who)).map((e) => <GEventItem key={e.key} e={e} me={me} people={people} project={projOf(e)} onOpen={(x, el) => pop({ kind: 'event', ev: x }, el)} />)}
                 {dayEvs.map((e) => <EventItem key={e.id} e={e} me={me} admin={admin} people={people} onChange={reload} />)}
-                {dayTasks.map((t) => <TaskItem key={t.id} t={t} me={me} admin={admin} people={people} prefixName onChange={reload} onEdit={(x) => panel('edit', x)} />)}
+                {dayTasks.map((t) => <TaskItem key={t.id} t={t} me={me} admin={admin} people={people} prefixName onChange={reload} onEdit={(x, el) => pop({ kind: 'task', task: x }, el)} />)}
               </ul>
             </div>)
         })}
       </div></div>
+      {open && <Pop key={open.kind + ('ev' in open ? open.ev.key : 'task' in open ? open.task.id : open.day)} anchor={open.anchor} onClose={close}
+        label={open.kind === 'new' ? 'Create' : open.kind === 'task' ? 'Edit task' : open.kind === 'edit' ? 'Edit event' : 'Event details'}>
+        {open.kind === 'new' && <QuickCreate me={me} admin={admin} people={people} projects={projects} day={open.day} connected={connected} onCancel={close} onDone={done} />}
+        {open.kind === 'edit' && <QuickCreate me={me} admin={admin} people={people} projects={projects} day={open.ev.start.slice(0, 10)} connected={connected} edit={open.ev}
+          linkProject={linkOf(open.ev.id) ? linkOf(open.ev.id)!.project_id : undefined} onCancel={close} onDone={done} />}
+        {open.kind === 'event' && <EventView e={open.ev} me={me} people={people} projects={projects} project={projOf(open.ev)} link={linkOf(open.ev.id)}
+          onEdit={() => setOpen({ ...open, kind: 'edit' })} onChanged={(m, w) => { setMsg(m); if (w === 'event') { feed.reload(); links.reload() } else links.reload() }} onClose={close} />}
+        {open.kind === 'task' && <div className="qp-form"><AddTask me={me} admin={admin} people={people} projects={projects} day={open.task.due_on} edit={open.task} onCancel={close} onDone={(m) => done(m, 'task')} /></div>}
+      </Pop>}
     </section>
   )
 }

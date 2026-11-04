@@ -3,8 +3,9 @@ import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 
 export const googleConfigured = () => !!Deno.env.get('GOOGLE_CLIENT_ID') && !!Deno.env.get('GOOGLE_CLIENT_SECRET')
 export const GOOGLE_NOT_CONFIGURED = { error: 'Google sync is not set up yet: add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to the Supabase function secrets.', code: 'google_not_configured' }
-// tasks: write portal tasks into Google Tasks. calendar.readonly: show each person's meetings on the portal calendar.
-export const SCOPES = ['openid', 'email', 'https://www.googleapis.com/auth/tasks', 'https://www.googleapis.com/auth/calendar.readonly']
+// tasks: write portal tasks into Google Tasks. calendar.events: show each person's meetings on the portal calendar,
+// and create/edit/delete the events they add from the portal (in their own calendar, with staff as guests).
+export const SCOPES = ['openid', 'email', 'https://www.googleapis.com/auth/tasks', 'https://www.googleapis.com/auth/calendar.events']
 export const redirectUri = () => `${Deno.env.get('SUPABASE_URL')}/functions/v1/google-oauth`
 
 // ---- signed state (so the callback knows who connected, and can't be forged) ----
@@ -104,35 +105,33 @@ export async function deleteTask(db: SupabaseClient, assignee: string, googleTas
   } catch { return 'google access expired' }
 }
 
-// ---- Google Calendar (read only) ----
-export type FeedEvent = { id: string; profile_id: string; title: string; start: string; end: string; all_day: boolean; location: string | null; hint: string; busy_only: boolean }
-/** One person's primary-calendar events between two dates (inclusive), recurring events expanded.
- *  Events the owner marked Private show as "Busy" with no details. `hint` is extra text used only to spot a project number. */
-export async function listEvents(token: string, profileId: string, from: string, to: string): Promise<FeedEvent[] | null> {
-  const out: FeedEvent[] = []
+// ---- Google Calendar ----
+const CAL = 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
+export type GItem = { id: string; status?: string; eventType?: string; summary?: string; description?: string; location?: string; visibility?: string; iCalUID?: string
+  start?: { date?: string; dateTime?: string }; end?: { date?: string; dateTime?: string }
+  attendees?: { email?: string; self?: boolean; responseStatus?: string; organizer?: boolean }[]; organizer?: { email?: string; self?: boolean }; creator?: { self?: boolean }; htmlLink?: string }
+
+/** One person's primary-calendar events between two dates (inclusive), recurring events expanded. Raw Google items. */
+export async function listEvents(token: string, from: string, to: string): Promise<GItem[] | null> {
+  const out: GItem[] = []
   let page = ''
   for (let i = 0; i < 5; i++) {
     const q = new URLSearchParams({ timeMin: `${from}T00:00:00-12:00`, timeMax: `${to}T23:59:59+14:00`, singleEvents: 'true', orderBy: 'startTime', maxResults: '250' })
     if (page) q.set('pageToken', page)
-    const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`, { headers: { Authorization: `Bearer ${token}` } })
+    const r = await fetch(`${CAL}?${q}`, { headers: { Authorization: `Bearer ${token}` } })
     if (!r.ok) return out.length ? out : null
     const j = await r.json()
-    for (const e of j.items ?? []) {
-      if (e.status === 'cancelled' || e.eventType === 'workingLocation') continue
-      const mine = (e.attendees ?? []).find((a: { self?: boolean }) => a.self)
-      if (mine?.responseStatus === 'declined') continue
-      const priv = e.visibility === 'private' || e.visibility === 'confidential'
-      const allDay = !!e.start?.date
-      out.push({
-        id: String(e.id), profile_id: profileId, all_day: allDay, busy_only: priv,
-        title: priv ? 'Busy' : String(e.summary ?? '(No title)'),
-        start: allDay ? e.start.date : e.start?.dateTime, end: allDay ? e.end.date : e.end?.dateTime,
-        location: priv ? null : (e.location ?? null),
-        hint: priv ? '' : String(e.description ?? '').slice(0, 400),
-      })
-    }
+    out.push(...(j.items ?? []))
     page = j.nextPageToken ?? ''
     if (!page) break
   }
   return out
+}
+
+/** Create, update or delete an event in the caller's own primary calendar. Guests get Google's normal invites/updates. */
+export async function writeEvent(token: string, method: 'POST' | 'PATCH' | 'DELETE', id: string | null, body?: unknown) {
+  const url = `${CAL}${id ? '/' + encodeURIComponent(id) : ''}?sendUpdates=all`
+  const r = await fetch(url, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
+  const data = r.status === 204 ? null : await r.json().catch(() => null)
+  return { status: r.status, data: data as GItem | null, insufficientScope: r.status === 403 && JSON.stringify(data ?? '').includes('insufficient') }
 }

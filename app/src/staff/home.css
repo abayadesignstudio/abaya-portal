@@ -71,3 +71,33 @@
 .tk-g{background:#f6f8fb}
 .tk-g .tk-title{font-weight:600}
 .tk-gicon{flex:none;width:15px;text-align:center;color:#6b7686;font-size:12px;line-height:16px}
+/* Google-style quick create / details card */
+.mc-cell{cursor:pointer}
+.qp{position:fixed;z-index:60;width:400px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 40px rgba(2,37,61,.22);padding:16px 16px 14px}
+.qp-x{position:absolute;top:6px;right:8px;border:0;background:none;font-size:22px;line-height:1;color:#6b7686;cursor:pointer;padding:4px 6px;border-radius:6px}
+.qp-x:hover{background:#f1f1ee}
+.qp-form{display:flex;flex-direction:column;gap:10px}
+.qp-form .tk-form{grid-template-columns:1fr 1fr;padding:0;border:0;background:none}
+.qp-title{border:0;border-bottom:2px solid var(--line);font-size:20px;padding:6px 2px;margin-right:28px;outline:none;font-family:inherit}
+.qp-title:focus{border-bottom-color:var(--navy)}
+.qp-tabs{display:flex;gap:6px}
+.qp-tab{border:0;background:#f1f1ee;color:#3b4350;border-radius:6px;padding:5px 12px;font-weight:700;font-size:13px;cursor:pointer}
+.qp-tab.on{background:#dce6f1;color:var(--navy)}
+.qp-row{display:flex;align-items:center;gap:6px}
+.qp-row .input{flex:1;min-width:0}
+.qp-row input[type=time]{flex:0 0 132px}
+.qp-times input[type=time]{flex:1}
+.qp-dash{color:#6b7686}
+.qp-check{display:flex;align-items:center;gap:6px;font-size:14px}
+.qp-check input{width:16px;height:16px}
+.qp-guests{border:0;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.qp-guests legend{float:left;margin-right:4px}
+.qp-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:3px 10px 3px 8px;font-size:13px;cursor:pointer}
+.qp-chip.on{background:#dce6f1;border-color:#b8cbe0}
+.qp-chip input{width:14px;height:14px;margin:0}
+.qp-lab{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700;color:#5f6368}
+.qp-note{margin:0;font-size:13px;background:#fff7e6;border:1px solid #f1d9a6;border-radius:8px;padding:6px 8px}
+.qp-view{display:flex;flex-direction:column;gap:8px}
+.qp-h{margin:0 28px 0 0;font-size:19px;display:flex;align-items:center;gap:10px}
+.qp-swatch{width:14px;height:14px;border-radius:4px;flex:none}
+.qp-line{margin:0;color:#3b4350;font-size:14px}
