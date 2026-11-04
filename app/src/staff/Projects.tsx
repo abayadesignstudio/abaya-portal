@@ -2,10 +2,11 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASES } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
+import ProjectsGantt from './ProjectsGantt'
 import './admin.css'
 
 type Row = { id: string; number: string; name: string; status: string; category: string | null; sector: string | null; next_milestone: string | null
-  clients: { name: string } | null; phases: { code: string; status: string; fee: number }[] }
+  clients: { name: string } | null; phases: { code: string; status: string; fee: number; start_date: string | null; end_date: string | null }[] }
 type TimeRow = { project_id: string; minutes: number; profiles: { bill_rate: number | null } | null }
 type OpenInv = { project_id: string; total: number; amount_paid: number; due_date: string | null }
 
@@ -18,16 +19,30 @@ const PH_COLOR: Record<string, [string, string, string]> = {
 const SECTORS: [string, string][] = [['commercial', 'Commercial / Retail'], ['residential', 'Residential'], ['medical', 'Medical'], ['consultation', 'Consultation'], ['civic', 'Civic'], ['internal', 'Internal']]
 const TYPES: [string, string][] = [['all', 'All types'], ['S', 'Shell (S)'], ['FO', 'Finish-Out (FO)'], ['CON', 'Consultation (CON)']]
 const today = new Date().toISOString().slice(0, 10)
+const SORTS: [string, string][] = [['new', 'Newest to oldest'], ['old', 'Oldest to newest'], ['az', 'Alphabetical (A–Z)'], ['za', 'Alphabetical (Z–A)'], ['num-asc', 'Project number (asc)'], ['num-desc', 'Project number (desc)']]
+const firstStart = (p: Row) => p.phases.reduce<string | null>((m, ph) => (ph.start_date && (!m || ph.start_date < m) ? ph.start_date : m), null)
+function sortRows(rows: Row[], by: string) {
+  const r = [...rows]
+  const byDate = (dir: 1 | -1) => (a: Row, b: Row) => { const x = firstStart(a), y = firstStart(b); return !x && !y ? b.number.localeCompare(a.number) : !x ? 1 : !y ? -1 : dir * x.localeCompare(y) }
+  if (by === 'new') r.sort(byDate(-1)); else if (by === 'old') r.sort(byDate(1))
+  else if (by === 'az') r.sort((a, b) => a.name.localeCompare(b.name)); else if (by === 'za') r.sort((a, b) => b.name.localeCompare(a.name))
+  else if (by === 'num-asc') r.sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true })); else r.sort((a, b) => b.number.localeCompare(a.number, undefined, { numeric: true }))
+  return r
+}
+const remember = (k: string, d: string) => { try { return localStorage.getItem(k) || d } catch { return d } }
+const keep = (k: string, v: string) => { try { localStorage.setItem(k, v) } catch { /* private mode */ } }
 
 export default function Projects() {
   const [status, setStatus] = useState('active')
   const [cat, setCat] = useState('all')
   const [q, setQ] = useState('')
   const [adding, setAdding] = useState(false)
+  const [view, setView] = useState(() => remember('abaya.projects.view', 'timeline'))
+  const [sort, setSort] = useState(() => remember('abaya.projects.sort', 'new'))
   const [err, setErr] = useState('')
   const { data, error, reload } = useLoad(async () => {
     const projects = must(await supabase.from('projects')
-      .select('id, number, name, status, category, sector, next_milestone, clients(name), phases(code, status, fee)').order('number', { ascending: false })) as unknown as Row[]
+      .select('id, number, name, status, category, sector, next_milestone, clients(name), phases(code, status, fee, start_date, end_date)').order('number', { ascending: false })) as unknown as Row[]
     const time = must(await supabase.from('time_entries').select('project_id, minutes, profiles(bill_rate)')) as unknown as TimeRow[]
     const open = must(await supabase.from('invoices').select('project_id, total, amount_paid, due_date').eq('status', 'open')) as OpenInv[]
     return { projects, time, open }
@@ -47,8 +62,9 @@ export default function Projects() {
     }
     return m
   }, [data])
-  const rows = all.filter((p) => (status === 'all' || p.status === status) && (cat === 'all' || p.category === cat) &&
-    (!q || `${p.number} ${p.name} ${p.clients?.name ?? ''}`.toLowerCase().includes(q.toLowerCase())))
+  const rows = sortRows(all.filter((p) => (status === 'all' || p.status === status) && (cat === 'all' || p.category === cat) &&
+    (!q || `${p.number} ${p.name} ${p.clients?.name ?? ''}`.toLowerCase().includes(q.toLowerCase()))), sort)
+  const feeUsed = useMemo(() => Object.fromEntries(all.map((p) => { const fee = p.phases.reduce((a, ph) => a + Number(ph.fee), 0); return [p.id, fee ? (labor[p.id] ?? 0) / fee * 100 : null] })), [all, labor])
   const count = (s: string) => all.filter((p) => (s === 'all' || p.status === s) && (cat === 'all' || p.category === cat)).length
   const unset = all.filter((p) => !p.sector).length
 
@@ -68,12 +84,24 @@ export default function Projects() {
         </div>
         <div style={{ width: 300, maxWidth: '100%' }}><label className="sr" htmlFor="pq">Search projects</label><input id="pq" className="input" placeholder="Search number, name or client" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       </div>
-      <div className="row" role="group" aria-label="Project type">
-        {TYPES.map(([id, l]) => <button key={id} className="chip" aria-pressed={cat === id} onClick={() => setCat(id)}>{l}</button>)}
+      <div className="row between">
+        <div className="row" role="group" aria-label="Project type">
+          {TYPES.map(([id, l]) => <button key={id} className="chip" aria-pressed={cat === id} onClick={() => setCat(id)}>{l}</button>)}
+        </div>
+        <div className="row" style={{ gap: 8 }}>
+          <label className="sr" htmlFor="p-sort">Sort by</label>
+          <select id="p-sort" className="input" style={{ width: 'auto', minHeight: 36 }} value={sort} onChange={(e) => { setSort(e.target.value); keep('abaya.projects.sort', e.target.value) }}>
+            {SORTS.map(([v, l]) => <option key={v} value={v}>Sort by: {l}</option>)}</select>
+          <div className="row" role="group" aria-label="View" style={{ gap: 0 }}>
+            {[['timeline', 'Timeline'], ['table', 'Table']].map(([v, l], i) => <button key={v} className="chip" aria-pressed={view === v} style={{ borderRadius: i ? '0 999px 999px 0' : '999px 0 0 999px' }}
+              onClick={() => { setView(v); keep('abaya.projects.view', v) }}>{l}</button>)}
+          </div>
+        </div>
       </div>
       {unset > 0 && <p className="muted" style={{ margin: 0, fontSize: 14 }}><strong>{unset} project{unset === 1 ? '' : 's'}</strong> have no building type yet; pick one in the row to set its color.</p>}
       {(error || err) && <p className="err" role="alert">{error || err}</p>}
-      <div className="card tablewrap">
+      {view === 'timeline' && data && <ProjectsGantt rows={rows} feeUsed={feeUsed} />}
+      {view === 'table' && <><div className="card tablewrap">
         <table className="table" style={{ minWidth: 1100 }}>
           <thead><tr><th>Project</th><th>Phases</th><th>Fee used</th><th className="r">Outstanding</th><th>Status</th></tr></thead>
           <tbody>
@@ -114,7 +142,7 @@ export default function Projects() {
           </tbody>
         </table>
       </div>
-      <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Phase bar: gray complete, green in progress, red paused, outlined not started, dashed not in the contract. Fee used = hours × billable rates; orange at 75%, red at 90%.</em></p>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Phase bar: gray complete, green in progress, red paused, outlined not started, dashed not in the contract. Fee used = hours × billable rates; orange at 75%, red at 90%.</em></p></>}
     </div>
   )
 }
