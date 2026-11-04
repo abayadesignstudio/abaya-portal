@@ -12,6 +12,8 @@ const W = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight
 const words = (n: number | string) => { const k = Math.round(+n || 0); return (W[k] || String(k)) + ' (' + k + ')' }
 const money = (n: number | string) => '$ ' + (+n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const autoName = (d: DocState) => (d.v.projName ? `${d.v.projName} — Proposal` : 'Untitled proposal')
+/** Weight of the document's divider rules (header, TOC, section headings, signature block). */
+const RULE = '2px solid #000'
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const MON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const longDateOf = (v: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v || ''); if (!m) return ''; const d = new Date(+m[1], +m[2] - 1, +m[3]); return `${DAYS[d.getDay()]}, ${MON[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}` }
@@ -559,7 +561,7 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
 
   return (
     <article className="ag-doc" aria-label="Agreement">
-      <header style={{ display: 'flex', alignItems: 'center', gap: 16, paddingBottom: 18, borderBottom: '1px solid #000' }}>
+      <header style={{ display: 'flex', alignItems: 'center', gap: 16, paddingBottom: 18, borderBottom: RULE }}>
         {logo
           ? <div style={{ height: 74, flex: 'none', display: 'flex', alignItems: 'center' }}><img src={logo} alt="Abaya Design Studio" style={{ display: 'block', height: 'auto', width: 'auto', maxWidth: 260, maxHeight: 74 }} /></div>
           : <div style={{ width: 170, height: 74, flex: 'none', background: '#02253d', color: '#ede6d6', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: "'EB Garamond', Georgia, serif" }}>
@@ -588,7 +590,7 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
         <tr><td className="k">Size:</td><td>{v.projSize}</td></tr><tr><td className="k">Type:</td><td>{TYPES[v.projType] || ''}</td></tr>
       </tbody></table>
 
-      <h2 style={{ margin: '30px 0 8px', paddingTop: 14, borderTop: '1px solid #000', textAlign: 'center', fontSize: 13 }}>TABLE OF CONTENTS</h2>
+      <h2 style={{ margin: '30px 0 8px', paddingTop: 14, borderTop: RULE, textAlign: 'center', fontSize: 13 }}>TABLE OF CONTENTS</h2>
       <ol style={{ listStyle: 'none', margin: '0 0 10px', padding: 0, fontSize: 12 }}>
         {model.secs.map((s) => { const all = s.clauses.length > 0 && s.clauses.every((c) => c.off); return <li key={s.n} style={all && draft ? struck(false) : undefined}>SECTION {s.n} - {s.title}</li> })}
       </ol>
@@ -598,7 +600,7 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
         return (
           <section key={s.n} className={'ag-sec' + (hasBreak('s' + s.n) ? ' ag-pagebreak' : '')} style={{ marginTop: 24, position: 'relative' }}>
             <BreakUI id={'s' + s.n} what={`Section ${s.n}`} />
-            <h2 style={{ margin: '0 0 10px', textAlign: 'center', fontSize: 14.5, ...(all && draft ? struck(false) : {}) }}>SECTION {s.n} - {s.title}</h2>
+            <h2 style={{ margin: '0 0 12px', paddingBottom: 6, borderBottom: RULE, textAlign: 'center', fontSize: 14.5, ...(all && draft ? struck(false) : {}) }}>SECTION {s.n} - {s.title}</h2>
             {s.clauses.map((c) => {
               const omittedFinal = c.off && !draft
               const bar = draft && (c.modified || c.added || c.off) ? (c.off ? RED : BLUE) : 'transparent'
@@ -618,16 +620,16 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
           </section>)
       })}
 
-      <div style={{ marginTop: 26, paddingTop: 16, borderTop: '1px solid #000', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 30 }}>
+      <div style={{ marginTop: 26, paddingTop: 16, borderTop: RULE, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 30 }}>
         <div><p>Date: {longDate}</p><div style={{ height: 64 }} /><p style={{ margin: 0, borderTop: '1px solid #000', paddingTop: 4, width: 230 }}>{v.signer}</p></div>
         <div><p>Date: {longDate}</p><div style={{ height: 64 }} /><p style={{ margin: '0 0 30px', borderTop: '1px solid #000', paddingTop: 4 }}>Owner (Signature)</p><p style={{ margin: 0, borderTop: '1px solid #000', paddingTop: 4 }}>Owner (Print)</p></div>
       </div>
       <p style={{ margin: '18px 0 0', textAlign: 'center', fontStyle: 'italic' }}>If you have any further questions, please do not hesitate to contact us!</p>
-      <p style={{ margin: '6px 0 0', paddingTop: 6, borderTop: '1px solid #000', textAlign: 'center', fontWeight: 700 }}>END OF DOCUMENT</p>
+      <p style={{ margin: '6px 0 0', paddingTop: 6, borderTop: RULE, textAlign: 'center', fontWeight: 700 }}>END OF DOCUMENT</p>
 
       {!draft && report.length > 0 && (
-        <section aria-label="Modifications report" className="ag-pagebreak" style={{ marginTop: 36, paddingTop: 18, borderTop: '2px solid #000', breakBefore: 'page' }}>
-          <h2 style={{ margin: '0 0 4px', textAlign: 'center', fontSize: 14.5 }}>MODIFICATIONS REPORT</h2>
+        <section aria-label="Modifications report" className="ag-pagebreak" style={{ marginTop: 36, paddingTop: 18, borderTop: RULE, breakBefore: 'page' }}>
+          <h2 style={{ margin: '0 0 8px', paddingBottom: 6, borderBottom: RULE, textAlign: 'center', fontSize: 14.5 }}>MODIFICATIONS REPORT</h2>
           <p style={{ textAlign: 'center', fontSize: 12 }}><em>Changes to the Abaya Design Studio standard form text. Additions are underlined; deletions are struck through.</em></p>
           {report.map((c) => (
             <div key={c.id} style={{ margin: '0 0 12px' }}>
