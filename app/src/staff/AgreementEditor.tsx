@@ -9,6 +9,7 @@ import './agreement.css'
 const W = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve']
 const words = (n: number | string) => { const k = Math.round(+n || 0); return (W[k] || String(k)) + ' (' + k + ')' }
 const money = (n: number | string) => '$ ' + (+n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const autoName = (d: DocState) => (d.v.projName ? `${d.v.projName} — Proposal` : 'Untitled proposal')
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const MON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const longDateOf = (v: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v || ''); if (!m) return ''; const d = new Date(+m[1], +m[2] - 1, +m[3]); return `${DAYS[d.getDay()]}, ${MON[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}` }
@@ -76,7 +77,8 @@ function build(doc: DocState) {
 export default function AgreementEditor() {
   const { id } = useParams()
   const nav = useNavigate()
-  const { profile } = useAuth()
+  const { profile, session } = useAuth()
+  const autoTitle = useRef(true)
   const [row, setRow] = useState<{ id: string; title: string; status: string; project_id: string | null; client_id: string | null } | null>(null)
   const [doc, setDoc] = useState<DocState | null>(null)
   const [ui, setUi] = useState<UI>(UI0)
@@ -101,6 +103,8 @@ export default function AgreementEditor() {
       if (error) return setErr(error.message)
       const r = data as { id: string; title: string; status: string; project_id: string | null; client_id: string | null; doc: DocState }
       const d = r.doc && r.doc.v ? r.doc : newDoc()
+      // The name follows the project name only while nobody has set it by hand (Rename, Duplicate).
+      autoTitle.current = r.title === autoName(d) || r.title === 'Untitled proposal'
       setRow(r); setDoc(d); setTimeout(() => { loaded.current = true })
     })()
     return () => { live = false }
@@ -108,18 +112,55 @@ export default function AgreementEditor() {
 
   const model = useMemo(() => (doc ? build(doc) : null), [doc])
 
-  // autosave (debounced)
+  // autosave: debounced while typing, flushed immediately when leaving the page or closing the tab
+  const pending = useRef<{ id: string; values: Record<string, unknown> } | null>(null)
+  const token = useRef<string | undefined>(undefined)
+  token.current = session?.access_token
+  const payload = (d: DocState, current: string) => {
+    const title = autoTitle.current ? autoName(d) : current
+    return { doc: d, title, total_fee: +d.v.fee || 0, updated_at: new Date().toISOString() }
+  }
+  const flushNow = async () => {
+    const p = pending.current; if (!p) return
+    pending.current = null; setSaved('saving')
+    const { error } = await supabase.from('agreements').update(p.values).eq('id', p.id)
+    if (error) { setErr(error.message); setSaved('unsaved'); if (!pending.current) pending.current = p; return }
+    if (!pending.current) setSaved('saved')
+    setRow((r) => (r && r.id === p.id ? { ...r, title: p.values.title as string } : r))
+  }
+  // Page is going away: the request must outlive it, so use fetch keepalive (body limit ~64 KB).
+  const flushOnExit = () => {
+    const p = pending.current; if (!p || !token.current) return false
+    const body = JSON.stringify(p.values)
+    if (body.length > 60000) return false
+    pending.current = null
+    fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/agreements?id=eq.${p.id}`, {
+      method: 'PATCH', keepalive: true, body,
+      headers: { 'Content-Type': 'application/json', apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY, Authorization: `Bearer ${token.current}`, Prefer: 'return=minimal' },
+    }).catch(() => {})
+    return true
+  }
   useEffect(() => {
     if (!doc || !row || !loaded.current) return
+    pending.current = { id: row.id, values: payload(doc, row.title) }
     setSaved('unsaved')
-    const t = setTimeout(async () => {
-      setSaved('saving')
-      const title = doc.v.projName ? `${doc.v.projName} — Proposal` : 'Untitled proposal'
-      const { error } = await supabase.from('agreements').update({ doc, title, total_fee: +doc.v.fee || 0, updated_at: new Date().toISOString() }).eq('id', row.id)
-      if (error) { setErr(error.message); setSaved('unsaved') } else { setSaved('saved'); setRow((r) => (r ? { ...r, title } : r)) }
-    }, 900)
+    const t = setTimeout(flushNow, 900)
     return () => clearTimeout(t)
   }, [doc, row?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === 'hidden') flushOnExit() }
+    const onUnload = (e: BeforeUnloadEvent) => {
+      // Saved on the way out when possible; otherwise ask the browser to warn before leaving.
+      if (pending.current && !flushOnExit()) { e.preventDefault(); e.returnValue = '' }
+    }
+    document.addEventListener('visibilitychange', onHide)
+    window.addEventListener('beforeunload', onUnload)
+    return () => {
+      document.removeEventListener('visibilitychange', onHide)
+      window.removeEventListener('beforeunload', onUnload)
+      flushNow() // leaving the editor inside the portal (sidebar link, back button)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (err && !doc) return <p className="err">{err}</p>
   if (!doc || !model || !row) return <p>Loading…</p>
