@@ -138,7 +138,8 @@ export default function SidebarTimer({ me }: { me: string }) {
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(null) }
-    const onClick = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(null) }
+    // a click that removed its own element (e.g. choosing an option closes the dropdown list) isn't an outside click
+    const onClick = (e: MouseEvent) => { const t = e.target as Node; if (box.current && t.isConnected && !box.current.contains(t)) setOpen(null) }
     window.addEventListener('keydown', onKey); const tm = setTimeout(() => window.addEventListener('mousedown', onClick))
     return () => { clearTimeout(tm); window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onClick) }
   }, [open])
