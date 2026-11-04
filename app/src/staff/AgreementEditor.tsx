@@ -577,14 +577,15 @@ function Document({ tocPages, logo, doc, model, draft, showMarks, changesIn, onO
       {(v.dispute === 'b' || draft) && <p style={{ paddingLeft: 28, ...struck(v.dispute === 'b') }}>{v.dispute === 'b' ? '☒' : '☐'} (b) Litigation: in a court of competent jurisdiction.</p>}
     </>
     if (c.kind === 'rates') return (
-      <div style={{ width: 340, margin: '4px auto 10px', display: 'grid', gridTemplateColumns: '1fr 1fr', rowGap: 3 }}>
-        {[['Principal', v.rP], ['Project Architect', v.rPA], ['Designer', v.rD]].flatMap(([r, x]) => [<span key={r} style={{ textAlign: 'center' }}>{r}</span>, <span key={r + 'v'} className="num">{money(x)}/hr</span>])}
-      </div>)
+      <table className="ag-tbl" style={{ width: 360 }}>
+        <thead><tr className="ag-hd"><th>Role</th><th>Hourly Rate</th></tr></thead>
+        <tbody>{[['Principal', v.rP], ['Project Architect', v.rPA], ['Designer', v.rD]].map(([r, x]) => <tr key={r}><td>{r}</td><td className="num">{money(x)}/hr</td></tr>)}</tbody>
+      </table>)
     if (c.kind === 'prints') return <>
-      <table style={{ width: 420, margin: '4px auto 10px', textAlign: 'center' }}><tbody>
-        <tr className="ag-hd" style={{ fontWeight: 700 }}><td>Size</td><td>Color</td><td>Black &amp; White</td></tr>
-        {[['11” x 17”', 2, 1], ['18” x 24”', 5, 2], ['24” x 36”', 10, 5], ['36” x 48”', 20, 10]].map(([s, c1, c2]) => <tr key={s as string}><td>{s}</td><td>${c1} / per sheet</td><td>${c2} / per sheet</td></tr>)}
-      </tbody></table>
+      <table className="ag-tbl" style={{ width: 460 }}>
+        <thead><tr className="ag-hd"><th>Size</th><th>Color</th><th>Black &amp; White</th></tr></thead>
+        <tbody>{[['11” x 17”', 2, 1], ['18” x 24”', 5, 2], ['24” x 36”', 10, 5], ['36” x 48”', 20, 10]].map(([s, c1, c2]) => <tr key={s as string}><td>{s}</td><td>${c1} / per sheet</td><td>${c2} / per sheet</td></tr>)}</tbody>
+      </table>
       <p>No expense beyond the compensation mentioned above (<span className="ag-fp" style={{ background: draft ? '#e4e4e4' : 'transparent' }}>{money(fee)}</span>) will be incurred by the Owner unless the Owner approves a written proposal for Additional Services from the Architect. No Additional Services will be performed by the Architect without such written consent.</p>
     </>
     return null
