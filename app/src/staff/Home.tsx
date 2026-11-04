@@ -4,6 +4,7 @@ import { supabase, SECTOR_COLOR } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import { workload, fmt, isoDate, parseDate, mondayOf } from './workload'
+import { MonthCalendar, TeamWeek, TaskItem, useStaff, useTasks, dayTasks, type Task, type Person } from './HomeCalendars'
 import './home.css'
 
 type Ev = { id: string; title: string; starts_on: string; ends_on: string; start_time: string | null; projects: { number: string; name: string; sector: string | null } | null }
@@ -19,6 +20,8 @@ const DAY_MS = 86400000
 export default function StaffHome() {
   const { profile } = useAuth()
   const me = profile!.id
+  const admin = profile?.role === 'admin'
+  const staff = useStaff()
   const [week, setWeek] = useState(() => mondayOf(new Date()))
   const days = useMemo(() => Array.from({ length: 5 }, (_, i) => { const d = new Date(week); d.setDate(d.getDate() + i); return d }), [week])
   const fri = days[4]
@@ -31,6 +34,7 @@ export default function StaffHome() {
   }, [me])
   const cal = useLoad(async () => must(await supabase.from('calendar_events').select('id, title, starts_on, ends_on, start_time, projects(number, name, sector)')
     .eq('profile_id', me).lte('starts_on', isoDate(fri)).gte('ends_on', isoDate(days[0])).order('start_time', { nullsFirst: true })) as unknown as Ev[], [me, week])
+  const myTasks = useTasks(isoDate(days[0]), isoDate(fri), me)
   const dls = useLoad(async () => must(await supabase.from('deliverables').select('id, title, due_date, status, created_at, projects(number, name, sector), phases(code)')
     .eq('assignee', me).order('due_date', { nullsFirst: false })) as unknown as Dl[], [me])
   const notes = useLoad(async () => must(await supabase.from('notifications').select('id, kind, text, href, read_at, created_at').eq('profile_id', me).order('created_at', { ascending: false }).limit(30)) as Note[], [me])
@@ -70,8 +74,12 @@ export default function StaffHome() {
 
       <div className="hm-grid">
         <div className="stack" style={{ minWidth: 0 }}>
-          <Calendar days={days} week={week} setWeek={setWeek} events={cal.data ?? []} spans={spans} colOf={colOf} todayIso={todayIso}
-            me={me} projects={projects.data ?? []} onAdded={cal.reload} err={cal.error} />
+          {admin
+            ? <MonthCalendar me={me} admin people={staff.data ?? []} projects={projects.data ?? []} />
+            : <Calendar days={days} week={week} setWeek={setWeek} events={cal.data ?? []} spans={spans} colOf={colOf} todayIso={todayIso}
+                me={me} projects={projects.data ?? []} onAdded={cal.reload} err={cal.error}
+                tasks={myTasks.data} people={staff.data ?? []} onTasksChange={myTasks.reload} />}
+          <TeamWeek me={me} admin={admin} people={staff.data ?? []} projects={projects.data ?? []} />
 
           <section className="card pad stack" aria-labelledby="hm-dl">
             <div className="row between">
@@ -162,9 +170,10 @@ export default function StaffHome() {
   )
 }
 
-function Calendar({ days, week, setWeek, events, spans, colOf, todayIso, me, projects, onAdded, err }: {
+function Calendar({ days, week, setWeek, events, spans, colOf, todayIso, me, projects, onAdded, err, tasks, people, onTasksChange }: {
   days: Date[]; week: Date; setWeek: (d: Date) => void; events: Ev[]; spans: (Dl & { a: number; b: number })[]; colOf: (s: string) => number; todayIso: string
   me: string; projects: P[]; onAdded: () => void; err: string | null
+  tasks: Task[] | null; people: Person[]; onTasksChange: () => void
 }) {
   const [adding, setAdding] = useState(false)
   const [f, setF] = useState({ title: '', project_id: '', day: todayIso, time: '' })
@@ -208,7 +217,8 @@ function Calendar({ days, week, setWeek, events, spans, colOf, todayIso, me, pro
         <div className="hm-days" style={{ marginTop: 8 }}>
           {days.map((d) => { const list = timed(d); return (
             <ul key={isoDate(d)} className="hm-col" style={{ background: isoDate(d) === todayIso ? '#f4f7fa' : '#fff' }} aria-label={d.toDateString()}>
-              {list.length === 0 && <li className="muted" style={{ fontSize: 12, padding: 4 }}>—</li>}
+              {list.length === 0 && dayTasks(tasks, d).length === 0 && <li className="muted" style={{ fontSize: 12, padding: 4 }}>—</li>}
+              {dayTasks(tasks, d).map((t) => <TaskItem key={t.id} t={t} me={me} admin={false} people={people} onChange={onTasksChange} />)}
               {list.map((e) => <li key={e.id} className="hm-ev" style={{ borderLeft: `4px solid ${SECTOR_COLOR[e.projects?.sector ?? 'internal']}` }}>
                 {e.start_time && <span className="num muted" style={{ fontSize: 12 }}>{e.start_time.slice(0, 5)}</span>}
                 <strong style={{ display: 'block', lineHeight: 1.3 }}>{e.title}</strong>{e.projects && <span className="muted" style={{ fontSize: 12 }}>{e.projects.number} · {e.projects.name}</span>}</li>)}
