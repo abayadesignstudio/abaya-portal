@@ -5,6 +5,7 @@ import { useAuth } from '../lib/auth'
 import { STANDARD, PHN, newDoc, type DocState, type Clause } from '../lib/agreementTemplate'
 import LogoField, { loadFirmLogo } from './LogoField'
 import FillablePanel from './FillablePanel'
+import SignatureField from './SignatureField'
 import { measureLayout } from './fillablePdf'
 import { buildPages, buildPrintPages, removePrintPages, sourceDoc } from './printPages'
 import './agreement.css'
@@ -314,6 +315,7 @@ function Outline({ doc, model, ui, patchUi, up, setV, firmLogo, setFirmLogo }: O
             <Field id="ag-pt" label="Type"><select id="ag-pt" className="input" value={v.projType} onChange={setV('projType')}><option value="S">Shell (S)</option><option value="FO">Interior Finish-Out (FO)</option><option value="CON">Consultation (CON)</option></select></Field>
           </div>
           {inp('signer', 'Architect signature line')}
+          <SignatureField value={v.archSig ?? ''} onChange={(u) => up((d) => { if (u) d.v.archSig = u; else delete d.v.archSig })} />
         </div>}
       </div>
       {model.secs.map((s) => {
@@ -634,7 +636,7 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
       })}
 
       <div style={{ marginTop: 26, paddingTop: 16, borderTop: RULE, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 30 }}>
-        <div><p>Date: {longDate}</p><div style={{ height: 64 }} /><p style={{ margin: 0, borderTop: '1px solid #000', paddingTop: 4, width: 230 }}>{v.signer}</p></div>
+        <div><p>Date: {longDate}</p><div style={{ height: 64, position: 'relative' }}>{v.archSig && <img src={v.archSig} alt="Architect signature" style={{ position: 'absolute', left: 4, bottom: 0, maxWidth: 226, maxHeight: 62 }} />}</div><p style={{ margin: 0, borderTop: '1px solid #000', paddingTop: 4, width: 230 }}>{v.signer}</p></div>
         <div><p>Date: {longDate}</p><div style={{ height: 64 }} /><p className="ag-f-osig" style={{ margin: '0 0 30px', borderTop: '1px solid #000', paddingTop: 4 }}>Owner (Signature)</p><p className="ag-f-oprint" style={{ margin: 0, borderTop: '1px solid #000', paddingTop: 4 }}>Owner (Print)</p></div>
       </div>
       <p style={{ margin: '18px 0 0', textAlign: 'center', fontStyle: 'italic' }}>If you have any further questions, please do not hesitate to contact us!</p>
