@@ -33,7 +33,7 @@ const time12 = (t: string | null) => { if (!t) return ''; const [h, m] = t.split
 const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
 const sectorColor = (s?: string | null) => SECTOR_COLOR[s ?? 'internal'] ?? '#9aa4b2'
 
-/** Project on a calendar item: colored number tag plus the project name on its own line. */
+/** Project on a calendar item: colored number tag plus the project name, as the item's top line. */
 function ProjTag({ p }: { p: { number: string; name: string; sector?: string | null } | null | undefined }) {
   if (!p) return null
   return <span className="tk-pline" title={`${p.number} · ${p.name}`}><span className="tk-proj" style={{ background: sectorColor(p.sector) }}>{p.number}</span><span className="tk-pname">{p.name}</span></span>
@@ -92,10 +92,10 @@ export function TaskItem({ t, me, admin, people, showWho, prefixName, onChange, 
         <input type="checkbox" checked={done} disabled={!mine} onChange={() => { if (!busy) toggle() }} aria-label={`${done ? 'Mark not done' : 'Mark done'}: ${t.title}`} />
         {(() => {
           const body = <>
+            <ProjTag p={t.projects} />
             {t.due_time && <span className="num tk-time">{time12(t.due_time)} </span>}
             <span className="tk-title">{prefixName && <span className="tk-who">{firstName(who)}: </span>}{t.title}</span>
             {showWho && <span className="tk-sub">{firstName(who)}</span>}
-            <ProjTag p={t.projects} />
           </>
           return mine && onEdit
             ? <button type="button" className="tk-text tk-open" title={t.notes ? `${t.notes}\n\nClick to edit` : 'Click to edit'} onClick={(ev) => { ev.stopPropagation(); onEdit(t, ev.currentTarget) }}>{body}</button>
@@ -128,9 +128,9 @@ export function EventItem({ e, me, admin, people, onChange }: { e: Ev; me: strin
       <label className="tk-main">
         <input type="checkbox" checked={checked} disabled={!mine} onChange={() => { if (!busy && !checked) complete() }} aria-label={`Mark done: ${e.title}`} />
         <span className="tk-text">
+          <ProjTag p={e.projects} />
           {e.start_time && <span className="num tk-time">{time12(e.start_time)} </span>}
           <span className="tk-title"><span className="tk-who">{firstName(who)}: </span>{e.title}</span>
-          <ProjTag p={e.projects} />
         </span>
       </label>
     </li>
@@ -158,9 +158,9 @@ async function fnError(error: unknown, fallback: string) {
 /** A Google Calendar meeting on the month grid. Click it for details (like Google Calendar). */
 function GEventItem({ e, people, me, project, onOpen }: { e: GM; people: Person[]; me: string; project?: Proj; onOpen: (e: GM, el: HTMLElement) => void }) {
   const body = <>
+    <ProjTag p={project} />
     {!e.all_day && <span className="num tk-time">{time12(hhmm(e.start))} </span>}
     <span className="tk-title"><span className="tk-who">{names(e.people, people, me)}: </span>{e.title}</span>
-    <ProjTag p={project} />
   </>
   return (
     <li className={'tk tk-g' + (e.all_day ? ' allday' : '')} style={{ borderLeftColor: project ? sectorColor(project.sector) : '#9aa4b2' }}>
