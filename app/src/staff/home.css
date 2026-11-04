@@ -56,3 +56,8 @@
 
 .tk-who{font-weight:700;color:var(--navy)}
 .tk.done .tk-who{color:#8a8f98}
+.hb-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid #efece6;font-size:14px}
+.tk-bill{background:#fbf8ef;border-left-color:#9a8f63}
+.tk-bill .tk-who{color:#7d7550}
+.tk-bill.over{background:#fdf0ee;border-left-color:#b42318}
+.tk-bill.over .tk-who,.tk-bill.over .tk-title{color:#b42318}

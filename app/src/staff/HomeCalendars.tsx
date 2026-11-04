@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { supabase, SECTOR_COLOR } from '../lib/supabase'
+import { supabase, SECTOR_COLOR, money } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import { isoDate, parseDate, mondayOf } from './workload'
 
@@ -104,6 +104,29 @@ export function EventItem({ e, me, admin, people, onChange }: { e: Ev; me: strin
   )
 }
 
+
+type BillRow = { id: string; name: string; amount: number; due_on: string; paid_on: string | null }
+/** A company bill on its due date (admins). Checking it marks it paid; paid bills stay, crossed out. */
+function BillItem({ b, onChange }: { b: BillRow; onChange: () => void }) {
+  const [opt, setOpt] = useState<boolean | null>(null)
+  const paid = opt ?? !!b.paid_on
+  const overdue = !paid && b.due_on < isoDate(new Date())
+  const toggle = async () => {
+    const next = !paid; setOpt(next)
+    const d = new Date()
+    const { error } = await supabase.from('company_bills').update({ paid_on: next ? isoDate(d) : null }).eq('id', b.id)
+    if (error) setOpt(null); else onChange()
+  }
+  return (
+    <li className={'tk tk-bill' + (paid ? ' done' : '') + (overdue ? ' over' : '')}>
+      <label className="tk-main" title={paid ? `Paid ${b.paid_on ?? ''}` : overdue ? 'Overdue' : 'Bill due'}>
+        <input type="checkbox" checked={paid} onChange={toggle} aria-label={`${paid ? 'Mark unpaid' : 'Mark paid'}: ${b.name}`} />
+        <span className="tk-text"><span className="tk-title"><span className="tk-who">Bill: </span>{b.name} <span className="num">{money(b.amount).replace('.00', '')}</span></span></span>
+      </label>
+    </li>
+  )
+}
+
 /** Add a task: admins choose anyone; staff add for themselves. */
 export function AddTask({ me, admin, people, projects, day, onDone, onCancel }: { me: string; admin: boolean; people: Person[]; projects: Proj[]; day: string; onDone: (msg: string) => void; onCancel: () => void }) {
   const [f, setF] = useState({ title: '', due_on: day, due_time: '', assignee: me, project_id: '', notes: '' })
@@ -156,7 +179,10 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   const from = isoDate(cells[0]), to = isoDate(cells[41])
   const tasks = useTasks(from, to)
   const evs = useLoad(async () => must(await supabase.from('calendar_events').select(EV_SELECT).lte('starts_on', to).gte('ends_on', from)) as unknown as Ev[], [from, to])
-  const reload = () => { tasks.reload(); evs.reload() }
+  // bills due (admins only; bills include salaries)
+  const bills = useLoad(async () => admin ? must(await supabase.from('company_bills').select('id, name, amount, due_on, paid_on').gte('due_on', from).lte('due_on', to)) as BillRow[] : [], [admin, from, to])
+  const [showBills, setShowBills] = useState(true)
+  const reload = () => { tasks.reload(); evs.reload(); bills.reload() }
   const today = isoDate(new Date())
   const shift = (n: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1))
   const last = new Date(month.getFullYear(), month.getMonth() + 1, 0)
@@ -178,6 +204,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
       <div className="row" role="group" aria-label="Show tasks for" style={{ gap: 6 }}>
         <button type="button" className={'btn small' + (who === 'all' ? '' : ' secondary')} aria-pressed={who === 'all'} onClick={() => setWho('all')}>Everyone</button>
         {order.map((p) => <button key={p.id} type="button" className={'btn small' + (who === p.id ? '' : ' secondary')} aria-pressed={who === p.id} onClick={() => setWho(p.id)}>{p.id === me ? 'Me' : firstName(p)}</button>)}
+        {admin && <label className="row" style={{ gap: 6, marginLeft: 'auto', fontSize: 14 }}><input type="checkbox" checked={showBills} onChange={(e) => setShowBills(e.target.checked)} style={{ width: 16, height: 16 }} /> Show bills</label>}
       </div>
       {adding && <AddTask me={me} admin={admin} people={people} projects={projects} day={adding} onCancel={() => setAdding(null)} onDone={(m) => { setAdding(null); setMsg(m); tasks.reload() }} />}
       {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
@@ -195,6 +222,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
                 <button type="button" className="mc-add" onClick={() => { setAdding(k); setMsg('') }} aria-label={`Add a task on ${d.toDateString()}`}>+</button>
               </div>
               <ul className="tk-list">
+                {showBills && (bills.data ?? []).filter((b) => b.due_on === k).map((b) => <BillItem key={b.id} b={b} onChange={bills.reload} />)}
                 {dayEvs.map((e) => <EventItem key={e.id} e={e} me={me} admin={admin} people={people} onChange={reload} />)}
                 {dayTasks.map((t) => <TaskItem key={t.id} t={t} me={me} admin={admin} people={people} prefixName onChange={reload} />)}
               </ul>

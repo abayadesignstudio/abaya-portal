@@ -4,18 +4,18 @@ import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import './admin.css'
 
-type Bill = { id: string; name: string; category: string; amount: number; due_on: string; paid_on: string | null; recurring_monthly: boolean; note: string | null }
+export type Bill = { id: string; name: string; category: string; amount: number; due_on: string; paid_on: string | null; recurring_monthly: boolean; note: string | null }
 type Budget = { month: string; category: string; amount: number }
 
-const CATS: [string, string][] = [['Salaries', '#02253d'], ['Rent', '#9a8f63'], ['Software & subscriptions', '#b42318'], ['Internet & phone', '#5f8fb0'], ['Insurance', '#d8cfae'], ['Utilities', '#5f583b'], ['Other', '#98a2b3']]
-const COLOR = Object.fromEntries(CATS)
+export const CATS: [string, string][] = [['Salaries', '#02253d'], ['Rent', '#9a8f63'], ['Software & subscriptions', '#b42318'], ['Internet & phone', '#5f8fb0'], ['Insurance', '#d8cfae'], ['Utilities', '#5f583b'], ['Other', '#98a2b3']]
+export const COLOR = Object.fromEntries(CATS)
 const pad = (n: number) => String(n).padStart(2, '0')
 const monthKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`
 const addMonths = (key: string, n: number) => { const [y, m] = key.split('-').map(Number); return monthKey(new Date(y, m - 1 + n, 1)) }
 const monthLabel = (key: string) => { const [y, m] = key.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) }
 const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` }
 
-function statusOf(b: Bill): [string, string] {
+export function statusOf(b: Bill): [string, string] {
   if (b.paid_on) return ['Paid', 'b-paid']
   const t = todayIso()
   if (b.due_on < t) return ['Overdue', 'b-over']

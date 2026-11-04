@@ -5,6 +5,7 @@ import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import { workload, fmt, isoDate, parseDate, mondayOf } from './workload'
 import { MonthCalendar, useStaff } from './HomeCalendars'
+import BillsPanel from './BillsPanel'
 import './home.css'
 
 type Dl = { id: string; title: string; due_date: string | null; status: string; created_at: string; projects: { number: string; name: string; sector: string | null } | null; phases: { code: string } | null }
@@ -145,6 +146,7 @@ export default function StaffHome() {
                 </li>))}
             </ul>
           </section>
+          {admin && <BillsPanel />}
         </div>
       </div>
     </div>
