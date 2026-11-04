@@ -20,11 +20,13 @@ const SECTORS: [string, string][] = [['commercial', 'Commercial / Retail'], ['re
 const TYPES: [string, string][] = [['all', 'All types'], ['S', 'Shell (S)'], ['FO', 'Finish-Out (FO)'], ['CON', 'Consultation (CON)']]
 const today = new Date().toISOString().slice(0, 10)
 const SORTS: [string, string][] = [['new', 'Newest to oldest'], ['old', 'Oldest to newest'], ['az', 'Alphabetical (A–Z)'], ['za', 'Alphabetical (Z–A)'], ['num-asc', 'Project number (asc)'], ['num-desc', 'Project number (desc)']]
-const firstStart = (p: Row) => p.phases.reduce<string | null>((m, ph) => (ph.start_date && (!m || ph.start_date < m) ? ph.start_date : m), null)
+// Project numbers are year + month + letter (2610A = Oct 2026, project A), so the number is the age. Numbers without
+// that pattern (VDRC) go last either way.
+const age = (n: string) => { const m = n.match(/(\d{4})([A-Za-z]*)/); return m ? `${m[1]}${m[2].toUpperCase().padEnd(3, ' ')}` : null }
 function sortRows(rows: Row[], by: string) {
   const r = [...rows]
-  const byDate = (dir: 1 | -1) => (a: Row, b: Row) => { const x = firstStart(a), y = firstStart(b); return !x && !y ? b.number.localeCompare(a.number) : !x ? 1 : !y ? -1 : dir * x.localeCompare(y) }
-  if (by === 'new') r.sort(byDate(-1)); else if (by === 'old') r.sort(byDate(1))
+  const byAge = (dir: 1 | -1) => (a: Row, b: Row) => { const x = age(a.number), y = age(b.number); return !x && !y ? a.number.localeCompare(b.number) : !x ? 1 : !y ? -1 : dir * x.localeCompare(y) }
+  if (by === 'new') r.sort(byAge(-1)); else if (by === 'old') r.sort(byAge(1))
   else if (by === 'az') r.sort((a, b) => a.name.localeCompare(b.name)); else if (by === 'za') r.sort((a, b) => b.name.localeCompare(a.name))
   else if (by === 'num-asc') r.sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true })); else r.sort((a, b) => b.number.localeCompare(a.number, undefined, { numeric: true }))
   return r
