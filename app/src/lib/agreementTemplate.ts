@@ -80,7 +80,7 @@ export const STANDARD: Section[] = [
         C('6.1', 'The Architect’s Compensation.', ['The Owner shall compensate the Architect in accordance with the milestone schedule below.']),
         C('6.2', 'Milestone Payment Schedule.', [], 'fees'),
         C('6.3', 'Invoicing; Condition Precedent to Deliverables.', ['Milestone payments identified above are due upon invoice and, where stated as a condition precedent, must be paid prior to the Architect’s release of the applicable deliverable(s) or submission(s). Delivery, transmission, or issuance of drawings and documents may be withheld until the applicable milestone payment is received.']),
-        C('6.4', 'Payment Terms.', ['All other invoices are due within thirty (30) days after receipt, except as otherwise stated in the milestone schedule above.']),
+        C('6.4', 'Payment Terms.', ['All other invoices are due upon receipt, except as otherwise stated in the milestone schedule above.']),
         C('6.5', 'Late Charges / Interest.', ['Amounts not paid within thirty (30) days after the invoice date shall bear interest from the invoice date at the rate of two percent (2%) per month or the maximum lawful rate, whichever is less, charged on the unpaid balance until paid.'])
       ] },
       { n: 7, title: 'CLAIMS, MEDIATION, AND DISPUTE RESOLUTION', initial: true, clauses: [
