@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { STANDARD, PHN, newDoc, type DocState, type Clause } from '../lib/agreementTemplate'
 import LogoField, { loadFirmLogo } from './LogoField'
+import FillablePanel from './FillablePanel'
+import { measureLayout } from './fillablePdf'
 import { buildPages, buildPrintPages, removePrintPages, sourceDoc } from './printPages'
 import './agreement.css'
 
@@ -35,8 +37,8 @@ function diff(a: string, b: string): Run[] {
   return out
 }
 
-type UI = { pages: boolean; mode: 'draft' | 'final'; changesIn: 'text' | 'report'; check: boolean; openSec: number; openCl: string; editing: string; draft: string; addFor: string; nTitle: string; nBody: string; newSecTitle: string; exNew: string }
-const UI0: UI = { pages: false, mode: 'draft', changesIn: 'text', check: false, openSec: 0, openCl: '', editing: '', draft: '', addFor: '', nTitle: '', nBody: '', newSecTitle: '', exNew: '' }
+type UI = { fillable: boolean; pages: boolean; mode: 'draft' | 'final'; changesIn: 'text' | 'report'; check: boolean; openSec: number; openCl: string; editing: string; draft: string; addFor: string; nTitle: string; nBody: string; newSecTitle: string; exNew: string }
+const UI0: UI = { fillable: false, pages: false, mode: 'draft', changesIn: 'text', check: false, openSec: 0, openCl: '', editing: '', draft: '', addFor: '', nTitle: '', nBody: '', newSecTitle: '', exNew: '' }
 
 type CView = Clause & { num: string; sec: number; cur: string; added: boolean; customIdx?: number; off: boolean; modified: boolean; missing: string[] }
 type SView = { n: number; title: string; initial?: boolean; clauses: CView[] }
@@ -200,6 +202,15 @@ export default function AgreementEditor() {
     const { error } = await supabase.from('agreements').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', row.id)
     if (error) setErr(error.message); else setRow({ ...row, status: 'sent' })
   }
+  // Field positions come from the Final view, which is what Download PDF prints.
+  const measureFinal = async () => {
+    const prev = ui.mode
+    if (prev !== 'final') { patchUi({ mode: 'final' }); await new Promise((r) => setTimeout(r, 250)) }
+    const src = sourceDoc()
+    const layout = src ? measureLayout(src) : null
+    if (prev !== 'final') patchUi({ mode: prev })
+    return layout
+  }
   const printPdf = () => {
     const prev = ui.mode
     patchUi({ mode: 'final' })
@@ -233,6 +244,7 @@ export default function AgreementEditor() {
               <button type="button" aria-pressed={ui.changesIn === 'report'} onClick={() => patchUi({ changesIn: 'report' })}>Report only</button></div></div>}
           <button type="button" className="btn secondary" onClick={() => patchUi({ check: !ui.check })}>{model.issues.length ? `Check document (${model.issues.length})` : 'Check document ✓'}</button>
           <button type="button" className="btn secondary" onClick={printPdf}>Download PDF</button>
+          <button type="button" className="btn secondary" onClick={() => patchUi({ fillable: !ui.fillable })} aria-expanded={ui.fillable}>Make fillable…</button>
           <button type="button" className="btn" onClick={send} disabled={row.status !== 'draft'}>{row.status === 'draft' ? 'Send to client' : 'Sent'}</button>
         </div>
       </div>
@@ -241,6 +253,7 @@ export default function AgreementEditor() {
       <div className="ag-wrap">
         <Outline doc={doc} model={model} ui={ui} patchUi={patchUi} up={up} setV={setV} firmLogo={firmLogo} setFirmLogo={setFirmLogo} />
         <main className="ag-main">
+          {ui.fillable && <FillablePanel onClose={() => patchUi({ fillable: false })} measure={measureFinal} />}
           {ui.check && (
             <div role="region" aria-label="Document check" className="card pad no-print" style={{ maxWidth: 816, margin: '0 auto 16px' }}>
               {model.issues.length ? <>
@@ -496,7 +509,7 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
   const fee = model.fee
   const struck = (on: boolean) => (on ? {} : { color: RED, textDecoration: 'line-through', textDecorationColor: RED })
 
-  const Initial = () => <p style={{ margin: '14px 0 18px', textAlign: 'right' }}>Initial: <span style={{ display: 'inline-block', width: 120, borderBottom: '1px solid #000' }}>&nbsp;</span></p>
+  const Initial = () => <p style={{ margin: '14px 0 18px', textAlign: 'right' }}>Initial: <span className="ag-f-initial" style={{ display: 'inline-block', width: 120, borderBottom: '1px solid #000' }}>&nbsp;</span></p>
 
   const special = (c: CView) => {
     if (c.kind === 'program') return (
@@ -622,7 +635,7 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
 
       <div style={{ marginTop: 26, paddingTop: 16, borderTop: RULE, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 30 }}>
         <div><p>Date: {longDate}</p><div style={{ height: 64 }} /><p style={{ margin: 0, borderTop: '1px solid #000', paddingTop: 4, width: 230 }}>{v.signer}</p></div>
-        <div><p>Date: {longDate}</p><div style={{ height: 64 }} /><p style={{ margin: '0 0 30px', borderTop: '1px solid #000', paddingTop: 4 }}>Owner (Signature)</p><p style={{ margin: 0, borderTop: '1px solid #000', paddingTop: 4 }}>Owner (Print)</p></div>
+        <div><p>Date: {longDate}</p><div style={{ height: 64 }} /><p className="ag-f-osig" style={{ margin: '0 0 30px', borderTop: '1px solid #000', paddingTop: 4 }}>Owner (Signature)</p><p className="ag-f-oprint" style={{ margin: 0, borderTop: '1px solid #000', paddingTop: 4 }}>Owner (Print)</p></div>
       </div>
       <p style={{ margin: '18px 0 0', textAlign: 'center', fontStyle: 'italic' }}>If you have any further questions, please do not hesitate to contact us!</p>
       <p style={{ margin: '6px 0 0', paddingTop: 6, borderTop: RULE, textAlign: 'center', fontWeight: 700 }}>END OF DOCUMENT</p>
