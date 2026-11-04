@@ -53,3 +53,19 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 
 /* never print app chrome that is pinned to the screen (it repeats on every page and covers text) */
 @media print{.mtimer,.rowmenu{display:none !important}}
+
+/* sidebar timer: circle = start/stop, clock = edit running entry, + = manual entry; panels grow upward inside the sidebar */
+.stimer{position:relative;padding:0 16px 12px}
+.stimer-bar{display:flex;align-items:center;gap:8px;min-height:52px;padding:0 6px 0 10px;border-radius:10px;border:1px solid rgba(154,143,99,.5);background:rgba(237,230,214,.06);color:#ede6d6}
+.stimer-bar.on{background:rgba(3,152,85,.18)}
+.stimer-go{display:inline-flex;padding:4px;border:0;background:none;border-radius:50%;cursor:pointer}
+.stimer-go:hover span{filter:brightness(1.12)}
+.stimer-label{flex:1;font-size:17px;font-weight:700}
+.stimer-clock{flex:1;text-align:left;border:0;background:none;color:inherit;font:700 17px Arial;cursor:pointer;padding:6px 0}
+.stimer-add{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;border:1px solid rgba(154,143,99,.6);background:none;color:#ede6d6;cursor:pointer}
+.stimer-add:hover,.stimer-add[aria-expanded="true"]{background:rgba(154,143,99,.25)}
+.stimer-go:focus-visible,.stimer-add:focus-visible,.stimer-clock:focus-visible{outline:3px solid #7aa2c2;outline-offset:2px}
+.stimer-pop{position:absolute;left:8px;right:8px;bottom:calc(100% - 4px);z-index:30;max-height:calc(100vh - 230px);overflow-y:auto;background:#fff;color:var(--text);border-radius:12px;box-shadow:0 -6px 24px rgba(0,0,0,.35)}
+.stimer-pop .tm-pair{grid-template-columns:1fr}
+.stimer-pop h2{font-size:18px}
+.stimer-pop .btn{min-height:40px;padding:0 12px}
