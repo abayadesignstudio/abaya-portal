@@ -59,7 +59,7 @@ function build(doc: DocState) {
   STANDARD.forEach((s, si) => s.clauses.forEach((c) => {
     const off = !!doc.off[c.id]
     const cur = doc.edits[c.id] !== undefined ? doc.edits[c.id] : c.std
-    secs[si].clauses.push({ ...c, num: c.id, sec: s.n, cur, added: false, off, modified: doc.edits[c.id] !== undefined && doc.edits[c.id] !== c.std, missing: off ? [] : missingIn(c.title + ' ' + cur) })
+    secs[si].clauses.push({ ...c, num: c.num ?? c.id, sec: s.n, cur, added: false, off, modified: doc.edits[c.id] !== undefined && doc.edits[c.id] !== c.std, missing: off ? [] : missingIn(c.title + ' ' + cur) })
   }))
   doc.custom.forEach((c, i) => {
     let sec = secs.find((x) => String(x.n) === String(c.sec))
