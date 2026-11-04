@@ -6,11 +6,15 @@ type Line = { kind: string; description: string; pct_to_date: number | null; amo
 type PublicInvoice = {
   number: string; status: string; issue_date: string | null; due_date: string | null; terms_days: number
   period_start: string | null; period_end: string | null; total: number; amount_paid: number; note: string | null
-  allow_card: boolean; allow_ach: boolean; project: { number: string; name: string; sector: string | null }; client: string | null; lines: Line[]
+  allow_card: boolean; allow_ach: boolean; pass_card_fee?: boolean; pass_ach_fee?: boolean; pay_online?: boolean; project: { number: string; name: string; sector: string | null }; client: string | null; lines: Line[]
 }
 
 const SECTOR_COLOR: Record<string, string> = { commercial: '#2b5c8a', residential: '#a32d2d', medical: '#2e7d4f', consultation: '#6b7280', civic: '#5b4b8a', internal: '#02253d' }
 const KIND_HEAD: Record<string, string> = { phase: 'Architecture Services', expense: 'Reimbursable Expenses', markup: 'Reimbursable Expenses' }
+const round2 = (n: number) => Math.round(n * 100) / 100
+// same estimates as the portal's invoice builder and the payment function
+const cardFee = (t: number) => round2(t * 0.029 + 0.3)
+const achFee = (t: number) => round2(Math.min(t * 0.008, 5))
 const money = (n: number) => (Number(n) || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 const fmt = (iso: string | null) => {
   if (!iso) return '—'
@@ -21,6 +25,22 @@ const fmt = (iso: string | null) => {
 export default function InvoiceView() {
   const [inv, setInv] = useState<PublicInvoice | null>(null)
   const [err, setErr] = useState('')
+  const [paying, setPaying] = useState<'' | 'card' | 'ach'>('')
+  const [payErr, setPayErr] = useState('')
+  const returned = new URLSearchParams(location.search).get('paid') // back from Stripe: 'card' | 'ach'
+  const pay = async (method: 'card' | 'ach') => {
+    const q = new URLSearchParams(location.search)
+    setPaying(method); setPayErr('')
+    try {
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/invoice-pay`, {
+        method: 'POST', headers: { apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: q.get('t'), r: q.get('r') || undefined, method }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || !j.url) throw new Error(j.error || 'Online payment couldn’t start. Please try again.')
+      location.href = j.url
+    } catch (e) { setPaying(''); setPayErr(e instanceof Error ? e.message : String(e)) }
+  }
   useEffect(() => {
     const q = new URLSearchParams(location.search)
     const t = q.get('t') ?? '', r = q.get('r') ?? ''
@@ -63,10 +83,24 @@ export default function InvoiceView() {
         <p className="iv-muted">Invoice {inv.number} · {inv.project.name}</p>
         <p className="iv-amt">{paid ? 'Paid' : money(balance)}</p>
         <p className={late ? 'iv-late' : 'iv-muted'}>{paid ? 'Thank you — this invoice is paid in full.' : inv.due_date ? `${late ? 'Was due' : 'Due'} ${fmt(inv.due_date)}` : 'Due on receipt'}</p>
-        {!paid && <>
+        {returned && !paid && <p className="iv-thanks" role="status">{returned === 'ach'
+          ? 'Thank you! Your bank transfer is on its way. It usually takes about 4 business days to clear; we’ll mark the invoice paid when it does.'
+          : 'Thank you! Your payment went through. It can take a minute to show here.'}</p>}
+        {!paid && !returned && (inv.pay_online && (inv.allow_ach || inv.allow_card) ? <>
+          <div className="iv-paybtns">
+            {inv.allow_ach && <button className="iv-btn" onClick={() => pay('ach')} disabled={!!paying}>{paying === 'ach' ? 'Opening…' : 'Pay by bank transfer'}</button>}
+            {inv.allow_card && <button className={'iv-btn' + (inv.allow_ach ? ' secondary' : '')} onClick={() => pay('card')} disabled={!!paying}>{paying === 'card' ? 'Opening…' : 'Pay by card'}</button>}
+          </div>
+          <p className="iv-muted iv-small">
+            {inv.allow_ach && <>Bank transfer (ACH){inv.pass_ach_fee ? ` adds a ${money(achFee(balance))} processing fee` : ' has no added fee'}. </>}
+            {inv.allow_card && <>Card{inv.pass_card_fee ? ` adds a ${money(cardFee(balance))} processing fee` : ' has no added fee'}. </>}
+            Payments are processed securely by Stripe. You can also pay by check payable to <strong>Abaya Design Studio, LLC</strong>.
+          </p>
+          {payErr && <p className="iv-late" role="alert">{payErr}</p>}
+        </> : <>
           <button className="iv-btn" disabled aria-describedby="pay-soon">Pay online</button>
           <p id="pay-soon" className="iv-muted iv-small">Online payment{ways ? ` by ${ways}` : ''} is coming soon. For now, please pay by check payable to <strong>Abaya Design Studio, LLC</strong>, or reply to the invoice email for bank-transfer details.</p>
-        </>}
+        </>)}
       </section>
 
       <article className="iv-card iv-doc" aria-label={`Invoice ${inv.number}`}>

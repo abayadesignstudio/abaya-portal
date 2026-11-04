@@ -9,7 +9,7 @@ Deno.serve(async (req) => {
   if (!/^[0-9a-f-]{36}$/i.test(token)) return json({ error: 'Not found' }, 404)
   const db = admin()
   const { data: inv } = await db.from('invoices')
-    .select('id, number, status, issue_date, due_date, terms_days, period_start, period_end, total, amount_paid, note, allow_card, allow_ach, projects(number, name, sector), clients(name)')
+    .select('id, number, status, issue_date, due_date, terms_days, period_start, period_end, total, amount_paid, note, allow_card, allow_ach, pass_card_fee, pass_ach_fee, projects(number, name, sector), clients(name)')
     .eq('view_token', token).maybeSingle()
   if (!inv || inv.status === 'draft' || inv.status === 'void') return json({ error: 'Not found' }, 404)
   const { data: lines } = await db.from('invoice_lines').select('kind, description, pct_to_date, amount, sort').eq('invoice_id', inv.id).order('sort')
@@ -30,7 +30,8 @@ Deno.serve(async (req) => {
   return json({
     number: inv.number, status: inv.status, issue_date: inv.issue_date, due_date: inv.due_date, terms_days: inv.terms_days,
     period_start: inv.period_start, period_end: inv.period_end, total: Number(inv.total), amount_paid: Number(inv.amount_paid), note: inv.note,
-    allow_card: inv.allow_card, allow_ach: inv.allow_ach,
+    allow_card: inv.allow_card, allow_ach: inv.allow_ach, pass_card_fee: inv.pass_card_fee, pass_ach_fee: inv.pass_ach_fee,
+    pay_online: !!Deno.env.get('STRIPE_SECRET_KEY'),
     project: { number: p?.number ?? '', name: p?.name ?? '', sector: p?.sector ?? null }, client: c?.name ?? null,
     lines: (lines ?? []).map((l) => ({ kind: l.kind, description: l.description, pct_to_date: l.pct_to_date === null ? null : Number(l.pct_to_date), amount: Number(l.amount) })),
   })

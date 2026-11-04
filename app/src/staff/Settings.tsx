@@ -15,8 +15,35 @@ export default function Settings() {
     <div className="stack">
       <h1>Settings</h1>
       <FirmSettings admin={admin} />
+      {admin && <OnlinePayments />}
       {admin ? <People me={profile!.id} /> : <p className="muted">Only admins can manage people and invitations.</p>}
     </div>
+  )
+}
+
+/** Stripe connection status for online invoice payments (the keys themselves live only in Supabase secrets). */
+function OnlinePayments() {
+  const [st, setSt] = useState<{ configured: boolean; webhook: boolean; mode: string | null } | null>(null)
+  useEffect(() => {
+    fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/invoice-pay`, { headers: { apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string } })
+      .then((r) => r.json()).then(setSt).catch(() => setSt({ configured: false, webhook: false, mode: null }))
+  }, [])
+  const ready = st?.configured && st.webhook
+  return (
+    <section className="card pad stack" aria-labelledby="op-h">
+      <div className="row" style={{ gap: 14, alignItems: 'flex-start' }}>
+        <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 10, background: '#635bff', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', font: '700 22px Arial', flex: 'none' }}>S</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h2 id="op-h" style={{ margin: 0 }}>Online payments {st && <span className="status" style={{ marginLeft: 6, color: '#fff', background: ready ? (st.mode === 'test' ? '#b54708' : '#0e7c66') : '#667085', fontSize: 12, verticalAlign: 3 }}>
+            {ready ? (st.mode === 'test' ? 'Connected · test mode' : 'Connected') : st.configured ? 'Almost there' : 'Not connected'}</span>}</h2>
+          <p className="muted" style={{ margin: '4px 0 0' }}>Clients pay invoices by bank transfer (ACH) or card through Stripe. Payments are recorded on the invoice automatically, and you get a notification. Each invoice’s payment options and fee pass-through are set in the invoice builder.</p>
+          {st && !ready && <p style={{ margin: '8px 0 0', fontSize: 14 }}>{st.configured
+            ? <>Stripe is connected, but the webhook isn’t: add <code>STRIPE_WEBHOOK_SECRET</code> so payments mark invoices paid.</>
+            : <>Add your Stripe keys to switch this on (steps in the “stripe-payments-setup” project doc). Until then, invoices show “Pay online — coming soon”.</>}</p>}
+        </div>
+        <a className="btn secondary small" href="https://dashboard.stripe.com/" target="_blank" rel="noreferrer">View Dashboard</a>
+      </div>
+    </section>
   )
 }
 
