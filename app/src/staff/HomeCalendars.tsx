@@ -557,7 +557,9 @@ export function TodayCard({ me, admin, people, projects }: { me: string; admin: 
     return (error || !data?.events ? { events: [], me_connected: false } : data) as { events: GEv[]; me_connected: boolean }
   }, [today])
   const links = useLoad(async () => { const { data, error } = await supabase.from('calendar_event_projects').select('google_event_id, project_id'); return (error ? [] : data) as Link[] }, [])
-  useCalendarChanges((kind) => { if (kind === 'tasks') { tasks.reload(); overdue.reload() } else { feed.reload(); links.reload() } })
+  // items added the older way ("+ Add to calendar"), still on the calendar until checked off
+  const olds = useLoad(async () => must(await supabase.from('calendar_events').select(EV_SELECT).eq('profile_id', me).lte('starts_on', today).gte('ends_on', today)) as unknown as Ev[], [me, today])
+  useCalendarChanges((kind) => { if (kind === 'tasks') { tasks.reload(); overdue.reload(); olds.reload() } else { feed.reload(); links.reload() } })
   const [open, setOpen] = useState<(Open & { anchor: DOMRect }) | null>(null)
   const [msg, setMsg] = useState('')
   const pop = (o: Open, el: HTMLElement) => { setOpen({ ...o, anchor: el.getBoundingClientRect() }); setMsg('') }
@@ -567,8 +569,8 @@ export function TodayCard({ me, admin, people, projects }: { me: string; admin: 
     .sort((a, b) => (a.all_day === b.all_day ? a.start.localeCompare(b.start) : a.all_day ? -1 : 1))
   const reload = () => calendarChanged('tasks')
   const close = () => setOpen(null)
-  const todo = tasks.data ?? [], late = overdue.data ?? []
-  const left = todo.filter((t) => !t.done_at).length + late.length
+  const todo = tasks.data ?? [], late = overdue.data ?? [], old = olds.data ?? []
+  const left = todo.filter((t) => !t.done_at).length + late.length + old.length
   const loading = !tasks.data || !feed.data
   return (
     <section className="card pad stack" aria-labelledby="hm-today">
@@ -578,7 +580,7 @@ export function TodayCard({ me, admin, people, projects }: { me: string; admin: 
       </div>
       {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
       {tasks.error && <p className="err">{tasks.error}</p>}
-      {!loading && !mine.length && !todo.length && !late.length && <p className="muted" style={{ margin: 0 }}><em>Nothing scheduled today.</em></p>}
+      {!loading && !mine.length && !todo.length && !late.length && !old.length && <p className="muted" style={{ margin: 0 }}><em>Nothing scheduled today.</em></p>}
       {late.length > 0 && <div className="stack" style={{ gap: 4 }}>
         <p className="td-h" style={{ color: 'var(--red)' }}>Overdue</p>
         <ul className="tk-list">{late.map((t) => <li key={t.id} className="td-late"><span className="td-date">{parseDate(t.due_on).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
@@ -588,9 +590,9 @@ export function TodayCard({ me, admin, people, projects }: { me: string; admin: 
         <p className="td-h">Events</p>
         <ul className="tk-list">{mine.map((e) => <GEventItem key={e.key} e={e} me={me} people={people} project={projOf(e)} onOpen={(x, el) => pop({ kind: 'event', ev: x }, el)} />)}</ul>
       </div>}
-      {todo.length > 0 && <div className="stack" style={{ gap: 4 }}>
+      {(todo.length > 0 || old.length > 0) && <div className="stack" style={{ gap: 4 }}>
         <p className="td-h">Tasks</p>
-        <ul className="tk-list">{todo.map((t) => <TaskItem key={t.id} t={t} me={me} admin={admin} people={people} onChange={reload} onEdit={(x, el) => pop({ kind: 'task', task: x }, el)} />)}</ul>
+        <ul className="tk-list">{old.map((e) => <EventItem key={e.id} e={e} me={me} admin={admin} people={people} onChange={reload} />)}{todo.map((t) => <TaskItem key={t.id} t={t} me={me} admin={admin} people={people} onChange={reload} onEdit={(x, el) => pop({ kind: 'task', task: x }, el)} />)}</ul>
       </div>}
       {feed.data && !feed.data.me_connected && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Connect Google on <a href="#/account">My account</a> to see your meetings here.</p>}
       {open && <Pop key={open.kind + ('ev' in open ? open.ev.key : 'task' in open ? open.task.id : open.day)} anchor={open.anchor} onClose={close}
