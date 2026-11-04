@@ -7,7 +7,9 @@ import './admin.css'
 type Contact = { id: string; name: string | null; email: string; receives_invoices: boolean; receives_updates: boolean }
 type Client = { id: string; name: string; billing_email: string | null; phone: string | null; address: string | null; client_contacts: Contact[]; projects: { id: string; status: string }[] }
 type Inv = { client_id: string; status: string; total: number; amount_paid: number | null; due_date: string | null }
-const blankClient = { name: '', billing_email: '', phone: '', address: '' }
+type FormContact = { id?: string; name: string; email: string; receives_invoices: boolean; receives_updates: boolean }
+const blankContact = (): FormContact => ({ name: '', email: '', receives_invoices: true, receives_updates: true })
+const blankClient = { name: '', billing_email: '', phone: '', address: '', contacts: [blankContact()] as FormContact[] }
 
 export default function Clients() {
   const { profile } = useAuth()
@@ -39,9 +41,25 @@ export default function Clients() {
   const saveClient = async (e: React.FormEvent) => {
     e.preventDefault(); if (!form) return
     if (!form.name.trim()) return setErr('Enter the client name.')
+    const people = form.contacts.filter((x) => x.name.trim() || x.email.trim())
+    const noEmail = people.find((x) => !x.email.trim())
+    if (noEmail) return setErr(`Add an email for ${noEmail.name.trim() || 'each person'}, or remove that row.`)
+    const emails = people.map((x) => x.email.trim().toLowerCase())
+    if (new Set(emails).size !== emails.length) return setErr('The same email is listed twice.')
     const row = { name: form.name.trim(), billing_email: form.billing_email.trim() || null, phone: form.phone.trim() || null, address: form.address.trim() || null }
-    const r = form.id ? await supabase.from('clients').update(row).eq('id', form.id) : await supabase.from('clients').insert(row)
-    if (r.error) return setErr(r.error.message)
+    let clientId = form.id
+    if (form.id) { const r = await supabase.from('clients').update(row).eq('id', form.id); if (r.error) return setErr(r.error.message) }
+    else { const r = await supabase.from('clients').insert(row).select('id').single(); if (r.error) return setErr(r.error.message); clientId = (r.data as { id: string }).id }
+    // contacts: remove the ones taken off the form, update the rest, add the new ones
+    const before = form.id ? (data?.clients.find((c) => c.id === form.id)?.client_contacts ?? []) : []
+    const kept = new Set(people.filter((x) => x.id).map((x) => x.id))
+    const gone = before.filter((x) => !kept.has(x.id)).map((x) => x.id)
+    if (gone.length) { const r = await supabase.from('client_contacts').delete().in('id', gone); if (r.error) return setErr(r.error.message) }
+    for (const x of people) {
+      const v = { name: x.name.trim() || null, email: x.email.trim().toLowerCase(), receives_invoices: x.receives_invoices, receives_updates: x.receives_updates }
+      const r = x.id ? await supabase.from('client_contacts').update(v).eq('id', x.id) : await supabase.from('client_contacts').insert({ ...v, client_id: clientId })
+      if (r.error) return setErr(r.error.message)
+    }
     setErr(''); setForm(null); reload()
   }
   const invite = async (c: Client, x: Contact) => {
@@ -53,7 +71,7 @@ export default function Clients() {
 
   return (
     <div className="stack">
-      <div className="row between"><h1>Clients</h1>{admin && <button className="btn" onClick={() => { setForm(form ? null : { ...blankClient }); setErr('') }}>{form ? 'Close' : '+ Add client'}</button>}</div>
+      <div className="row between"><h1>Clients</h1>{admin && <button className="btn" onClick={() => { setForm(form ? null : { ...blankClient, contacts: [blankContact()] }); setErr('') }}>{form ? 'Close' : '+ Add client'}</button>}</div>
       {form && (
         <form onSubmit={saveClient} className="card pad stack">
           <h2>{form.id ? 'Edit client' : 'Add client'}</h2>
@@ -63,6 +81,22 @@ export default function Clients() {
             <div><label className="l" htmlFor="c-p">Phone</label><input id="c-p" type="tel" className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
             <div style={{ gridColumn: 'span 3' }}><label className="l" htmlFor="c-a">Address</label><input id="c-a" className="input" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
           </div>
+          <fieldset className="stack" style={{ border: 0, padding: 0, margin: 0, gap: 8 }}>
+            <legend className="l">People at this client</legend>
+            {form.contacts.map((x, i) => {
+              const set = (k: keyof FormContact, v: string | boolean) => setForm({ ...form, contacts: form.contacts.map((y, j) => (j === i ? { ...y, [k]: v } : y)) })
+              return (
+                <div key={x.id ?? 'n' + i} className="row" style={{ alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ flex: '1 1 200px' }}><label className="l" htmlFor={`fc-n${i}`}>Name</label><input id={`fc-n${i}`} className="input" value={x.name} onChange={(e) => set('name', e.target.value)} /></div>
+                  <div style={{ flex: '1 1 240px' }}><label className="l" htmlFor={`fc-e${i}`}>Email</label><input id={`fc-e${i}`} type="email" className="input" value={x.email} onChange={(e) => set('email', e.target.value)} /></div>
+                  <label className="row" style={{ gap: 6, fontSize: 14, minHeight: 44 }}><input type="checkbox" checked={x.receives_invoices} onChange={(e) => set('receives_invoices', e.target.checked)} style={{ width: 18, height: 18 }} /> Gets invoices</label>
+                  <label className="row" style={{ gap: 6, fontSize: 14, minHeight: 44 }}><input type="checkbox" checked={x.receives_updates} onChange={(e) => set('receives_updates', e.target.checked)} style={{ width: 18, height: 18 }} /> Gets updates</label>
+                  <button type="button" className="btn small danger" aria-label={`Remove ${x.name || x.email || 'this person'}`} style={{ marginBottom: 5 }}
+                    onClick={() => setForm({ ...form, contacts: form.contacts.length > 1 ? form.contacts.filter((_, j) => j !== i) : [blankContact()] })}>×</button>
+                </div>)
+            })}
+            <div><button type="button" className="btn small secondary" onClick={() => setForm({ ...form, contacts: [...form.contacts, blankContact()] })}>+ Add another person</button></div>
+          </fieldset>
           {err && <p className="err" role="alert">{err}</p>}
           <div><button className="btn">Save client</button></div>
         </form>)}
@@ -86,7 +120,8 @@ export default function Clients() {
                   <td className="r num">{b?.late ? <strong style={{ color: 'var(--red, #b42318)' }}>{money(b.late)}</strong> : <span className="muted">—</span>}</td>
                   <td><div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
                     <button className="btn small secondary" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : c.id)}>{isOpen ? 'Hide' : 'Contacts'}</button>
-                    {admin && <button className="btn small secondary" onClick={() => { setForm({ id: c.id, name: c.name, billing_email: c.billing_email ?? '', phone: c.phone ?? '', address: c.address ?? '' }); window.scrollTo({ top: 0 }) }}>Edit</button>}
+                    {admin && <button className="btn small secondary" onClick={() => { setForm({ id: c.id, name: c.name, billing_email: c.billing_email ?? '', phone: c.phone ?? '', address: c.address ?? '',
+                      contacts: c.client_contacts.length ? c.client_contacts.map((x) => ({ id: x.id, name: x.name ?? '', email: x.email, receives_invoices: x.receives_invoices, receives_updates: x.receives_updates })) : [blankContact()] }); setErr(''); window.scrollTo({ top: 0 }) }}>Edit</button>}
                   </div></td>
                 </tr>,
                 isOpen && <tr key={c.id + '-x'}><td colSpan={6} style={{ background: 'var(--bg-soft, #f7f6f1)' }}>
