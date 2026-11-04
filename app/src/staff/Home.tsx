@@ -1,13 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase, SECTOR_COLOR } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import { workload, fmt, isoDate, parseDate, mondayOf } from './workload'
-import { MonthCalendar, TeamWeek, TaskItem, useStaff, useTasks, dayTasks, type Task, type Person } from './HomeCalendars'
+import { MonthCalendar, useStaff } from './HomeCalendars'
 import './home.css'
 
-type Ev = { id: string; title: string; starts_on: string; ends_on: string; start_time: string | null; projects: { number: string; name: string; sector: string | null } | null }
 type Dl = { id: string; title: string; due_date: string | null; status: string; created_at: string; projects: { number: string; name: string; sector: string | null } | null; phases: { code: string } | null }
 type Note = { id: number; kind: string; text: string; href: string | null; read_at: string | null; created_at: string }
 type P = { id: string; number: string; name: string }
@@ -22,9 +21,6 @@ export default function StaffHome() {
   const me = profile!.id
   const admin = profile?.role === 'admin'
   const staff = useStaff()
-  const [week, setWeek] = useState(() => mondayOf(new Date()))
-  const days = useMemo(() => Array.from({ length: 5 }, (_, i) => { const d = new Date(week); d.setDate(d.getDate() + i); return d }), [week])
-  const fri = days[4]
   const todayIso = isoDate(new Date())
   const [dFilter, setDFilter] = useState<'week' | 'all'>('week')
 
@@ -32,9 +28,6 @@ export default function StaffHome() {
     const ytd = must(await supabase.from('time_entries').select('minutes, billable, work_date').eq('profile_id', me).gte('work_date', new Date().getFullYear() + '-01-01')) as { minutes: number; billable: boolean; work_date: string }[]
     return ytd
   }, [me])
-  const cal = useLoad(async () => must(await supabase.from('calendar_events').select('id, title, starts_on, ends_on, start_time, projects(number, name, sector)')
-    .eq('profile_id', me).lte('starts_on', isoDate(fri)).gte('ends_on', isoDate(days[0])).order('start_time', { nullsFirst: true })) as unknown as Ev[], [me, week])
-  const myTasks = useTasks(isoDate(days[0]), isoDate(fri), me)
   const dls = useLoad(async () => must(await supabase.from('deliverables').select('id, title, due_date, status, created_at, projects(number, name, sector), phases(code)')
     .eq('assignee', me).order('due_date', { nullsFirst: false })) as unknown as Dl[], [me])
   const notes = useLoad(async () => must(await supabase.from('notifications').select('id, kind, text, href, read_at, created_at').eq('profile_id', me).order('created_at', { ascending: false }).limit(30)) as Note[], [me])
@@ -46,13 +39,6 @@ export default function StaffHome() {
   const thisMonday = mondayOf(new Date())
   const weekBars = Array.from({ length: 5 }, (_, i) => { const d = new Date(thisMonday); d.setDate(d.getDate() + i); const m = entries.filter((e) => e.work_date === isoDate(d)).reduce((a, e) => a + e.minutes, 0); return { d, h: m / 60 } })
   const weekTotal = weekBars.reduce((a, b) => a + b.h, 0)
-
-  // calendar
-  const colOf = (s: string) => Math.round((parseDate(s).getTime() - days[0].getTime()) / DAY_MS)
-  const spans = (dls.data ?? []).filter((d) => (d.status === 'in_progress' || d.status === 'in_review') && d.due_date).map((d) => {
-    const a = Math.max(0, colOf(d.created_at.slice(0, 10))), b = Math.min(4, colOf(d.due_date!))
-    return { ...d, a, b }
-  }).filter((d) => d.a <= 4 && d.b >= 0 && d.a <= d.b)
 
   // deliverables list
   const dayDiff = (s: string) => Math.round((parseDate(s).getTime() - parseDate(todayIso).getTime()) / DAY_MS)
@@ -74,12 +60,7 @@ export default function StaffHome() {
 
       <div className="hm-grid">
         <div className="stack" style={{ minWidth: 0 }}>
-          {admin
-            ? <MonthCalendar me={me} admin people={staff.data ?? []} projects={projects.data ?? []} />
-            : <Calendar days={days} week={week} setWeek={setWeek} events={cal.data ?? []} spans={spans} colOf={colOf} todayIso={todayIso}
-                me={me} projects={projects.data ?? []} onAdded={cal.reload} err={cal.error}
-                tasks={myTasks.data} people={staff.data ?? []} onTasksChange={myTasks.reload} />}
-          <TeamWeek me={me} admin={admin} people={staff.data ?? []} projects={projects.data ?? []} />
+          <MonthCalendar me={me} admin={admin} people={staff.data ?? []} projects={projects.data ?? []} />
 
           <section className="card pad stack" aria-labelledby="hm-dl">
             <div className="row between">
@@ -167,64 +148,5 @@ export default function StaffHome() {
         </div>
       </div>
     </div>
-  )
-}
-
-function Calendar({ days, week, setWeek, events, spans, colOf, todayIso, me, projects, onAdded, err, tasks, people, onTasksChange }: {
-  days: Date[]; week: Date; setWeek: (d: Date) => void; events: Ev[]; spans: (Dl & { a: number; b: number })[]; colOf: (s: string) => number; todayIso: string
-  me: string; projects: P[]; onAdded: () => void; err: string | null
-  tasks: Task[] | null; people: Person[]; onTasksChange: () => void
-}) {
-  const [adding, setAdding] = useState(false)
-  const [f, setF] = useState({ title: '', project_id: '', day: todayIso, time: '' })
-  const [msg, setMsg] = useState(''); const [fErr, setFErr] = useState('')
-  const shift = (n: number) => { const d = new Date(week); d.setDate(d.getDate() + n * 7); setWeek(d) }
-  const save = async () => {
-    if (!f.title.trim()) return setFErr('Give it a title.')
-    const { error } = await supabase.from('calendar_events').insert({ profile_id: me, created_by: me, title: f.title.trim(), project_id: f.project_id || null, starts_on: f.day, ends_on: f.day, start_time: f.time || null })
-    if (error) return setFErr(error.message)
-    setFErr(''); setMsg('Added to your portal calendar.'); setAdding(false); setF({ ...f, title: '', time: '' }); onAdded()
-  }
-  const timed = (d: Date) => events.filter((e) => colOf(e.starts_on) <= colOf(isoDate(d)) && colOf(e.ends_on) >= colOf(isoDate(d)))
-  return (
-    <section className="card pad stack" aria-labelledby="hm-cal">
-      <div className="row between">
-        <div><h2 id="hm-cal">Week of {days[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {days[4].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</h2>
-          <p className="muted" style={{ margin: '3px 0 0', fontSize: 13 }}>Google Calendar sync isn’t connected yet — this shows events added in the portal.</p></div>
-        <div className="row">
-          <button className="btn small secondary" aria-label="Previous week" onClick={() => shift(-1)}>‹</button>
-          <button className="btn small secondary" onClick={() => setWeek(mondayOf(new Date()))}>Today</button>
-          <button className="btn small secondary" aria-label="Next week" onClick={() => shift(1)}>›</button>
-          <button className="btn small" onClick={() => { setAdding(!adding); setMsg('') }}>{adding ? 'Close' : '+ Add to calendar'}</button>
-        </div>
-      </div>
-      {adding && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px,2fr) minmax(150px,1.4fr) 160px 110px auto', gap: 8, alignItems: 'end', padding: 12, borderRadius: 8, background: '#f6f5f2', border: '1px solid var(--line)' }}>
-          <div><label className="l" htmlFor="ce-t">Title</label><input id="ce-t" className="input" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="e.g. Call with structural engineer" /></div>
-          <div><label className="l" htmlFor="ce-p">Project</label><select id="ce-p" className="input" value={f.project_id} onChange={(e) => setF({ ...f, project_id: e.target.value })}>
-            <option value="">—</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.number === 'OH' ? 'Internal' : `${p.number} · ${p.name}`}</option>)}</select></div>
-          <div><label className="l" htmlFor="ce-d">Day</label><input id="ce-d" type="date" className="input" value={f.day} onChange={(e) => setF({ ...f, day: e.target.value })} /></div>
-          <div><label className="l" htmlFor="ce-tm">Time</label><input id="ce-tm" type="time" className="input" value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })} /></div>
-          <button className="btn" onClick={save}>Add</button>
-        </div>)}
-      {fErr && <p className="err" role="alert">{fErr}</p>}
-      {msg && <p className="ok" role="status">{msg}</p>}
-      {err && <p className="err">{err}</p>}
-      <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 700 }}>
-        <div className="hm-days">{days.map((d) => { const t = isoDate(d) === todayIso; return <div key={isoDate(d)} className="hm-day-h" style={{ background: t ? 'var(--navy)' : 'transparent', color: t ? '#fff' : 'var(--text)' }}><strong>{d.toLocaleDateString('en-US', { weekday: 'short' })}</strong> {d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div> })}</div>
-        {spans.length > 0 && <ul className="hm-days" style={{ listStyle: 'none', margin: '8px 0 0', padding: 0, rowGap: 4 }}>
-          {spans.map((s) => <li key={s.id} className="hm-span" title={`${s.projects?.number ?? ''} ${s.title}`} style={{ gridColumn: `${s.a + 1} / ${s.b + 2}`, background: SECTOR_COLOR[s.projects?.sector ?? 'internal'] }}><strong>{s.projects?.number}</strong> · {s.title}</li>)}</ul>}
-        <div className="hm-days" style={{ marginTop: 8 }}>
-          {days.map((d) => { const list = timed(d); return (
-            <ul key={isoDate(d)} className="hm-col" style={{ background: isoDate(d) === todayIso ? '#f4f7fa' : '#fff' }} aria-label={d.toDateString()}>
-              {list.length === 0 && dayTasks(tasks, d).length === 0 && <li className="muted" style={{ fontSize: 12, padding: 4 }}>—</li>}
-              {dayTasks(tasks, d).map((t) => <TaskItem key={t.id} t={t} me={me} admin={false} people={people} onChange={onTasksChange} />)}
-              {list.map((e) => <li key={e.id} className="hm-ev" style={{ borderLeft: `4px solid ${SECTOR_COLOR[e.projects?.sector ?? 'internal']}` }}>
-                {e.start_time && <span className="num muted" style={{ fontSize: 12 }}>{e.start_time.slice(0, 5)}</span>}
-                <strong style={{ display: 'block', lineHeight: 1.3 }}>{e.title}</strong>{e.projects && <span className="muted" style={{ fontSize: 12 }}>{e.projects.number} · {e.projects.name}</span>}</li>)}
-            </ul>) })}
-        </div>
-      </div></div>
-    </section>
   )
 }

@@ -53,3 +53,6 @@
 .tw-who{width:110px}
 .tw tbody th{font-size:14px;color:var(--text);vertical-align:top;padding-top:8px}
 .tw-ini{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;margin-right:6px;border-radius:50%;background:var(--navy);color:#fff;font-size:11px}
+
+.tk-who{font-weight:700;color:var(--navy)}
+.tk.done .tk-who{color:#8a8f98}

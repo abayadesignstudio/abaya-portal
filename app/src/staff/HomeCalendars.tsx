@@ -13,11 +13,11 @@ import { isoDate, parseDate, mondayOf } from './workload'
 export type Person = { id: string; full_name: string | null; email: string; initials: string | null; role: string }
 export type Task = { id: string; title: string; notes: string | null; assignee: string; created_by: string | null; due_on: string; due_time: string | null; done_at: string | null
   project_id: string | null; projects: { number: string; name: string; sector: string | null } | null }
-type Ev = { id: string; profile_id: string; title: string; starts_on: string; ends_on: string; start_time: string | null; projects: { number: string; name: string; sector: string | null } | null }
+type Ev = { id: string; profile_id: string; project_id?: string | null; title: string; starts_on: string; ends_on: string; start_time: string | null; projects: { number: string; name: string; sector: string | null } | null }
 type Proj = { id: string; number: string; name: string }
 
 const TASK_SELECT = 'id, title, notes, assignee, created_by, due_on, due_time, done_at, project_id, projects(number, name, sector)'
-const EV_SELECT = 'id, profile_id, title, starts_on, ends_on, start_time, projects(number, name, sector)'
+const EV_SELECT = 'id, profile_id, project_id, title, starts_on, ends_on, start_time, projects(number, name, sector)'
 const nameOf = (p?: Person) => p?.full_name || p?.email || 'Someone'
 const firstName = (p?: Person) => nameOf(p).split(/\s+/)[0]
 const time12 = (t: string | null) => { if (!t) return ''; const [h, m] = t.split(':').map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')}${h < 12 ? 'a' : 'p'}` }
@@ -40,7 +40,7 @@ export function useTasks(from: string, to: string, assignee?: string) {
 }
 
 /** One task line: checkbox (crosses it out), title, time/project, and remove for its owner or an admin. */
-export function TaskItem({ t, me, admin, people, showWho, onChange }: { t: Task; me: string; admin: boolean; people: Person[]; showWho?: boolean; onChange: () => void }) {
+export function TaskItem({ t, me, admin, people, showWho, prefixName, onChange }: { t: Task; me: string; admin: boolean; people: Person[]; showWho?: boolean; prefixName?: boolean; onChange: () => void }) {
   const [busy, setBusy] = useState(false)
   const [optimistic, setOptimistic] = useState<{ v: boolean; was: string | null } | null>(null) // flips instantly; cleared once the list reloads
   const done = optimistic && optimistic.was === t.done_at ? optimistic.v : !!t.done_at
@@ -65,11 +65,41 @@ export function TaskItem({ t, me, admin, people, showWho, onChange }: { t: Task;
         <input type="checkbox" checked={done} disabled={!mine} onChange={() => { if (!busy) toggle() }} aria-label={`${done ? 'Mark not done' : 'Mark done'}: ${t.title}`} />
         <span className="tk-text">
           {t.due_time && <span className="num tk-time">{time12(t.due_time)} </span>}
-          <span className="tk-title">{t.title}</span>
+          <span className="tk-title">{prefixName && <span className="tk-who">{firstName(who)}: </span>}{t.title}</span>
           {(showWho || t.projects) && <span className="tk-sub">{[showWho ? firstName(who) : '', t.projects?.number].filter(Boolean).join(' · ')}</span>}
         </span>
       </label>
       {mine && <button type="button" className="tk-x" onClick={remove} disabled={busy} aria-label={`Delete task ${t.title}`}>×</button>}
+    </li>
+  )
+}
+
+
+/** A calendar event (older "+ Add to calendar" items). Checking it turns it into a completed task, so it crosses out
+ *  like any task. Only the person it belongs to, or an admin, can do that. */
+export function EventItem({ e, me, admin, people, onChange }: { e: Ev; me: string; admin: boolean; people: Person[]; onChange: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [checked, setChecked] = useState(false) // flips instantly; the item becomes a done task on reload
+  const mine = e.profile_id === me || admin
+  const who = people.find((p) => p.id === e.profile_id)
+  const complete = async () => {
+    setChecked(true); setBusy(true)
+    const { data, error } = await supabase.from('tasks').insert({ title: e.title, assignee: e.profile_id, created_by: me, due_on: e.starts_on, due_time: e.start_time,
+      project_id: e.project_id ?? null, done_at: new Date().toISOString() }).select('id').single()
+    if (error) { setChecked(false); setBusy(false); return }
+    await supabase.from('calendar_events').delete().eq('id', e.id); syncTask((data as { id: string }).id, 'upsert')
+    setBusy(false); onChange()
+  }
+  return (
+    <li className="tk" style={{ borderLeftColor: e.projects ? SECTOR_COLOR[e.projects.sector ?? 'internal'] : '#9aa4b2' }}>
+      <label className="tk-main">
+        <input type="checkbox" checked={checked} disabled={!mine} onChange={() => { if (!busy && !checked) complete() }} aria-label={`Mark done: ${e.title}`} />
+        <span className="tk-text">
+          {e.start_time && <span className="num tk-time">{time12(e.start_time)} </span>}
+          <span className="tk-title"><span className="tk-who">{firstName(who)}: </span>{e.title}</span>
+          {e.projects && <span className="tk-sub">{e.projects.number}</span>}
+        </span>
+      </label>
     </li>
   )
 }
@@ -114,20 +144,26 @@ export function AddTask({ me, admin, people, projects, day, onDone, onCancel }: 
   )
 }
 
-/** Admin home: month calendar of my events and tasks; tasks check off in place. */
+/** Home: month calendar of everyone's tasks (and older events), shown as "Name: task", filterable by person.
+ *  Admins can assign to anyone; staff add their own. Check a task off and it stays, crossed out. */
 export function MonthCalendar({ me, admin, people, projects }: { me: string; admin: boolean; people: Person[]; projects: Proj[] }) {
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
+  const [who, setWho] = useState<string>('all')
   const [adding, setAdding] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
   const start = mondayOf(month)
   const cells = useMemo(() => Array.from({ length: 42 }, (_, i) => addDays(start, i)), [start.getTime()]) // eslint-disable-line react-hooks/exhaustive-deps
   const from = isoDate(cells[0]), to = isoDate(cells[41])
-  const tasks = useTasks(from, to, me)
-  const evs = useLoad(async () => must(await supabase.from('calendar_events').select(EV_SELECT).eq('profile_id', me).lte('starts_on', to).gte('ends_on', from)) as unknown as Ev[], [me, from, to])
+  const tasks = useTasks(from, to)
+  const evs = useLoad(async () => must(await supabase.from('calendar_events').select(EV_SELECT).lte('starts_on', to).gte('ends_on', from)) as unknown as Ev[], [from, to])
+  const reload = () => { tasks.reload(); evs.reload() }
   const today = isoDate(new Date())
   const shift = (n: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1))
   const last = new Date(month.getFullYear(), month.getMonth() + 1, 0)
   const rows = Math.ceil((Math.round((last.getTime() - start.getTime()) / 86400000) + 1) / 7) // weeks this month touches
+  const show = (pid: string) => who === 'all' || pid === who
+  const order = [...people].sort((a, b) => (a.id === me ? -1 : b.id === me ? 1 : nameOf(a).localeCompare(nameOf(b))))
+  const rank = (pid: string) => order.findIndex((p) => p.id === pid)
   return (
     <section className="card pad stack" aria-labelledby="mc-h">
       <div className="row between">
@@ -136,8 +172,12 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
           <button className="btn small secondary" aria-label="Previous month" onClick={() => shift(-1)}>‹</button>
           <button className="btn small secondary" onClick={() => { const d = new Date(); setMonth(new Date(d.getFullYear(), d.getMonth(), 1)) }}>Today</button>
           <button className="btn small secondary" aria-label="Next month" onClick={() => shift(1)}>›</button>
-          <button className="btn small" onClick={() => { setAdding(adding ? null : today); setMsg('') }}>{adding ? 'Close' : '+ Task'}</button>
+          <button className="btn small" onClick={() => { setAdding(adding ? null : today); setMsg('') }}>{adding ? 'Close' : admin ? '+ Assign task' : '+ Task'}</button>
         </div>
+      </div>
+      <div className="row" role="group" aria-label="Show tasks for" style={{ gap: 6 }}>
+        <button type="button" className={'btn small' + (who === 'all' ? '' : ' secondary')} aria-pressed={who === 'all'} onClick={() => setWho('all')}>Everyone</button>
+        {order.map((p) => <button key={p.id} type="button" className={'btn small' + (who === p.id ? '' : ' secondary')} aria-pressed={who === p.id} onClick={() => setWho(p.id)}>{p.id === me ? 'Me' : firstName(p)}</button>)}
       </div>
       {adding && <AddTask me={me} admin={admin} people={people} projects={projects} day={adding} onCancel={() => setAdding(null)} onDone={(m) => { setAdding(null); setMsg(m); tasks.reload() }} />}
       {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
@@ -146,70 +186,21 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
         {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => <div key={d} className="mc-h">{d}</div>)}
         {cells.slice(0, rows * 7).map((d) => {
           const k = isoDate(d); const out = d.getMonth() !== month.getMonth()
-          const dayTasks = (tasks.data ?? []).filter((t) => t.due_on === k)
-          const dayEvs = (evs.data ?? []).filter((e) => e.starts_on <= k && e.ends_on >= k)
+          const dayTasks = (tasks.data ?? []).filter((t) => t.due_on === k && show(t.assignee)).sort((a, b) => rank(a.assignee) - rank(b.assignee))
+          const dayEvs = (evs.data ?? []).filter((e) => e.starts_on <= k && e.ends_on >= k && show(e.profile_id))
           return (
             <div key={k} className={'mc-cell' + (out ? ' out' : '') + (k === today ? ' today' : '')}>
               <div className="row between" style={{ gap: 4 }}>
                 <span className="mc-d">{d.getDate()}</span>
-                <button type="button" className="mc-add" onClick={() => { setAdding(k); setMsg(''); window.scrollTo({ top: 0, behavior: 'smooth' }) }} aria-label={`Add a task on ${d.toDateString()}`}>+</button>
+                <button type="button" className="mc-add" onClick={() => { setAdding(k); setMsg('') }} aria-label={`Add a task on ${d.toDateString()}`}>+</button>
               </div>
               <ul className="tk-list">
-                {dayEvs.map((e) => <li key={e.id} className="mc-ev" style={{ borderLeftColor: SECTOR_COLOR[e.projects?.sector ?? 'internal'] }}>{e.start_time && <span className="num tk-time">{time12(e.start_time)} </span>}{e.title}</li>)}
-                {dayTasks.map((t) => <TaskItem key={t.id} t={t} me={me} admin={admin} people={people} onChange={tasks.reload} />)}
+                {dayEvs.map((e) => <EventItem key={e.id} e={e} me={me} admin={admin} people={people} onChange={reload} />)}
+                {dayTasks.map((t) => <TaskItem key={t.id} t={t} me={me} admin={admin} people={people} prefixName onChange={reload} />)}
               </ul>
             </div>)
         })}
       </div></div>
-    </section>
-  )
-}
-
-/** Everyone's Mon–Fri: events and tasks per person. Visible to all staff. */
-export function TeamWeek({ me, admin, people, projects }: { me: string; admin: boolean; people: Person[]; projects: Proj[] }) {
-  const [week, setWeek] = useState(() => mondayOf(new Date()))
-  const [adding, setAdding] = useState(false)
-  const [msg, setMsg] = useState('')
-  const days = useMemo(() => Array.from({ length: 5 }, (_, i) => addDays(week, i)), [week])
-  const from = isoDate(days[0]), to = isoDate(days[4])
-  const tasks = useTasks(from, to)
-  const evs = useLoad(async () => must(await supabase.from('calendar_events').select(EV_SELECT).lte('starts_on', to).gte('ends_on', from)) as unknown as Ev[], [from, to])
-  const today = isoDate(new Date())
-  const order = [...people].sort((a, b) => (a.id === me ? -1 : b.id === me ? 1 : nameOf(a).localeCompare(nameOf(b))))
-  return (
-    <section className="card pad stack" aria-labelledby="tw-h">
-      <div className="row between">
-        <h2 id="tw-h">Team week <span className="muted" style={{ fontWeight: 400 }}>· {days[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {days[4].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></h2>
-        <div className="row">
-          <button className="btn small secondary" aria-label="Previous week" onClick={() => setWeek(addDays(week, -7))}>‹</button>
-          <button className="btn small secondary" onClick={() => setWeek(mondayOf(new Date()))}>This week</button>
-          <button className="btn small secondary" aria-label="Next week" onClick={() => setWeek(addDays(week, 7))}>›</button>
-          <button className="btn small" onClick={() => { setAdding(!adding); setMsg('') }}>{adding ? 'Close' : admin ? '+ Assign task' : '+ Task'}</button>
-        </div>
-      </div>
-      {adding && <AddTask me={me} admin={admin} people={people} projects={projects} day={today >= from && today <= to ? today : from} onCancel={() => setAdding(false)} onDone={(m) => { setAdding(false); setMsg(m); tasks.reload() }} />}
-      {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
-      {(tasks.error || evs.error) && <p className="err">{tasks.error || evs.error}</p>}
-      <div style={{ overflowX: 'auto' }}><table className="tw" style={{ minWidth: 820 }}>
-        <thead><tr><th scope="col" className="tw-who">Person</th>{days.map((d) => <th key={isoDate(d)} scope="col" className={isoDate(d) === today ? 'today' : undefined}>{d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' })}</th>)}</tr></thead>
-        <tbody>{order.map((p) => (
-          <tr key={p.id}>
-            <th scope="row" className="tw-who"><span className="tw-ini" aria-hidden="true">{p.initials || nameOf(p).split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()}</span>{p.id === me ? 'You' : firstName(p)}</th>
-            {days.map((d) => { const k = isoDate(d)
-              const ts = (tasks.data ?? []).filter((t) => t.assignee === p.id && t.due_on === k)
-              const es = (evs.data ?? []).filter((e) => e.profile_id === p.id && e.starts_on <= k && e.ends_on >= k)
-              return (
-                <td key={k} className={k === today ? 'today' : undefined}>
-                  <ul className="tk-list">
-                    {es.map((e) => <li key={e.id} className="mc-ev" style={{ borderLeftColor: SECTOR_COLOR[e.projects?.sector ?? 'internal'] }}>{e.start_time && <span className="num tk-time">{time12(e.start_time)} </span>}{e.title}</li>)}
-                    {ts.map((t) => <TaskItem key={t.id} t={t} me={me} admin={admin} people={people} onChange={tasks.reload} />)}
-                  </ul>
-                </td>)
-            })}
-          </tr>))}
-        </tbody>
-      </table></div>
-      <p className="muted" style={{ margin: 0, fontSize: 12 }}>Events and tasks for everyone this week. Check a task off and it stays, crossed out.</p>
     </section>
   )
 }
