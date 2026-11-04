@@ -49,10 +49,10 @@ export default function InvoiceBuilder() {
     billedLines.filter((l) => l.invoice_id !== id && ['open', 'paid'].includes(l.invoices.status)).forEach((l) => { billedBefore[l.phase_id] = (billedBefore[l.phase_id] ?? 0) + Number(l.amount) })
     const expenses = must(await supabase.from('expenses').select('id, description, amount, spent_on, invoice_id').eq('project_id', projectId).eq('reimbursable', true).or('planned.is.null,planned.eq.false').order('spent_on')) as Expense[]
     const contacts = p.client_id ? must(await supabase.from('client_contacts').select('email, receives_invoices').eq('client_id', p.client_id)) as { email: string; receives_invoices: boolean }[] : []
-    const pastDue = p.client_id ? (must(await supabase.from('invoices').select('id, number, total, amount_paid, due_date').eq('client_id', p.client_id).eq('status', 'open').lt('due_date', todayIso())) as { id: string; number: string; total: number; amount_paid: number; due_date: string }[]).filter((x) => x.id !== id) : []
+    const pastDue = p.client_id ? (must(await supabase.from('invoices').select('id, number, total, amount_paid, due_date').eq('client_id', p.client_id).eq('status', 'open').lt('due_date', todayIso()).lte('issue_date', addDays(todayIso(), -15))) as { id: string; number: string; total: number; amount_paid: number; due_date: string }[]).filter((x) => x.id !== id) : []
     const settings = must(await supabase.from('firm_settings').select('late_rate_monthly').maybeSingle()) as { late_rate_monthly: number } | null
     const agreements = must(await supabase.from('agreements').select('id, title, status').eq('project_id', projectId).in('status', ['sent', 'signed'])) as { id: string; title: string; status: string }[]
-    return { p, phases, billedBefore, expenses: expenses.filter((e) => !e.invoice_id || e.invoice_id === id), contacts, pastDue, lateRate: Number(settings?.late_rate_monthly ?? 2), agreements }
+    return { p, phases, billedBefore, expenses: expenses.filter((e) => !e.invoice_id || e.invoice_id === id), contacts, pastDue, lateRate: Number(settings?.late_rate_monthly ?? 1.5), agreements }
   }, [projectId, id])
 
   // ---- editable state
@@ -119,8 +119,8 @@ export default function InvoiceBuilder() {
   const dueDate = issue ? addDays(issue, terms) : ''
   const setPct = (ph: Phase, prev: number, v: string) => { const p = num(v); setDue({ ...due, [ph.id]: String(round2(p / 100 * Number(ph.fee) - prev)) }) }
   const addItem = (kind: string) => {
-    const amount = kind === 'late' ? String(round2(prior * (c?.lateRate ?? 2) / 100)) : kind === 'credit' ? '-0' : '0'
-    const description = kind === 'late' ? `Late charge — ${c?.pastDue.map((x) => x.number).join(', ')} at ${c?.lateRate ?? 2}% per month (Agreement §6.5)` : ITEM_LABEL[kind]
+    const amount = kind === 'late' ? String(round2(prior * (c?.lateRate ?? 1.5) / 100)) : kind === 'credit' ? '-0' : '0'
+    const description = kind === 'late' ? `Late charge — ${c?.pastDue.map((x) => x.number).join(', ')} at ${c?.lateRate ?? 1.5}% per month (Agreement §6.5)` : ITEM_LABEL[kind]
     setItems([...items, { kind, description, amount }])
   }
 
