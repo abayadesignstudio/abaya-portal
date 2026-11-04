@@ -13,7 +13,8 @@
  * The same layout feeds the on-screen "Pages" preview, so what you see there is what prints.
  */
 const PAGE_W = 720 // US Letter 8.5 in − 2 × 0.5 in margin, at 96 px/in (see @page in agreement.css)
-const PAGE_H = 950 // 11 in − 2 × 0.5 in = 960 px, less a little slack for rounding
+const PAGE_H = 922 // 11 in − 2 × 0.5 in = 960 px, less 30 px for the page-number footer and a little slack
+const FOOTER = 'ABAYA DESIGN STUDIO'
 const PUSH_AT = 0.75
 const HOST_ID = 'ag-print'
 
@@ -114,7 +115,15 @@ export function buildPages(doc: HTMLElement, host: HTMLElement): number {
       group.forEach(place)
     }
   }
-  return host.children.length
+  // automatic page numbers: "ABAYA DESIGN STUDIO | n" at the foot of every page
+  const pages = [...host.children] as HTMLElement[]
+  pages.forEach((pg, i) => {
+    const f = document.createElement('div')
+    f.className = 'ag-foot'
+    f.textContent = `${FOOTER} | ${i + 1}`
+    pg.appendChild(f)
+  })
+  return pages.length
 }
 
 /** The live (editable) document, not one of the page copies. */
