@@ -93,15 +93,17 @@ export function ManualPanel({ api, me, idPrefix, onDone, onCancel }: { api: Time
     announceTimeChange(); api.refreshRecent(); onDone()
   }
   return (
-    <div className="stack" style={{ padding: 14, gap: 10 }}>
-      <h2 style={{ fontSize: 18, margin: 0 }}>Manual entry</h2>
+    <div className="stack" style={{ padding: 18, gap: 10 }}>
+      <h2 style={{ fontSize: 22, margin: 0 }}>Manual entry</h2>
       <Combobox id={id('p')} label="Project" placeholder="Search projects" value={f.project_id} onChange={(x) => set('project_id', x)}
         options={api.projects.map((p) => p.number === 'OH' ? { value: p.id, label: 'Overhead', search: 'OH overhead' } : { value: p.id, chip: p.number, color: sectorColor(p.sector), label: p.name })} />
       {!isOverhead && <Combobox id={id('ph')} label="Phase" placeholder={proj && proj.phases.length === 0 ? 'No phases set up yet' : 'Phase'} disabled={!proj || proj.phases.length === 0}
         value={f.phase_id} onChange={(x) => set('phase_id', x)}
         options={(proj?.phases ?? []).map((x) => ({ value: x.id, chip: x.code, color: 'var(--navy, #02253d)', label: PHASE_NAME[x.code] ?? x.code }))} />}
+      <div className="tm-pair">
       <div><label className="sr" htmlFor={id('r')}>Role</label><select id={id('r')} className="input" value={f.role_label} onChange={(e) => set('role_label', e.target.value)}><option value="">Role</option>{ROLES.map((r) => <option key={r}>{r}</option>)}</select></div>
       <div><label className="sr" htmlFor={id('a')}>Activity</label><select id={id('a')} className="input" value={f.activity} onChange={(e) => set('activity', e.target.value)}><option value="">{isOverhead ? 'Overhead type' : 'Activity'}</option>{(isOverhead ? OVERHEAD : ACTIVITIES).map((a) => <option key={a}>{a}</option>)}</select></div>
+      </div>
       <div><label className="l" htmlFor={id('d')}>Date</label><input id={id('d')} type="date" className="input" value={date} max={iso(new Date())} onChange={(e) => setDate(e.target.value)} /></div>
       <div><label className="l" htmlFor={id('h')}>Hours</label><input id={id('h')} className="input num" inputMode="decimal" placeholder="e.g. 1.5 or 1:30" value={dur} onChange={(e) => setDur(e.target.value)} aria-describedby={id('hh')} />
         <div className="row" style={{ gap: 6, marginTop: 6 }} id={id('hh')}>
@@ -111,8 +113,8 @@ export function ManualPanel({ api, me, idPrefix, onDone, onCancel }: { api: Time
       <label className="sr" htmlFor={id('n')}>Note</label>
       <textarea id={id('n')} className="input" rows={2} placeholder="Add a note (optional)" value={f.note} onChange={(e) => set('note', e.target.value)} style={{ background: '#f6f5f2', border: 0 }} />
       {err && <p className="err" role="alert" style={{ margin: 0 }}>{err}</p>}
-      <div className="row between"><button type="button" className="btn secondary small" onClick={onCancel}>Cancel</button>
-        <button type="button" className="btn small" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Log time'}</button></div>
+      <div className="row between"><button type="button" className="btn secondary" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Log time'}</button></div>
     </div>
   )
 }
@@ -126,7 +128,7 @@ export function PlayIcon({ running }: { running: boolean }) {
 }
 
 /** Sidebar timer (desktop). The circle starts the timer (or stops and logs it while running); the clock opens the
- *  running entry; "+" opens a manual entry. Panels open upward from the button, inside the sidebar.
+ *  running entry; "+" opens a manual entry. Panels open over the page, beside the sidebar, level with the button.
  *  The phone bar (MobileTimer) shares the same timer state via useTimer. */
 export default function SidebarTimer({ me }: { me: string }) {
   const api = useTimer(me)

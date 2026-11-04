@@ -65,7 +65,4 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .stimer-add{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;border:1px solid rgba(154,143,99,.6);background:none;color:#ede6d6;cursor:pointer}
 .stimer-add:hover,.stimer-add[aria-expanded="true"]{background:rgba(154,143,99,.25)}
 .stimer-go:focus-visible,.stimer-add:focus-visible,.stimer-clock:focus-visible{outline:3px solid #7aa2c2;outline-offset:2px}
-.stimer-pop{position:absolute;left:8px;right:8px;bottom:calc(100% - 4px);z-index:30;max-height:calc(100vh - 230px);overflow-y:auto;background:#fff;color:var(--text);border-radius:12px;box-shadow:0 -6px 24px rgba(0,0,0,.35)}
-.stimer-pop .tm-pair{grid-template-columns:1fr}
-.stimer-pop h2{font-size:18px}
-.stimer-pop .btn{min-height:40px;padding:0 12px}
+.stimer-pop{position:fixed;left:244px;bottom:16px;width:420px;max-width:calc(100vw - 260px);max-height:calc(100vh - 32px);overflow-y:auto;z-index:30;background:#fff;color:var(--text);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.25)}
