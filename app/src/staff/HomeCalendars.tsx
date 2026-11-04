@@ -429,13 +429,11 @@ function mergeEvents(list: GEv[], me: string): GM[] {
 
 type Open = { kind: 'new'; day: string } | { kind: 'task'; task: Task } | { kind: 'event'; ev: GM } | { kind: 'edit'; ev: GM }
 
-/** Home: calendar of everyone's tasks and Google meetings (this week by default; the bottom tab opens the month),
- *  shown as "Name: item", filterable by person.
+/** Home: month calendar of everyone's tasks and Google meetings, shown as "Name: item", filterable by person.
  *  Works like Google Calendar: click an empty spot on a day to add an event or a task; click an item for details. */
 export function MonthCalendar({ me, admin, people, projects }: { me: string; admin: boolean; people: Person[]; projects: Proj[] }) {
-  // Starts as this week; the tab at the bottom opens the full month (and back).
-  const [expanded, setExpanded] = useState(false)
-  const [cursor, setCursor] = useState(() => new Date()) // a day in the week/month on screen
+  const expanded = true // full month (the week-only view was removed)
+  const [cursor, setCursor] = useState(() => new Date()) // a day in the month on screen
   const month = new Date(cursor.getFullYear(), cursor.getMonth(), 1)
   const [who, setWho] = useState<string>('all')
   const [open, setOpen] = useState<(Open & { anchor: DOMRect }) | null>(null)
@@ -475,10 +473,6 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   const shift = (n: number) => setCursor(expanded ? new Date(month.getFullYear(), month.getMonth() + n, 1) : addDays(cursor, 7 * n))
   const last = new Date(month.getFullYear(), month.getMonth() + 1, 0)
   const rows = expanded ? Math.ceil((Math.round((last.getTime() - start.getTime()) / 86400000) + 1) / 7) : 1 // weeks this month touches
-  const toggle = () => {
-    if (expanded) { const t = new Date(); if (t.getFullYear() === month.getFullYear() && t.getMonth() === month.getMonth()) setCursor(t) } // back to this week when it's in view
-    setExpanded(!expanded); setOpen(null)
-  }
   const weekEnd = addDays(start, 6)
   const heading = expanded ? month.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
     : start.getMonth() === weekEnd.getMonth() ? `${start.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} – ${weekEnd.getDate()}, ${weekEnd.getFullYear()}`
@@ -530,9 +524,6 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
             </div>)
         })}
       </div></div>
-      <button type="button" className="mc-toggle" aria-expanded={expanded} aria-controls="mc-grid" onClick={toggle}>
-        <span aria-hidden="true" className={'mc-chev' + (expanded ? ' up' : '')}>⌄</span>{expanded ? 'Show week' : 'Show month'}
-      </button>
       {open && <Pop key={open.kind + ('ev' in open ? open.ev.key : 'task' in open ? open.task.id : open.day)} anchor={open.anchor} onClose={close}
         label={open.kind === 'new' ? 'Create' : open.kind === 'task' ? 'Edit task' : open.kind === 'edit' ? 'Edit event' : 'Event details'}>
         {open.kind === 'new' && <QuickCreate me={me} admin={admin} people={people} projects={projects} day={open.day} connected={connected} onCancel={close} onDone={done} />}
