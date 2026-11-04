@@ -34,7 +34,9 @@ const keep = (k: string, v: string) => { try { localStorage.setItem(k, v) } catc
 
 export default function Projects() {
   const [status, setStatus] = useState('active')
-  const [cat, setCat] = useState('all')
+  const [cats, setCats] = useState<string[]>([]) // project types to show; none picked = all types
+  const typeOk = (c: string | null) => cats.length === 0 || (!!c && cats.includes(c))
+  const toggleType = (id: string) => setCats(id === 'all' ? [] : cats.includes(id) ? cats.filter((x) => x !== id) : [...cats, id])
   const [q, setQ] = useState('')
   const [adding, setAdding] = useState(false)
   const [view, setView] = useState(() => remember('abaya.projects.view', 'timeline'))
@@ -62,10 +64,10 @@ export default function Projects() {
     }
     return m
   }, [data])
-  const rows = sortRows(all.filter((p) => (status === 'all' || p.status === status) && (cat === 'all' || p.category === cat) &&
+  const rows = sortRows(all.filter((p) => (status === 'all' || p.status === status) && typeOk(p.category) &&
     (!q || `${p.number} ${p.name} ${p.clients?.name ?? ''}`.toLowerCase().includes(q.toLowerCase()))), sort)
   const feeUsed = useMemo(() => Object.fromEntries(all.map((p) => { const fee = p.phases.reduce((a, ph) => a + Number(ph.fee), 0); return [p.id, fee ? (labor[p.id] ?? 0) / fee * 100 : null] })), [all, labor])
-  const count = (s: string) => all.filter((p) => (s === 'all' || p.status === s) && (cat === 'all' || p.category === cat)).length
+  const count = (s: string) => all.filter((p) => (s === 'all' || p.status === s) && typeOk(p.category)).length
   const unset = all.filter((p) => !p.sector).length
 
   const setSector = async (id: string, sector: string) => {
@@ -86,7 +88,7 @@ export default function Projects() {
       </div>
       <div className="row between">
         <div className="row" role="group" aria-label="Project type">
-          {TYPES.map(([id, l]) => <button key={id} className="chip" aria-pressed={cat === id} onClick={() => setCat(id)}>{l}</button>)}
+          {TYPES.map(([id, l]) => <button key={id} className="chip" aria-pressed={id === 'all' ? cats.length === 0 : cats.includes(id)} onClick={() => toggleType(id)}>{l}</button>)}
         </div>
         <div className="row" style={{ gap: 8 }}>
           <label className="sr" htmlFor="p-sort">Sort by</label>
