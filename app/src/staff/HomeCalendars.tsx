@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { supabase, SECTOR_COLOR, money } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
-import { isoDate, parseDate, mondayOf } from './workload'
+import { isoDate, parseDate } from './workload'
 
 // Tasks and shared schedules on the home page.
 //  - Tasks: one person each; checking one off crosses it out (it stays on the calendar, like Google Calendar).
@@ -277,7 +277,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   const panel = (k: 'add' | 'edit' | 'link' | null, v?: unknown) => {
     setAdding(k === 'add' ? (v as string) : null); setEditing(k === 'edit' ? (v as Task) : null); setLinking(k === 'link' ? (v as GEv) : null); setMsg('')
   }
-  const start = mondayOf(month)
+  const start = addDays(month, -month.getDay()) // Sunday on or before the 1st
   const cells = useMemo(() => Array.from({ length: 42 }, (_, i) => addDays(start, i)), [start.getTime()]) // eslint-disable-line react-hooks/exhaustive-deps
   const from = isoDate(cells[0]), to = isoDate(cells[41])
   const tasks = useTasks(from, to)
@@ -334,7 +334,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
       {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
       {(tasks.error || evs.error) && <p className="err">{tasks.error || evs.error}</p>}
       <div style={{ overflowX: 'auto' }}><div className="mc" style={{ minWidth: 760 }}>
-        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => <div key={d} className="mc-h">{d}</div>)}
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => <div key={d} className="mc-h">{d}</div>)}
         {cells.slice(0, rows * 7).map((d) => {
           const k = isoDate(d); const out = d.getMonth() !== month.getMonth()
           const dayTasks = (tasks.data ?? []).filter((t) => t.due_on === k && show(t.assignee)).sort((a, b) => rank(a.assignee) - rank(b.assignee))
