@@ -106,3 +106,8 @@
 .tk-pline .tk-proj{margin:0 4px 0 0}
 .tk-pname{font-size:11.5px;color:#5f6368;overflow-wrap:break-word}
 .tk.done .tk-pname{text-decoration:line-through;color:#8a8f98}
+/* square day cards; a busy day scrolls inside its card */
+.mc-cell{aspect-ratio:1/1;min-height:0;overflow:hidden}
+.mc-cell .tk-list{flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin}
+.mc-cell .tk-list::-webkit-scrollbar{width:6px}
+.mc-cell .tk-list::-webkit-scrollbar-thumb{background:#d6d3cc;border-radius:3px}
