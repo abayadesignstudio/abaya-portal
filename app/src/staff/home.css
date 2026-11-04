@@ -121,3 +121,6 @@
 .td-h{margin:0;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#5f6368}
 .td-late{display:flex;align-items:flex-start;gap:8px}
 .td-date{flex:none;width:44px;padding-top:4px;font-size:12px;font-weight:700;color:var(--red)}
+.td-up{padding-top:10px;border-top:1px solid #ece9e3}
+.td-day{display:flex;align-items:flex-start;gap:8px}
+.td-up .td-date{color:#3b4350;line-height:1.25}

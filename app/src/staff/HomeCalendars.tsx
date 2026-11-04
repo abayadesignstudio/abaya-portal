@@ -546,30 +546,39 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   )
 }
 
-/** Home sidebar: my day. My meetings today (Google), my tasks due today, and anything overdue, with a quick + Add. */
+/** Home sidebar: my day. My meetings today (Google), my tasks due today, anything overdue, and what's coming up in the
+ *  next 7 days, with a quick + Add. */
 export function TodayCard({ me, admin, people, projects }: { me: string; admin: boolean; people: Person[]; projects: Proj[] }) {
   const today = isoDate(new Date())
-  const tasks = useTasks(today, today, me)
+  const until = isoDate(addDays(new Date(), 7))
+  const tasks = useTasks(today, until, me)
   const overdue = useLoad(async () => must(await supabase.from('tasks').select(TASK_SELECT).eq('assignee', me).is('done_at', null).lt('due_on', today)
     .order('due_on').limit(20)) as unknown as Task[], [me, today])
   const feed = useLoad(async () => {
-    const { data, error } = await supabase.functions.invoke('calendar-feed', { body: { from: today, to: today } })
+    const { data, error } = await supabase.functions.invoke('calendar-feed', { body: { from: today, to: until } })
     return (error || !data?.events ? { events: [], me_connected: false } : data) as { events: GEv[]; me_connected: boolean }
-  }, [today])
+  }, [today, until])
   const links = useLoad(async () => { const { data, error } = await supabase.from('calendar_event_projects').select('google_event_id, project_id'); return (error ? [] : data) as Link[] }, [])
   // items added the older way ("+ Add to calendar"), still on the calendar until checked off
-  const olds = useLoad(async () => must(await supabase.from('calendar_events').select(EV_SELECT).eq('profile_id', me).lte('starts_on', today).gte('ends_on', today)) as unknown as Ev[], [me, today])
+  const olds = useLoad(async () => must(await supabase.from('calendar_events').select(EV_SELECT).eq('profile_id', me).lte('starts_on', until).gte('ends_on', today)) as unknown as Ev[], [me, today, until])
   useCalendarChanges((kind) => { if (kind === 'tasks') { tasks.reload(); overdue.reload(); olds.reload() } else { feed.reload(); links.reload() } })
   const [open, setOpen] = useState<(Open & { anchor: DOMRect }) | null>(null)
   const [msg, setMsg] = useState('')
   const pop = (o: Open, el: HTMLElement) => { setOpen({ ...o, anchor: el.getBoundingClientRect() }); setMsg('') }
   const linkOf = (id: string) => (links.data ?? []).find((l) => l.google_event_id === id)
   const projOf = (e: GEv) => { const l = linkOf(e.id); return projects.find((p) => p.id === (l ? l.project_id : e.auto_project_id)) }
-  const mine = mergeEvents(feed.data?.events ?? [], me).filter((e) => e.people.includes(me) && eventDays(e).includes(today))
+  const myEvents = mergeEvents(feed.data?.events ?? [], me).filter((e) => e.people.includes(me))
     .sort((a, b) => (a.all_day === b.all_day ? a.start.localeCompare(b.start) : a.all_day ? -1 : 1))
+  const mine = myEvents.filter((e) => eventDays(e).includes(today))
   const reload = () => calendarChanged('tasks')
   const close = () => setOpen(null)
-  const todo = tasks.data ?? [], late = overdue.data ?? [], old = olds.data ?? []
+  const allTasks = tasks.data ?? [], allOld = olds.data ?? []
+  const todo = allTasks.filter((t) => t.due_on === today), late = overdue.data ?? [], old = allOld.filter((e) => e.starts_on <= today)
+  // coming up: the next 7 days, grouped by day (unfinished tasks, older-style items, meetings)
+  const upcoming = Array.from({ length: 7 }, (_, i) => isoDate(addDays(new Date(), i + 1))).map((k) => ({
+    k, evs: myEvents.filter((e) => eventDays(e)[0] === k), // multi-day events listed on their first day
+    olds: allOld.filter((e) => e.starts_on === k), tasks: allTasks.filter((t) => t.due_on === k && !t.done_at),
+  })).filter((d) => d.evs.length || d.olds.length || d.tasks.length)
   const left = todo.filter((t) => !t.done_at).length + late.length + old.length
   const loading = !tasks.data || !feed.data
   return (
@@ -593,6 +602,17 @@ export function TodayCard({ me, admin, people, projects }: { me: string; admin: 
       {(todo.length > 0 || old.length > 0) && <div className="stack" style={{ gap: 4 }}>
         <p className="td-h">Tasks</p>
         <ul className="tk-list">{old.map((e) => <EventItem key={e.id} e={e} me={me} admin={admin} people={people} onChange={reload} />)}{todo.map((t) => <TaskItem key={t.id} t={t} me={me} admin={admin} people={people} onChange={reload} onEdit={(x, el) => pop({ kind: 'task', task: x }, el)} />)}</ul>
+      </div>}
+      {upcoming.length > 0 && <div className="stack td-up" style={{ gap: 6 }}>
+        <p className="td-h">Coming up</p>
+        {upcoming.map((d) => <div key={d.k} className="td-day">
+          <span className="td-date">{parseDate(d.k).toLocaleDateString('en-US', { weekday: 'short' })}<br /><span style={{ fontWeight: 400 }}>{parseDate(d.k).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></span>
+          <ul className="tk-list" style={{ flex: 1, minWidth: 0 }}>
+            {d.evs.map((e) => <GEventItem key={e.key} e={e} me={me} people={people} project={projOf(e)} onOpen={(x, el) => pop({ kind: 'event', ev: x }, el)} />)}
+            {d.olds.map((e) => <EventItem key={e.id} e={e} me={me} admin={admin} people={people} onChange={reload} />)}
+            {d.tasks.map((t) => <TaskItem key={t.id} t={t} me={me} admin={admin} people={people} onChange={reload} onEdit={(x, el) => pop({ kind: 'task', task: x }, el)} />)}
+          </ul>
+        </div>)}
       </div>}
       {feed.data && !feed.data.me_connected && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Connect Google on <a href="#/account">My account</a> to see your meetings here.</p>}
       {open && <Pop key={open.kind + ('ev' in open ? open.ev.key : 'task' in open ? open.task.id : open.day)} anchor={open.anchor} onClose={close}
