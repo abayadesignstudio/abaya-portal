@@ -55,6 +55,16 @@ export async function syncTask(id: string, op: 'upsert' | 'delete') {
   try { await supabase.functions.invoke('task-sync', { body: { id, op } }) } catch { /* sync is optional */ }
 }
 
+// One shared "something changed" signal, so the Today card and the calendar stay in step without reloading the page.
+// 'tasks' = tasks/old events changed (cheap reload); 'events' = Google meetings or their project links changed.
+const BUS = 'abaya:calendar-changed'
+type Kind = 'tasks' | 'events'
+export const calendarChanged = (kind: Kind) => window.dispatchEvent(new CustomEvent<Kind>(BUS, { detail: kind }))
+function useCalendarChanges(on: (kind: Kind) => void) {
+  const r = useRef(on); r.current = on
+  useEffect(() => { const h = (e: Event) => r.current((e as CustomEvent<Kind>).detail); window.addEventListener(BUS, h); return () => window.removeEventListener(BUS, h) }, [])
+}
+
 export function useStaff() {
   return useLoad(async () => must(await supabase.from('profiles').select('id, full_name, email, initials, role').in('role', ['admin', 'staff']).order('full_name')) as Person[])
 }
@@ -231,13 +241,14 @@ function QuickCreate({ me, admin, people, projects, day, connected, edit, linkPr
         start_time: f.start_time, end_time: f.end_time, time_zone: tz(), location: f.location, description: f.notes, guests: f.guests, project_id: f.project_id || null } })
       setBusy(false)
       if (error || !data?.ok) return setErr(await fnError(error, 'Couldn’t save the event to Google Calendar.'))
+      calendarChanged('events')
       return onDone(edit ? 'Event updated.' : f.guests.length ? `Event added. ${names(f.guests, people, me)} ${f.guests.length > 1 ? 'were' : 'was'} invited.` : 'Event added to your Google Calendar.', 'event')
     }
     const { data, error } = await supabase.from('tasks').insert({ title: f.title.trim(), due_on: f.date, due_time: f.task_time || null, assignee: f.assignee,
       project_id: f.project_id || null, notes: f.notes.trim() || null, created_by: me }).select('id').single()
     setBusy(false)
     if (error) return setErr({ msg: error.message, code: '' })
-    syncTask((data as { id: string }).id, 'upsert')
+    syncTask((data as { id: string }).id, 'upsert'); calendarChanged('tasks')
     onDone(f.assignee === me ? 'Task added.' : `Task added for ${firstName(people.find((p) => p.id === f.assignee))}.`, 'task')
   }
   const others = people.filter((p) => p.id !== me)
@@ -297,7 +308,7 @@ function EventView({ e, me, people, projects, project, link, onEdit, onChanged, 
     setV(val); setErr('')
     const { error } = val === 'auto' ? await supabase.from('calendar_event_projects').delete().eq('google_event_id', e.id)
       : await supabase.from('calendar_event_projects').upsert({ google_event_id: e.id, project_id: val === 'none' ? null : val, updated_at: new Date().toISOString() })
-    if (error) setErr(error.message); else onChanged('Project saved.', 'link')
+    if (error) setErr(error.message); else { calendarChanged('events'); onChanged('Project saved.', 'link') }
   }
   const remove = async () => {
     if (!window.confirm(`Delete “${e.title}”? ${e.guests.some((g) => g !== me) ? 'Guests will get a cancellation from Google.' : ''}`)) return
@@ -305,7 +316,7 @@ function EventView({ e, me, people, projects, project, link, onEdit, onChanged, 
     const { data, error } = await supabase.functions.invoke('calendar-event', { body: { op: 'delete', id: e.id } })
     setBusy(false)
     if (error || !data?.ok) return setErr((await fnError(error, 'Couldn’t delete the event.')).msg)
-    onChanged('Event deleted.', 'event'); onClose()
+    calendarChanged('events'); onChanged('Event deleted.', 'event'); onClose()
   }
   const organizer = e.organizer ?? (e.can_edit ? me : null)
   return (
@@ -372,13 +383,13 @@ export function AddTask({ me, admin, people, projects, day, edit, onDone, onCanc
       const { error } = await supabase.from('tasks').update(moved ? { ...row, google_task_id: null, google_synced_at: null } : row).eq('id', edit.id)
       setBusy(false)
       if (error) return setErr(error.message)
-      syncTask(edit.id, 'upsert')
+      syncTask(edit.id, 'upsert'); calendarChanged('tasks')
       return onDone(moved ? `Task moved to ${firstName(who)}.` : 'Task saved.')
     }
     const { data, error } = await supabase.from('tasks').insert({ ...row, created_by: me }).select('id').single()
     setBusy(false)
     if (error) return setErr(error.message)
-    syncTask((data as { id: string }).id, 'upsert')
+    syncTask((data as { id: string }).id, 'upsert'); calendarChanged('tasks')
     onDone(f.assignee === me ? 'Task added.' : `Task added for ${firstName(who)}.`)
   }
   return (
@@ -458,7 +469,8 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
     for (const l of m.values()) l.sort((a, b) => (a.all_day === b.all_day ? a.start.localeCompare(b.start) : a.all_day ? -1 : 1))
     return m
   }, [feed.data, me])
-  const reload = () => { tasks.reload(); evs.reload(); bills.reload() }
+  useCalendarChanges((kind) => { if (kind === 'tasks') { tasks.reload(); evs.reload() } else { feed.reload(); links.reload() } })
+  const reload = () => calendarChanged('tasks')
   const today = isoDate(new Date())
   const shift = (n: number) => setCursor(expanded ? new Date(month.getFullYear(), month.getMonth() + n, 1) : addDays(cursor, 7 * n))
   const last = new Date(month.getFullYear(), month.getMonth() + 1, 0)
@@ -474,7 +486,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   const show = (pid: string) => who === 'all' || pid === who
   const order = [...people].sort((a, b) => (a.id === me ? -1 : b.id === me ? 1 : nameOf(a).localeCompare(nameOf(b))))
   const rank = (pid: string) => order.findIndex((p) => p.id === pid)
-  const done = (m: string, what: 'event' | 'task' | 'link') => { setOpen(null); setMsg(m); if (what === 'task') tasks.reload(); else if (what === 'event') { feed.reload(); links.reload() } else links.reload() }
+  const done = (m: string) => { setOpen(null); setMsg(m) } // the change itself reloads the lists (calendarChanged)
   const close = () => setOpen(null)
   return (
     <section className="card pad stack" aria-labelledby="mc-h">
@@ -527,8 +539,68 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
         {open.kind === 'edit' && <QuickCreate me={me} admin={admin} people={people} projects={projects} day={open.ev.start.slice(0, 10)} connected={connected} edit={open.ev}
           linkProject={linkOf(open.ev.id) ? linkOf(open.ev.id)!.project_id : undefined} onCancel={close} onDone={done} />}
         {open.kind === 'event' && <EventView e={open.ev} me={me} people={people} projects={projects} project={projOf(open.ev)} link={linkOf(open.ev.id)}
-          onEdit={() => setOpen({ ...open, kind: 'edit' })} onChanged={(m, w) => { setMsg(m); if (w === 'event') { feed.reload(); links.reload() } else links.reload() }} onClose={close} />}
-        {open.kind === 'task' && <div className="qp-form"><AddTask me={me} admin={admin} people={people} projects={projects} day={open.task.due_on} edit={open.task} onCancel={close} onDone={(m) => done(m, 'task')} /></div>}
+          onEdit={() => setOpen({ ...open, kind: 'edit' })} onChanged={(m) => setMsg(m)} onClose={close} />}
+        {open.kind === 'task' && <div className="qp-form"><AddTask me={me} admin={admin} people={people} projects={projects} day={open.task.due_on} edit={open.task} onCancel={close} onDone={(m) => done(m)} /></div>}
+      </Pop>}
+    </section>
+  )
+}
+
+/** Home sidebar: my day. My meetings today (Google), my tasks due today, and anything overdue, with a quick + Add. */
+export function TodayCard({ me, admin, people, projects }: { me: string; admin: boolean; people: Person[]; projects: Proj[] }) {
+  const today = isoDate(new Date())
+  const tasks = useTasks(today, today, me)
+  const overdue = useLoad(async () => must(await supabase.from('tasks').select(TASK_SELECT).eq('assignee', me).is('done_at', null).lt('due_on', today)
+    .order('due_on').limit(20)) as unknown as Task[], [me, today])
+  const feed = useLoad(async () => {
+    const { data, error } = await supabase.functions.invoke('calendar-feed', { body: { from: today, to: today } })
+    return (error || !data?.events ? { events: [], me_connected: false } : data) as { events: GEv[]; me_connected: boolean }
+  }, [today])
+  const links = useLoad(async () => { const { data, error } = await supabase.from('calendar_event_projects').select('google_event_id, project_id'); return (error ? [] : data) as Link[] }, [])
+  useCalendarChanges((kind) => { if (kind === 'tasks') { tasks.reload(); overdue.reload() } else { feed.reload(); links.reload() } })
+  const [open, setOpen] = useState<(Open & { anchor: DOMRect }) | null>(null)
+  const [msg, setMsg] = useState('')
+  const pop = (o: Open, el: HTMLElement) => { setOpen({ ...o, anchor: el.getBoundingClientRect() }); setMsg('') }
+  const linkOf = (id: string) => (links.data ?? []).find((l) => l.google_event_id === id)
+  const projOf = (e: GEv) => { const l = linkOf(e.id); return projects.find((p) => p.id === (l ? l.project_id : e.auto_project_id)) }
+  const mine = mergeEvents(feed.data?.events ?? [], me).filter((e) => e.people.includes(me) && eventDays(e).includes(today))
+    .sort((a, b) => (a.all_day === b.all_day ? a.start.localeCompare(b.start) : a.all_day ? -1 : 1))
+  const reload = () => calendarChanged('tasks')
+  const close = () => setOpen(null)
+  const todo = tasks.data ?? [], late = overdue.data ?? []
+  const left = todo.filter((t) => !t.done_at).length + late.length
+  const loading = !tasks.data || !feed.data
+  return (
+    <section className="card pad stack" aria-labelledby="hm-today">
+      <div className="row between">
+        <h2 id="hm-today">Today <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>{loading ? '' : left ? `· ${left} to do` : '· all done'}</span></h2>
+        <button className="btn small" onClick={(e) => pop({ kind: 'new', day: today }, e.currentTarget)}>+ Add</button>
+      </div>
+      {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
+      {tasks.error && <p className="err">{tasks.error}</p>}
+      {!loading && !mine.length && !todo.length && !late.length && <p className="muted" style={{ margin: 0 }}><em>Nothing scheduled today.</em></p>}
+      {late.length > 0 && <div className="stack" style={{ gap: 4 }}>
+        <p className="td-h" style={{ color: 'var(--red)' }}>Overdue</p>
+        <ul className="tk-list">{late.map((t) => <li key={t.id} className="td-late"><span className="td-date">{parseDate(t.due_on).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+          <ul className="tk-list" style={{ flex: 1, minWidth: 0 }}><TaskItem t={t} me={me} admin={admin} people={people} onChange={reload} onEdit={(x, el) => pop({ kind: 'task', task: x }, el)} /></ul></li>)}</ul>
+      </div>}
+      {mine.length > 0 && <div className="stack" style={{ gap: 4 }}>
+        <p className="td-h">Events</p>
+        <ul className="tk-list">{mine.map((e) => <GEventItem key={e.key} e={e} me={me} people={people} project={projOf(e)} onOpen={(x, el) => pop({ kind: 'event', ev: x }, el)} />)}</ul>
+      </div>}
+      {todo.length > 0 && <div className="stack" style={{ gap: 4 }}>
+        <p className="td-h">Tasks</p>
+        <ul className="tk-list">{todo.map((t) => <TaskItem key={t.id} t={t} me={me} admin={admin} people={people} onChange={reload} onEdit={(x, el) => pop({ kind: 'task', task: x }, el)} />)}</ul>
+      </div>}
+      {feed.data && !feed.data.me_connected && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Connect Google on <a href="#/account">My account</a> to see your meetings here.</p>}
+      {open && <Pop key={open.kind + ('ev' in open ? open.ev.key : 'task' in open ? open.task.id : open.day)} anchor={open.anchor} onClose={close}
+        label={open.kind === 'new' ? 'Create' : open.kind === 'task' ? 'Edit task' : open.kind === 'edit' ? 'Edit event' : 'Event details'}>
+        {open.kind === 'new' && <QuickCreate me={me} admin={admin} people={people} projects={projects} day={open.day} connected={!!feed.data?.me_connected} onCancel={close} onDone={(m) => { close(); setMsg(m) }} />}
+        {open.kind === 'edit' && <QuickCreate me={me} admin={admin} people={people} projects={projects} day={today} connected={!!feed.data?.me_connected} edit={open.ev}
+          linkProject={linkOf(open.ev.id) ? linkOf(open.ev.id)!.project_id : undefined} onCancel={close} onDone={(m) => { close(); setMsg(m) }} />}
+        {open.kind === 'event' && <EventView e={open.ev} me={me} people={people} projects={projects} project={projOf(open.ev)} link={linkOf(open.ev.id)}
+          onEdit={() => setOpen({ ...open, kind: 'edit' })} onChanged={(m) => setMsg(m)} onClose={close} />}
+        {open.kind === 'task' && <div className="qp-form"><AddTask me={me} admin={admin} people={people} projects={projects} day={open.task.due_on} edit={open.task} onCancel={close} onDone={(m) => { close(); setMsg(m) }} /></div>}
       </Pop>}
     </section>
   )
