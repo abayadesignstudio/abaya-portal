@@ -7,6 +7,7 @@ import LogoField, { loadFirmLogo } from './LogoField'
 import FillablePanel from './FillablePanel'
 import SignatureField from './SignatureField'
 import TypePicker, { typeNames } from './TypePicker'
+import ProjectLink from './ProjectLink'
 import { measureLayout } from './fillablePdf'
 import { buildPages, buildPrintPages, removePrintPages, sectionStartPages, sourceDoc } from './printPages'
 import '@fontsource/lato/700.css'
@@ -252,6 +253,9 @@ export default function AgreementEditor() {
             <span className="status" style={{ background: row.status === 'draft' ? '#fff' : row.status === 'sent' ? '#eef2f6' : '#e7f6ec' }}>{row.status[0].toUpperCase() + row.status.slice(1)}</span>{' '}
             <span className="muted" aria-live="polite" style={{ fontSize: 13 }}>{saved === 'saved' ? 'All changes saved' : saved === 'saving' ? 'Saving…' : 'Unsaved changes'}</span>
           </div>
+          <ProjectLink agreementId={row.id} projectId={row.project_id} clientId={row.client_id} cover={doc.v}
+            onLinked={(project_id, client_id) => setRow((r) => (r ? { ...r, project_id, client_id } : r))}
+            fillCover={(vals) => up((d) => { Object.assign(d.v, vals) })} />
           <div className="ag-tool">
             <span className="l">View</span>
             <div className="ag-seg" role="group" aria-label="View">
