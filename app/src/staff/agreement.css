@@ -24,6 +24,19 @@
 @page{size:letter;margin:0.5in}
 .ag-print-host{position:absolute;left:-10000px;top:0;width:720px;background:#fff}
 .ag-page{width:720px;display:flow-root}
+/* on-screen "Pages" view: same pages, drawn as Letter sheets (8.5 × 11 in at 96 px/in) */
+.ag-src-offscreen{position:absolute;left:-10000px;top:0;width:816px}
+.ag-screen-pages{counter-reset:pg}
+.ag-screen-pages .ag-page{counter-increment:pg;position:relative;box-sizing:content-box;height:960px;padding:48px;margin:0 auto 22px;background:#fff;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.12),0 8px 24px rgba(0,0,0,.06)}
+.ag-screen-pages .ag-page::after{content:"Page " counter(pg);position:absolute;right:48px;bottom:18px;font:11px Arial;color:#8a8f98}
+/* manual page-break controls (screen only) */
+.ag-pb-add{position:absolute;right:0;top:-2px;z-index:2;padding:2px 8px;border:1px dashed #9aa4b2;border-radius:6px;background:#fff;font:12px Arial;color:#475467;cursor:pointer;opacity:0;transition:opacity .12s}
+.ag-sec>.ag-pb-add{top:-22px}
+.ag-sec:hover>.ag-pb-add,.ag-clause:hover>.ag-pb-add,.ag-pb-add:focus-visible{opacity:1}
+.ag-pb-on{display:flex;align-items:center;gap:10px;margin:6px 0 10px;font:700 11px Arial;letter-spacing:.06em;text-transform:uppercase;color:#2b5c8a}
+.ag-pb-on::before,.ag-pb-on::after{content:"";flex:1;border-top:2px dashed #2b5c8a}
+.ag-pb-on span{order:0}
+.ag-pb-on button{order:2;border:0;background:none;font:12px Arial;color:#b42318;text-decoration:underline;cursor:pointer;text-transform:none;letter-spacing:0}
 @media print{
   body.ag-printing>*:not(#ag-print){display:none !important}
   body.ag-printing .ag-print-host{position:static;left:0}
@@ -40,3 +53,10 @@
   .ag-doc{box-shadow:none;padding:0;max-width:none}
   .ag-clause{border-left-color:transparent !important}
 }
+
+/* header logo drop zone */
+.ag-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:110px;padding:12px;border:2px dashed #b9b4aa;border-radius:8px;background:#fff;cursor:pointer;text-align:center}
+.ag-drop:hover,.ag-drop.over{border-color:var(--navy);background:#f3f6f9}
+.ag-drop:focus-visible{outline:3px solid #7aa2c2;outline-offset:2px}
+.ag-drop img{max-width:220px;max-height:74px;object-fit:contain}
+.ag-drop-h{font-size:12px;color:var(--muted)}

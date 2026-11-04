@@ -9,7 +9,8 @@
  * Rules:
  *  - A section heading (.ag-sec > h2) whose top would fall past PUSH_AT of the page starts the next page.
  *  - Headings (h1/h2/h3, clause titles .ag-ct) stay on the same page as the block after them.
- *  - An element marked .ag-pagebreak always starts a new page.
+ *  - An element marked .ag-pagebreak always starts a new page (manual breaks set in the editor, the report).
+ * The same layout feeds the on-screen "Pages" preview, so what you see there is what prints.
  */
 const PAGE_W = 720 // US Letter 8.5 in − 2 × 0.5 in margin, at 96 px/in (see @page in agreement.css)
 const PAGE_H = 950 // 11 in − 2 × 0.5 in = 960 px, less a little slack for rounding
@@ -18,6 +19,7 @@ const HOST_ID = 'ag-print'
 
 const ATOMIC = 'p, h1, h2, h3, h4, table, ul, ol, header, img, hr, .ag-keep'
 const isHeading = (el: Element) => /^H[1-4]$/.test(el.tagName) || el.classList.contains('ag-ct')
+const SKIP = '.ag-pb-ui' // editor-only controls never take up space on a page
 const isSectionHeading = (el: Element) => el.tagName === 'H2' && !!el.parentElement?.classList.contains('ag-sec')
 
 function isAtomic(el: Element): boolean {
@@ -33,7 +35,7 @@ function leaves(root: Element): Element[] {
   const out: Element[] = []
   const walk = (el: Element) => {
     for (const c of el.children) {
-      if (getComputedStyle(c).display === 'none') continue
+      if (getComputedStyle(c).display === 'none' || c.matches(SKIP)) continue
       if (isAtomic(c)) out.push(c); else walk(c)
     }
   }
@@ -41,25 +43,21 @@ function leaves(root: Element): Element[] {
   return out
 }
 
-export function buildPrintPages(doc: HTMLElement | null) {
-  removePrintPages()
-  if (!doc) return
-  const host = document.createElement('div')
-  host.id = HOST_ID
-  host.className = 'ag-print-host'
-  document.body.appendChild(host)
-
+/** Lays `doc` out into `.ag-page` elements inside `host` (which must already be in the document). Returns the page count. */
+export function buildPages(doc: HTMLElement, host: HTMLElement): number {
+  host.replaceChildren()
   const blocks = leaves(doc)
-  let page!: HTMLElement
   let map = new Map<Element, Element>() // original ancestor → its copy on the current page
   let used = 0 // leaves placed on the current page
 
   const newPage = () => {
-    page = document.createElement('div')
+    const page = document.createElement('div')
     page.className = 'ag-page'
     // the page carries the document's own class and inline style (font, size, colour), minus screen padding
     const shell = doc.cloneNode(false) as HTMLElement
-    shell.style.cssText += ';padding:0;margin:0;max-width:none;box-shadow:none;width:100%'
+    shell.classList.add('ag-copy')
+    shell.removeAttribute('aria-label')
+    shell.style.cssText += ';padding:0;margin:0;max-width:none;box-shadow:none;width:100%;display:flow-root;min-height:0'
     page.appendChild(shell)
     host.appendChild(page)
     map = new Map([[doc, shell]])
@@ -80,7 +78,9 @@ export function buildPrintPages(doc: HTMLElement | null) {
     used++
     return c
   }
-  const overflows = () => page.scrollHeight > PAGE_H
+  // measure the content (the shell), not the page box, so on-screen sheets can have padding and a fixed height
+  const shellOf = () => map.get(doc) as HTMLElement
+  const overflows = () => shellOf().offsetHeight > PAGE_H
   const forcedBreak = (leaf: Element) => {
     for (let a: Element | null = leaf; a && a !== doc; a = a.parentElement) if (a.classList.contains('ag-pagebreak') && !map.has(a)) return true
     return false
@@ -106,7 +106,7 @@ export function buildPrintPages(doc: HTMLElement | null) {
     if (used > 0 && forcedBreak(group[0])) newPage()
     const copies = group.map(place)
     const first = copies[0] as HTMLElement
-    const top = first.getBoundingClientRect().top - page.getBoundingClientRect().top
+    const top = first.getBoundingClientRect().top - shellOf().getBoundingClientRect().top
     const tooLow = used > group.length && isSectionHeading(group[0]) && top > PAGE_H * PUSH_AT
     if (used > group.length && (overflows() || tooLow)) {
       unplace(copies)
@@ -114,6 +114,20 @@ export function buildPrintPages(doc: HTMLElement | null) {
       group.forEach(place)
     }
   }
+  return host.children.length
+}
+
+/** The live (editable) document, not one of the page copies. */
+export const sourceDoc = () => document.querySelector<HTMLElement>('.ag-doc:not(.ag-copy)')
+
+export function buildPrintPages(doc: HTMLElement | null) {
+  removePrintPages()
+  if (!doc) return
+  const host = document.createElement('div')
+  host.id = HOST_ID
+  host.className = 'ag-print-host'
+  document.body.appendChild(host)
+  buildPages(doc, host)
   document.body.classList.add('ag-printing')
 }
 

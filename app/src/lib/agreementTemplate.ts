@@ -13,6 +13,8 @@ export type DocState = {
   ex: { t: string; on: boolean }[]
   off: Record<string, boolean>
   edits: Record<string, string>
+  /** manual page breaks: "s<section>" or "c<clause id>" */
+  pb?: string[]
   custom: Custom[]
 }
 

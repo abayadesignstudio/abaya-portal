@@ -3,7 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { STANDARD, PHN, newDoc, type DocState, type Clause } from '../lib/agreementTemplate'
-import { buildPrintPages, removePrintPages } from './printPages'
+import LogoField, { loadFirmLogo } from './LogoField'
+import { buildPages, buildPrintPages, removePrintPages, sourceDoc } from './printPages'
 import './agreement.css'
 
 // ---------- helpers
@@ -32,8 +33,8 @@ function diff(a: string, b: string): Run[] {
   return out
 }
 
-type UI = { mode: 'draft' | 'final'; changesIn: 'text' | 'report'; check: boolean; openSec: number; openCl: string; editing: string; draft: string; addFor: string; nTitle: string; nBody: string; newSecTitle: string; exNew: string }
-const UI0: UI = { mode: 'draft', changesIn: 'text', check: false, openSec: 0, openCl: '', editing: '', draft: '', addFor: '', nTitle: '', nBody: '', newSecTitle: '', exNew: '' }
+type UI = { pages: boolean; mode: 'draft' | 'final'; changesIn: 'text' | 'report'; check: boolean; openSec: number; openCl: string; editing: string; draft: string; addFor: string; nTitle: string; nBody: string; newSecTitle: string; exNew: string }
+const UI0: UI = { pages: false, mode: 'draft', changesIn: 'text', check: false, openSec: 0, openCl: '', editing: '', draft: '', addFor: '', nTitle: '', nBody: '', newSecTitle: '', exNew: '' }
 
 type CView = Clause & { num: string; sec: number; cur: string; added: boolean; customIdx?: number; off: boolean; modified: boolean; missing: string[] }
 type SView = { n: number; title: string; initial?: boolean; clauses: CView[] }
@@ -165,11 +166,23 @@ export default function AgreementEditor() {
 
   // Printing (button or Ctrl+P): lay the document out into our own pages first (see printPages.ts).
   useEffect(() => {
-    const before = () => buildPrintPages(document.querySelector<HTMLElement>('.ag-doc'))
+    const before = () => buildPrintPages(sourceDoc())
     window.addEventListener('beforeprint', before)
     window.addEventListener('afterprint', removePrintPages)
     return () => { window.removeEventListener('beforeprint', before); window.removeEventListener('afterprint', removePrintPages); removePrintPages() }
   }, [])
+
+  const [firmLogo, setFirmLogo] = useState('')
+  useEffect(() => { loadFirmLogo().then(setFirmLogo).catch(() => {}) }, [])
+
+  // "Pages" view: rebuild the print layout shortly after the document changes.
+  const pagesRef = useRef<HTMLDivElement>(null)
+  const [pageCount, setPageCount] = useState(0)
+  useEffect(() => {
+    if (!ui.pages) return
+    const t = setTimeout(() => { const src = sourceDoc(), host = pagesRef.current; if (src && host) setPageCount(buildPages(src, host)) }, 200)
+    return () => clearTimeout(t)
+  }, [ui.pages, doc, ui.mode, ui.changesIn])
 
   if (err && !doc) return <p className="err">{err}</p>
   if (!doc || !model || !row) return <p>Loading…</p>
@@ -209,6 +222,10 @@ export default function AgreementEditor() {
             <button type="button" aria-pressed={draft} onClick={() => patchUi({ mode: 'draft' })}>Draft</button>
             <button type="button" aria-pressed={!draft} onClick={() => patchUi({ mode: 'final' })}>Final</button>
           </div>
+          <div className="ag-seg" role="group" aria-label="Layout">
+            <button type="button" aria-pressed={!ui.pages} onClick={() => patchUi({ pages: false })}>Continuous</button>
+            <button type="button" aria-pressed={ui.pages} onClick={() => patchUi({ pages: true })} title="Show the document as it will print, page by page">Pages</button>
+          </div>
           {!draft && <div className="row" style={{ gap: 6, fontSize: 13 }} role="group" aria-label="Show changes"><span className="muted">Changes:</span>
             <div className="ag-seg"><button type="button" aria-pressed={ui.changesIn === 'text'} onClick={() => patchUi({ changesIn: 'text' })}>In the text</button>
               <button type="button" aria-pressed={ui.changesIn === 'report'} onClick={() => patchUi({ changesIn: 'report' })}>Report only</button></div></div>}
@@ -220,7 +237,7 @@ export default function AgreementEditor() {
       {row.status === 'sent' && <p className="ok no-print" style={{ margin: '12px 0 0' }}>Marked as sent. Emailing the agreement and e-signature aren’t connected yet — download the PDF and send it yourself for now.</p>}
       {err && <p className="err no-print" role="alert" style={{ margin: '12px 0 0' }}>{err}</p>}
       <div className="ag-wrap">
-        <Outline doc={doc} model={model} ui={ui} patchUi={patchUi} up={up} setV={setV} />
+        <Outline doc={doc} model={model} ui={ui} patchUi={patchUi} up={up} setV={setV} firmLogo={firmLogo} setFirmLogo={setFirmLogo} />
         <main className="ag-main">
           {ui.check && (
             <div role="region" aria-label="Document check" className="card pad no-print" style={{ maxWidth: 816, margin: '0 auto 16px' }}>
@@ -231,7 +248,12 @@ export default function AgreementEditor() {
               </> : <p style={{ margin: 0, fontWeight: 700, color: 'var(--green)' }}>All fill points are complete and the payments add up to 100%.</p>}
               <p className="muted" style={{ margin: '8px 0 0', fontSize: 13 }}>{model.changes.length} change(s) to the standard text will be listed in the Modifications Report.</p>
             </div>)}
-          <Document doc={doc} model={model} draft={draft} showMarks={showMarks} changesIn={ui.changesIn} onOpen={openClause} />
+          {ui.pages && <p className="muted no-print" style={{ maxWidth: 816, margin: '0 auto 12px', fontSize: 13 }}><em>Print layout: {pageCount || '…'} page{pageCount === 1 ? '' : 's'}, US Letter. To add or remove a page break, switch to Continuous and hover a section or clause heading.</em></p>}
+          <div className={ui.pages ? 'ag-src-offscreen' : undefined} aria-hidden={ui.pages || undefined}>
+            <Document logo={doc.v.logo || firmLogo} doc={doc} model={model} draft={draft} showMarks={showMarks} changesIn={ui.changesIn} onOpen={openClause}
+              breaks={doc.pb ?? []} onToggleBreak={(id) => up((d) => { const b = new Set(d.pb ?? []); if (b.has(id)) b.delete(id); else b.add(id); d.pb = [...b] })} />
+          </div>
+          {ui.pages && <div ref={pagesRef} className="ag-screen-pages" aria-label="Agreement, print layout" />}
         </main>
       </div>
     </div>
@@ -240,13 +262,14 @@ export default function AgreementEditor() {
 
 // ---------------------------------------------------------------- outline (sidebar)
 type OutlineProps = { doc: DocState; model: ReturnType<typeof build>; ui: UI; patchUi: (p: Partial<UI>) => void; up: (f: (d: DocState) => void) => void
-  setV: (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => void }
+  setV: (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => void
+  firmLogo?: string; setFirmLogo?: (u: string) => void }
 
 function Field({ id, label, children, hint }: { id: string; label: string; children: ReactNode; hint?: string }) {
   return <div><label className="l" htmlFor={id}>{label}</label>{children}{hint && <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}><em>{hint}</em></p>}</div>
 }
 
-function Outline({ doc, model, ui, patchUi, up, setV }: OutlineProps) {
+function Outline({ doc, model, ui, patchUi, up, setV, firmLogo, setFirmLogo }: OutlineProps) {
   const v = doc.v
   const inp = (k: string, label: string, type = 'text') => <Field id={'ag-' + k} label={label}><input id={'ag-' + k} type={type} className="input" value={v[k] ?? ''} onChange={setV(k)} /></Field>
   const ta = (k: string, label: string, rows = 3, hint?: string) => <Field id={'ag-' + k} label={label} hint={hint}><textarea id={'ag-' + k} className="input" rows={rows} value={v[k] ?? ''} onChange={setV(k)} /></Field>
@@ -262,6 +285,7 @@ function Outline({ doc, model, ui, patchUi, up, setV }: OutlineProps) {
       <div style={{ borderBottom: '1px solid #ece9e3' }}>
         <button type="button" className="ag-row" style={{ padding: '13px 16px', fontWeight: 700 }} aria-expanded={ui.openSec === 0} onClick={() => patchUi({ openSec: ui.openSec === 0 ? -1 : 0 })}>{ui.openSec === 0 ? '▾' : '▸'} Cover · Parties &amp; Project</button>
         {ui.openSec === 0 && <div className="ag-f" style={{ padding: '4px 16px 16px', background: '#fbfaf8' }}>
+          <LogoField value={v.logo ?? ''} firmLogo={firmLogo ?? ''} onFirmLogo={setFirmLogo ?? (() => {})} onChange={(u) => up((d) => { if (u) d.v.logo = u; else delete d.v.logo })} />
           {inp('date', 'Agreement date', 'date')}
           {inp('ownerName', 'Owner name')}
           {ta('ownerAddr', 'Owner business address')}
@@ -424,7 +448,13 @@ function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model
 
 // ---------------------------------------------------------------- document
 type Seg = { t: string; k: Run['k']; fp?: string }
-function Document({ doc, model, draft, showMarks, changesIn, onOpen }: { doc: DocState; model: ReturnType<typeof build>; draft: boolean; showMarks: boolean; changesIn: string; onOpen: (sec: number, cl: string) => void }) {
+function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, breaks, onToggleBreak }: { logo: string; doc: DocState; model: ReturnType<typeof build>; draft: boolean; showMarks: boolean; changesIn: string; onOpen: (sec: number, cl: string) => void
+  breaks: string[]; onToggleBreak: (id: string) => void }) {
+  // Manual page breaks: "s3" = before Section 3, "c2.5" = before clause 2.5. Controls are screen-only (.ag-pb-ui).
+  const hasBreak = (id: string) => breaks.includes(id)
+  const BreakUI = ({ id, what }: { id: string; what: string }) => hasBreak(id)
+    ? <div className="ag-pb-ui ag-pb-on no-print"><span>Page break</span><button type="button" onClick={() => onToggleBreak(id)} aria-label={`Remove page break before ${what}`}>Remove</button></div>
+    : <button type="button" className="ag-pb-ui ag-pb-add no-print" onClick={() => onToggleBreak(id)} aria-label={`Insert page break before ${what}`}>↧ Page break before</button>
   const v = doc.v
   const FP = model.FP
   const longDate = longDateOf(v.date)
@@ -530,8 +560,10 @@ function Document({ doc, model, draft, showMarks, changesIn, onOpen }: { doc: Do
   return (
     <article className="ag-doc" aria-label="Agreement">
       <header style={{ display: 'flex', alignItems: 'center', gap: 22, paddingBottom: 18, borderBottom: '1px solid #000' }}>
-        <div style={{ width: 170, height: 74, background: '#02253d', color: '#ede6d6', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: "'EB Garamond', Georgia, serif" }}>
-          <span style={{ fontSize: 26, letterSpacing: '.18em' }}>ABAYA</span><span style={{ fontSize: 9, letterSpacing: '.32em' }}>DESIGN STUDIO</span></div>
+        {logo
+          ? <div style={{ width: 220, height: 74, flex: 'none', display: 'flex', alignItems: 'center' }}><img src={logo} alt="Abaya Design Studio" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} /></div>
+          : <div style={{ width: 170, height: 74, flex: 'none', background: '#02253d', color: '#ede6d6', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: "'EB Garamond', Georgia, serif" }}>
+              <span style={{ fontSize: 26, letterSpacing: '.18em' }}>ABAYA</span><span style={{ fontSize: 9, letterSpacing: '.32em' }}>DESIGN STUDIO</span></div>}
         <div style={{ fontSize: 12, lineHeight: 1.35 }}><strong>Abaya Design Studio, LLC.</strong><br />215 S Denton Tap Road, Suite 215<br />Coppell, Texas 75019<br />info@abayadesignstudio.com<br />Abayadesignstudio.com</div>
       </header>
       <div style={{ margin: '14px 0 0', padding: '8px 10px', border: '1px solid #000', fontSize: 11, lineHeight: 1.35 }}><strong>MODIFICATIONS:</strong> {notice}</div>
@@ -564,7 +596,8 @@ function Document({ doc, model, draft, showMarks, changesIn, onOpen }: { doc: Do
       {model.secs.map((s) => {
         const all = s.clauses.length > 0 && s.clauses.every((c) => c.off)
         return (
-          <section key={s.n} className="ag-sec" style={{ marginTop: 24 }}>
+          <section key={s.n} className={'ag-sec' + (hasBreak('s' + s.n) ? ' ag-pagebreak' : '')} style={{ marginTop: 24, position: 'relative' }}>
+            <BreakUI id={'s' + s.n} what={`Section ${s.n}`} />
             <h2 style={{ margin: '0 0 10px', textAlign: 'center', fontSize: 14.5, ...(all && draft ? struck(false) : {}) }}>SECTION {s.n} - {s.title}</h2>
             {s.clauses.map((c) => {
               const omittedFinal = c.off && !draft
@@ -572,7 +605,8 @@ function Document({ doc, model, draft, showMarks, changesIn, onOpen }: { doc: Do
               const open = () => onOpen(s.n, c.id)
               const titleSegs = toParas(tok(c.title).map((t) => ({ t, k: c.added ? 'add' as const : 'same' as const })))[0] || []
               return (
-                <div key={c.id} className="ag-clause" style={{ marginLeft: c.sub ? 9 : -13, borderLeftColor: bar, ...(c.off && draft ? struck(false) : {}) }}>
+                <div key={c.id} className={'ag-clause' + (hasBreak('c' + c.id) ? ' ag-pagebreak' : '')} style={{ marginLeft: c.sub ? 9 : -13, borderLeftColor: bar, ...(c.off && draft ? struck(false) : {}) }}>
+                  <BreakUI id={'c' + c.id} what={`clause ${c.num}`} />
                   <p className="ag-ct" style={{ margin: '0 0 2px', fontWeight: 700 }}><span onClick={open} style={{ cursor: 'pointer' }}>{c.num}</span> <Segs segs={titleSegs} onClick={open} />{omittedFinal && <span style={{ fontWeight: 400 }}> Intentionally omitted.</span>}</p>
                   {!omittedFinal && <>
                     {toParas(runsOf(c)).map((segs, i) => <p key={i} style={{ paddingLeft: pad(segs) }}><Segs segs={segs} onClick={open} /></p>)}
