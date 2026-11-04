@@ -69,7 +69,7 @@ export default function LogoField({ value, firmLogo, onChange, onFirmLogo }: {
         <span id="ag-logo-h" className="ag-drop-h">{busy ? 'Uploading…' : 'Drop an image here, or click to choose'}</span>
       </div>
       <input ref={input} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif" hidden onChange={(e) => { take(e.target.files?.[0]); e.target.value = '' }} />
-      <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}><em>{value ? 'This proposal uses its own logo.' : firmLogo ? 'Using the firm default logo.' : 'No logo set: the header shows the Abaya wordmark.'} Wide logos work best; it fits in a 220 × 74 px box.</em></p>
+      <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}><em>{value ? 'This proposal uses its own logo.' : firmLogo ? 'Using the firm default logo.' : 'No logo set: the header shows the Abaya wordmark.'} Wide logos work best; it prints up to 260 px wide and 74 px tall.</em></p>
       <div className="row" style={{ gap: 6, marginTop: 6 }}>
         {value && <button type="button" className="btn small secondary" disabled={busy} onClick={makeDefault}>Make firm default</button>}
         {value && <button type="button" className="btn small secondary" disabled={busy} onClick={() => onChange('')}>{firmLogo ? 'Use firm default' : 'Remove'}</button>}

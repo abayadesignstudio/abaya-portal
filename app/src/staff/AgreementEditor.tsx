@@ -559,9 +559,9 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
 
   return (
     <article className="ag-doc" aria-label="Agreement">
-      <header style={{ display: 'flex', alignItems: 'center', gap: 22, paddingBottom: 18, borderBottom: '1px solid #000' }}>
+      <header style={{ display: 'flex', alignItems: 'center', gap: 16, paddingBottom: 18, borderBottom: '1px solid #000' }}>
         {logo
-          ? <div style={{ width: 220, height: 74, flex: 'none', display: 'flex', alignItems: 'center' }}><img src={logo} alt="Abaya Design Studio" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} /></div>
+          ? <div style={{ height: 74, flex: 'none', display: 'flex', alignItems: 'center' }}><img src={logo} alt="Abaya Design Studio" style={{ display: 'block', height: 'auto', width: 'auto', maxWidth: 260, maxHeight: 74 }} /></div>
           : <div style={{ width: 170, height: 74, flex: 'none', background: '#02253d', color: '#ede6d6', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: "'EB Garamond', Georgia, serif" }}>
               <span style={{ fontSize: 26, letterSpacing: '.18em' }}>ABAYA</span><span style={{ fontSize: 9, letterSpacing: '.32em' }}>DESIGN STUDIO</span></div>}
         <div style={{ fontSize: 12, lineHeight: 1.35 }}><strong>Abaya Design Studio, LLC.</strong><br />215 S Denton Tap Road, Suite 215<br />Coppell, Texas 75019<br />info@abayadesignstudio.com<br />Abayadesignstudio.com</div>

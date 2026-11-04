@@ -58,5 +58,5 @@
 .ag-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:110px;padding:12px;border:2px dashed #b9b4aa;border-radius:8px;background:#fff;cursor:pointer;text-align:center}
 .ag-drop:hover,.ag-drop.over{border-color:var(--navy);background:#f3f6f9}
 .ag-drop:focus-visible{outline:3px solid #7aa2c2;outline-offset:2px}
-.ag-drop img{max-width:220px;max-height:74px;object-fit:contain}
+.ag-drop img{max-width:260px;max-height:74px;object-fit:contain}
 .ag-drop-h{font-size:12px;color:var(--muted)}
