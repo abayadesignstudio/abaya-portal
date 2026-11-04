@@ -50,3 +50,6 @@ label.l{display:block;margin-bottom:5px;font-size:13px;font-weight:700}
 .ts-in{width:100%;min-height:40px;border:1px solid #b9b4aa;border-radius:6px;text-align:center;font:16px Arial;font-variant-numeric:tabular-nums}
 .ts-in:focus{outline:3px solid #7aa2c2}
 .ts-in.today{background:#f4f7fa}
+
+/* never print app chrome that is pinned to the screen (it repeats on every page and covers text) */
+@media print{.mtimer,.rowmenu{display:none !important}}

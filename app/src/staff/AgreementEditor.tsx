@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { STANDARD, PHN, newDoc, type DocState, type Clause } from '../lib/agreementTemplate'
+import { buildPrintPages, removePrintPages } from './printPages'
 import './agreement.css'
 
 // ---------- helpers
@@ -161,6 +162,14 @@ export default function AgreementEditor() {
       flushNow() // leaving the editor inside the portal (sidebar link, back button)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Printing (button or Ctrl+P): lay the document out into our own pages first (see printPages.ts).
+  useEffect(() => {
+    const before = () => buildPrintPages(document.querySelector<HTMLElement>('.ag-doc'))
+    window.addEventListener('beforeprint', before)
+    window.addEventListener('afterprint', removePrintPages)
+    return () => { window.removeEventListener('beforeprint', before); window.removeEventListener('afterprint', removePrintPages); removePrintPages() }
+  }, [])
 
   if (err && !doc) return <p className="err">{err}</p>
   if (!doc || !model || !row) return <p>Loading…</p>
@@ -423,7 +432,14 @@ function Document({ doc, model, draft, showMarks, changesIn, onOpen }: { doc: Do
   const toParas = (runs: Run[], force = false) => {
     const sm = force || showMarks
     const paras: Seg[][] = [[]]
+    // Runs are single words; rejoin neighbours of the same kind so "{Project name}" matches as one placeholder.
+    const merged: Run[] = []
     runs.forEach((r) => {
+      const last = merged[merged.length - 1]
+      if (last && r.t !== '\n' && last.t !== '\n' && last.k === r.k) last.t += r.t
+      else merged.push({ ...r })
+    })
+    merged.forEach((r) => {
       if (r.t === '\n') { if (!(r.k === 'del' && !sm)) paras.push([]); return }
       if (r.k === 'del' && !sm) return
       r.t.split(/(\{[^}]+\})/).filter((x) => x !== '').forEach((piece) => {
@@ -462,7 +478,7 @@ function Document({ doc, model, draft, showMarks, changesIn, onOpen }: { doc: Do
       const p = doc.ph[ab]
       const rep = (x: string) => x.replace(/\[meetings\]/g, words(p.meet)).replace(/\[revisions\]/g, words(p.rev))
       return (
-        <div key={ab} style={{ margin: '10px 0 0 24px', ...(p.on || !draft ? {} : struck(false)) }}>
+        <div key={ab} className="ag-keep" style={{ margin: '10px 0 0 24px', ...(p.on || !draft ? {} : struck(false)) }}>
           <p style={{ fontWeight: 700 }}>2.11.{i + 1} {name.toUpperCase()} ({ab}){!p.on && (draft ? ' — not included' : <span style={{ fontWeight: 400 }}> Intentionally omitted.</span>)}</p>
           {p.on && <div style={{ display: 'grid', gridTemplateColumns: '2.1fr 1fr', border: '1px solid #000', marginBottom: 10 }}>
             <div style={{ padding: '4px 8px', borderRight: '1px solid #000', borderBottom: '1px solid #000', textAlign: 'center', fontWeight: 700 }}>SCOPE</div>
@@ -548,7 +564,7 @@ function Document({ doc, model, draft, showMarks, changesIn, onOpen }: { doc: Do
       {model.secs.map((s) => {
         const all = s.clauses.length > 0 && s.clauses.every((c) => c.off)
         return (
-          <section key={s.n} style={{ marginTop: 24 }}>
+          <section key={s.n} className="ag-sec" style={{ marginTop: 24 }}>
             <h2 style={{ margin: '0 0 10px', textAlign: 'center', fontSize: 14.5, ...(all && draft ? struck(false) : {}) }}>SECTION {s.n} - {s.title}</h2>
             {s.clauses.map((c) => {
               const omittedFinal = c.off && !draft
@@ -557,7 +573,7 @@ function Document({ doc, model, draft, showMarks, changesIn, onOpen }: { doc: Do
               const titleSegs = toParas(tok(c.title).map((t) => ({ t, k: c.added ? 'add' as const : 'same' as const })))[0] || []
               return (
                 <div key={c.id} className="ag-clause" style={{ marginLeft: c.sub ? 9 : -13, borderLeftColor: bar, ...(c.off && draft ? struck(false) : {}) }}>
-                  <p style={{ margin: '0 0 2px', fontWeight: 700 }}><span onClick={open} style={{ cursor: 'pointer' }}>{c.num}</span> <Segs segs={titleSegs} onClick={open} />{omittedFinal && <span style={{ fontWeight: 400 }}> Intentionally omitted.</span>}</p>
+                  <p className="ag-ct" style={{ margin: '0 0 2px', fontWeight: 700 }}><span onClick={open} style={{ cursor: 'pointer' }}>{c.num}</span> <Segs segs={titleSegs} onClick={open} />{omittedFinal && <span style={{ fontWeight: 400 }}> Intentionally omitted.</span>}</p>
                   {!omittedFinal && <>
                     {toParas(runsOf(c)).map((segs, i) => <p key={i} style={{ paddingLeft: pad(segs) }}><Segs segs={segs} onClick={open} /></p>)}
                     {special(c)}
@@ -576,7 +592,7 @@ function Document({ doc, model, draft, showMarks, changesIn, onOpen }: { doc: Do
       <p style={{ margin: '6px 0 0', paddingTop: 6, borderTop: '1px solid #000', textAlign: 'center', fontWeight: 700 }}>END OF DOCUMENT</p>
 
       {!draft && report.length > 0 && (
-        <section aria-label="Modifications report" style={{ marginTop: 36, paddingTop: 18, borderTop: '2px solid #000', breakBefore: 'page' }}>
+        <section aria-label="Modifications report" className="ag-pagebreak" style={{ marginTop: 36, paddingTop: 18, borderTop: '2px solid #000', breakBefore: 'page' }}>
           <h2 style={{ margin: '0 0 4px', textAlign: 'center', fontSize: 14.5 }}>MODIFICATIONS REPORT</h2>
           <p style={{ textAlign: 'center', fontSize: 12 }}><em>Changes to the Abaya Design Studio standard form text. Additions are underlined; deletions are struck through.</em></p>
           {report.map((c) => (
