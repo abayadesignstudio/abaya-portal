@@ -418,17 +418,23 @@ function mergeEvents(list: GEv[], me: string): GM[] {
 
 type Open = { kind: 'new'; day: string } | { kind: 'task'; task: Task } | { kind: 'event'; ev: GM } | { kind: 'edit'; ev: GM }
 
-/** Home: month calendar of everyone's tasks and Google meetings, shown as "Name: item", filterable by person.
+/** Home: calendar of everyone's tasks and Google meetings (this week by default; the bottom tab opens the month),
+ *  shown as "Name: item", filterable by person.
  *  Works like Google Calendar: click an empty spot on a day to add an event or a task; click an item for details. */
 export function MonthCalendar({ me, admin, people, projects }: { me: string; admin: boolean; people: Person[]; projects: Proj[] }) {
-  const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
+  // Starts as this week; the tab at the bottom opens the full month (and back).
+  const [expanded, setExpanded] = useState(false)
+  const [cursor, setCursor] = useState(() => new Date()) // a day in the week/month on screen
+  const month = new Date(cursor.getFullYear(), cursor.getMonth(), 1)
   const [who, setWho] = useState<string>('all')
   const [open, setOpen] = useState<(Open & { anchor: DOMRect }) | null>(null)
   const [msg, setMsg] = useState('')
   const pop = (o: Open, el: HTMLElement) => { setOpen({ ...o, anchor: el.getBoundingClientRect() }); setMsg('') }
-  const start = addDays(month, -month.getDay()) // Sunday on or before the 1st
-  const cells = useMemo(() => Array.from({ length: 42 }, (_, i) => addDays(start, i)), [start.getTime()]) // eslint-disable-line react-hooks/exhaustive-deps
-  const from = isoDate(cells[0]), to = isoDate(cells[41])
+  const anchor = expanded ? month : cursor
+  const start = addDays(anchor, -anchor.getDay()) // Sunday on or before the 1st (month) or the day (week)
+  const span = expanded ? 42 : 7
+  const cells = useMemo(() => Array.from({ length: span }, (_, i) => addDays(start, i)), [start.getTime(), span]) // eslint-disable-line react-hooks/exhaustive-deps
+  const from = isoDate(cells[0]), to = isoDate(cells[span - 1])
   const tasks = useTasks(from, to)
   const evs = useLoad(async () => must(await supabase.from('calendar_events').select(EV_SELECT).lte('starts_on', to).gte('ends_on', from)) as unknown as Ev[], [from, to])
   // bills due (admins only; bills include salaries)
@@ -454,9 +460,17 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   }, [feed.data, me])
   const reload = () => { tasks.reload(); evs.reload(); bills.reload() }
   const today = isoDate(new Date())
-  const shift = (n: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1))
+  const shift = (n: number) => setCursor(expanded ? new Date(month.getFullYear(), month.getMonth() + n, 1) : addDays(cursor, 7 * n))
   const last = new Date(month.getFullYear(), month.getMonth() + 1, 0)
-  const rows = Math.ceil((Math.round((last.getTime() - start.getTime()) / 86400000) + 1) / 7) // weeks this month touches
+  const rows = expanded ? Math.ceil((Math.round((last.getTime() - start.getTime()) / 86400000) + 1) / 7) : 1 // weeks this month touches
+  const toggle = () => {
+    if (expanded) { const t = new Date(); if (t.getFullYear() === month.getFullYear() && t.getMonth() === month.getMonth()) setCursor(t) } // back to this week when it's in view
+    setExpanded(!expanded); setOpen(null)
+  }
+  const weekEnd = addDays(start, 6)
+  const heading = expanded ? month.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    : start.getMonth() === weekEnd.getMonth() ? `${start.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} – ${weekEnd.getDate()}, ${weekEnd.getFullYear()}`
+    : `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${weekEnd.getFullYear()}`
   const show = (pid: string) => who === 'all' || pid === who
   const order = [...people].sort((a, b) => (a.id === me ? -1 : b.id === me ? 1 : nameOf(a).localeCompare(nameOf(b))))
   const rank = (pid: string) => order.findIndex((p) => p.id === pid)
@@ -465,11 +479,11 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   return (
     <section className="card pad stack" aria-labelledby="mc-h">
       <div className="row between">
-        <h2 id="mc-h">{month.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h2>
+        <h2 id="mc-h">{heading}</h2>
         <div className="row">
-          <button className="btn small secondary" aria-label="Previous month" onClick={() => shift(-1)}>‹</button>
-          <button className="btn small secondary" onClick={() => { const d = new Date(); setMonth(new Date(d.getFullYear(), d.getMonth(), 1)) }}>Today</button>
-          <button className="btn small secondary" aria-label="Next month" onClick={() => shift(1)}>›</button>
+          <button className="btn small secondary" aria-label={expanded ? 'Previous month' : 'Previous week'} onClick={() => shift(-1)}>‹</button>
+          <button className="btn small secondary" onClick={() => setCursor(new Date())}>Today</button>
+          <button className="btn small secondary" aria-label={expanded ? 'Next month' : 'Next week'} onClick={() => shift(1)}>›</button>
           <button className="btn small" onClick={(e) => pop({ kind: 'new', day: today }, e.currentTarget)}>+ Create</button>
         </div>
       </div>
@@ -481,10 +495,10 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
       {feed.data && !connected && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Your Google Calendar meetings can show here, and events you add go to your Google Calendar: <a href="#/account">connect Google on My account</a>.</p>}
       {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
       {(tasks.error || evs.error) && <p className="err">{tasks.error || evs.error}</p>}
-      <div style={{ overflowX: 'auto' }}><div className="mc" style={{ minWidth: 760 }}>
+      <div style={{ overflowX: 'auto' }}><div className="mc" id="mc-grid" style={{ minWidth: 760 }}>
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => <div key={d} className="mc-h">{d}</div>)}
         {cells.slice(0, rows * 7).map((d) => {
-          const k = isoDate(d); const out = d.getMonth() !== month.getMonth()
+          const k = isoDate(d); const out = expanded && d.getMonth() !== month.getMonth()
           const dayTasks = (tasks.data ?? []).filter((t) => t.due_on === k && show(t.assignee)).sort((a, b) => rank(a.assignee) - rank(b.assignee))
           const dayEvs = (evs.data ?? []).filter((e) => e.starts_on <= k && e.ends_on >= k && show(e.profile_id))
           return (
@@ -504,6 +518,9 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
             </div>)
         })}
       </div></div>
+      <button type="button" className="mc-toggle" aria-expanded={expanded} aria-controls="mc-grid" onClick={toggle}>
+        <span aria-hidden="true" className={'mc-chev' + (expanded ? ' up' : '')}>⌄</span>{expanded ? 'Show week' : 'Show month'}
+      </button>
       {open && <Pop key={open.kind + ('ev' in open ? open.ev.key : 'task' in open ? open.task.id : open.day)} anchor={open.anchor} onClose={close}
         label={open.kind === 'new' ? 'Create' : open.kind === 'task' ? 'Edit task' : open.kind === 'edit' ? 'Edit event' : 'Event details'}>
         {open.kind === 'new' && <QuickCreate me={me} admin={admin} people={people} projects={projects} day={open.day} connected={connected} onCancel={close} onDone={done} />}

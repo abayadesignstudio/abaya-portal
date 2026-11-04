@@ -111,3 +111,9 @@
 .mc-cell .tk-list{flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin}
 .mc-cell .tk-list::-webkit-scrollbar{width:6px}
 .mc-cell .tk-list::-webkit-scrollbar-thumb{background:#d6d3cc;border-radius:3px}
+/* bottom tab: week ⇄ month */
+.mc-toggle{align-self:center;display:inline-flex;align-items:center;gap:6px;margin:-4px 0 -18px;padding:5px 16px 6px;border:1px solid var(--line);border-bottom:0;border-radius:10px 10px 0 0;background:#f7f6f2;color:var(--navy);font-weight:700;font-size:13px;cursor:pointer}
+.mc-toggle:hover{background:#efede7}
+.mc-toggle:focus-visible{outline:2px solid var(--navy);outline-offset:2px}
+.mc-chev{display:inline-block;font-size:16px;line-height:10px;transform:translateY(-3px);transition:transform .15s}
+.mc-chev.up{transform:translateY(3px) rotate(180deg)}
