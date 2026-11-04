@@ -18,7 +18,7 @@ h1{font-size:26px;margin:0}h2{font-size:18px;margin:0}
 .btn:focus-visible,.input:focus,a:focus-visible{outline:3px solid #7aa2c2;outline-offset:2px}
 .input{width:100%;min-height:44px;padding:10px 12px;border:1px solid #b9b4aa;border-radius:6px;background:#fff;font:16px Arial,sans-serif;color:var(--text)}
 textarea.input{resize:vertical;line-height:1.4}
-label.l{display:block;margin-bottom:5px;font-size:13px;font-weight:700}
+label.l,span.l{display:block;margin-bottom:5px;font-size:13px;font-weight:700}
 .tag{display:inline-flex;align-items:center;height:22px;padding:0 7px;border-radius:4px;color:#fff;font-size:12px;font-weight:700;white-space:nowrap}
 .pill{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;border:1px solid #b9b4aa;background:#fff;font-size:12px;font-weight:700;color:#3c4043;text-decoration:none}
 .status{display:inline-flex;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid #d0d5dd}

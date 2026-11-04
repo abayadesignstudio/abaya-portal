@@ -29,10 +29,10 @@ export default function FillablePanel({ measure, onClose }: { measure: () => Pro
   }
 
   return (
-    <section className="card pad no-print stack" aria-labelledby="fp-h" style={{ maxWidth: 816, margin: '0 auto 16px', gap: 10 }}>
-      <div className="row between"><h2 id="fp-h" style={{ margin: 0, fontSize: 17 }}>Make a fillable PDF</h2>
-        <button type="button" className="btn small secondary" onClick={onClose}>Close</button></div>
-      <ol style={{ margin: 0, paddingLeft: 20, fontSize: 14, lineHeight: 1.5 }}>
+    <section className="no-print stack" aria-labelledby="fp-h" style={{ gap: 8, paddingTop: 4 }}>
+      <div className="row between"><h2 id="fp-h" style={{ margin: 0, fontSize: 15 }}>Make a fillable PDF</h2>
+        <button type="button" className="linkbtn" style={{ fontSize: 13, textDecoration: 'underline' }} onClick={onClose}>Close</button></div>
+      <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.45 }}>
         <li>Click <strong>Download PDF</strong> and save it. Keep paper <em>Letter</em>, margins <em>Default</em>, scale <em>100%</em>.</li>
         <li>Drop that file below. You get a copy with fields for the Owner’s initials on each page, signature and printed name.</li>
       </ol>

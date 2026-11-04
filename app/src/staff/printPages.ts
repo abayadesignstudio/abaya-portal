@@ -115,8 +115,12 @@ export function buildPages(doc: HTMLElement, host: HTMLElement): number {
       group.forEach(place)
     }
   }
-  // automatic page numbers: "ABAYA DESIGN STUDIO | n" at the foot of every page
   const pages = [...host.children] as HTMLElement[]
+  // table of contents: each section's first page, written into the copies' TOC entries
+  const first: Record<string, number> = {}
+  pages.forEach((pg, i) => pg.querySelectorAll<HTMLElement>('section[data-sec]').forEach((el) => { first[el.dataset.sec!] ??= i + 1 }))
+  pages.forEach((pg) => pg.querySelectorAll<HTMLElement>('[data-toc]').forEach((el) => { el.textContent = String(first[el.dataset.toc!] ?? '') }))
+  // automatic page numbers: "ABAYA DESIGN STUDIO | n" at the foot of every page
   pages.forEach((pg, i) => {
     const f = document.createElement('div')
     f.className = 'ag-foot'
@@ -146,3 +150,16 @@ export function removePrintPages() {
 }
 
 export const PRINT_PAGE_WIDTH = PAGE_W
+
+/** Page on which each section starts, from an off-screen layout of `doc`. */
+export function sectionStartPages(doc: HTMLElement): Record<number, number> {
+  const host = document.createElement('div')
+  host.className = 'ag-print-host'
+  document.body.appendChild(host)
+  try {
+    buildPages(doc, host)
+    const out: Record<number, number> = {}
+    ;[...host.children].forEach((pg, i) => pg.querySelectorAll<HTMLElement>('section[data-sec]').forEach((el) => { out[+el.dataset.sec!] ??= i + 1 }))
+    return out
+  } finally { host.remove() }
+}

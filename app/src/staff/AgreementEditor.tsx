@@ -6,8 +6,9 @@ import { STANDARD, PHN, newDoc, type DocState, type Clause } from '../lib/agreem
 import LogoField, { loadFirmLogo } from './LogoField'
 import FillablePanel from './FillablePanel'
 import SignatureField from './SignatureField'
+import TypePicker, { typeNames } from './TypePicker'
 import { measureLayout } from './fillablePdf'
-import { buildPages, buildPrintPages, removePrintPages, sourceDoc } from './printPages'
+import { buildPages, buildPrintPages, removePrintPages, sectionStartPages, sourceDoc } from './printPages'
 import '@fontsource/lato/700.css'
 import '@fontsource/lato/700-italic.css'
 import './agreement.css'
@@ -23,7 +24,6 @@ const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 const MON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const longDateOf = (v: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v || ''); if (!m) return ''; const d = new Date(+m[1], +m[2] - 1, +m[3]); return `${DAYS[d.getDay()]}, ${MON[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}` }
 const lines = (t: string) => (t || '').split('\n').map((x) => x.trim()).filter(Boolean)
-const TYPES: Record<string, string> = { S: 'Shell', FO: 'Interior Finish-Out', CON: 'Consultation' }
 const RED = '#c4161c', BLUE = '#0b4f8a'
 
 type Run = { t: string; k: 'same' | 'add' | 'del' }
@@ -182,6 +182,14 @@ export default function AgreementEditor() {
   const [firmLogo, setFirmLogo] = useState('')
   useEffect(() => { loadFirmLogo().then(setFirmLogo).catch(() => {}) }, [])
 
+  // Table of contents page numbers for the on-screen document (print and Pages view number their own copies).
+  const [tocPages, setTocPages] = useState<Record<number, number>>({})
+  useEffect(() => {
+    if (!doc) return
+    const t = setTimeout(() => { document.fonts.ready.then(() => { const src = sourceDoc(); if (src) setTocPages((old) => { const n = sectionStartPages(src); return JSON.stringify(n) === JSON.stringify(old) ? old : n }) }) }, 400)
+    return () => clearTimeout(t)
+  }, [doc, ui.mode, ui.changesIn])
+
   // "Pages" view: rebuild the print layout shortly after the document changes.
   const pagesRef = useRef<HTMLDivElement>(null)
   const [pageCount, setPageCount] = useState(0)
@@ -228,51 +236,63 @@ export default function AgreementEditor() {
         <div>
           <Link to="/proposals" style={{ fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>‹ Proposals</Link>
           <h1 style={{ fontSize: 21, marginTop: 4 }}>{row.title}</h1>
-          <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>
-            <span className="status" style={{ background: row.status === 'draft' ? '#fff' : row.status === 'sent' ? '#eef2f6' : '#e7f6ec' }}>{row.status[0].toUpperCase() + row.status.slice(1)}</span>{' '}
-            <span aria-live="polite">{saved === 'saved' ? 'All changes saved' : saved === 'saving' ? 'Saving…' : 'Unsaved changes'}</span>
-          </p>
-        </div>
-        <div className="row">
-          <div className="ag-seg" role="group" aria-label="View">
-            <button type="button" aria-pressed={draft} onClick={() => patchUi({ mode: 'draft' })}>Draft</button>
-            <button type="button" aria-pressed={!draft} onClick={() => patchUi({ mode: 'final' })}>Final</button>
-          </div>
-          <div className="ag-seg" role="group" aria-label="Layout">
-            <button type="button" aria-pressed={!ui.pages} onClick={() => patchUi({ pages: false })}>Continuous</button>
-            <button type="button" aria-pressed={ui.pages} onClick={() => patchUi({ pages: true })} title="Show the document as it will print, page by page">Pages</button>
-          </div>
-          {!draft && <div className="row" style={{ gap: 6, fontSize: 13 }} role="group" aria-label="Show changes"><span className="muted">Changes:</span>
-            <div className="ag-seg"><button type="button" aria-pressed={ui.changesIn === 'text'} onClick={() => patchUi({ changesIn: 'text' })}>In the text</button>
-              <button type="button" aria-pressed={ui.changesIn === 'report'} onClick={() => patchUi({ changesIn: 'report' })}>Report only</button></div></div>}
-          <button type="button" className="btn secondary" onClick={() => patchUi({ check: !ui.check })}>{model.issues.length ? `Check document (${model.issues.length})` : 'Check document ✓'}</button>
-          <button type="button" className="btn secondary" onClick={printPdf}>Download PDF</button>
-          <button type="button" className="btn secondary" onClick={() => patchUi({ fillable: !ui.fillable })} aria-expanded={ui.fillable}>Make fillable…</button>
-          <button type="button" className="btn" onClick={send} disabled={row.status !== 'draft'}>{row.status === 'draft' ? 'Send to client' : 'Sent'}</button>
         </div>
       </div>
-      {row.status === 'sent' && <p className="ok no-print" style={{ margin: '12px 0 0' }}>Marked as sent. Emailing the agreement and e-signature aren’t connected yet — download the PDF and send it yourself for now.</p>}
-      {err && <p className="err no-print" role="alert" style={{ margin: '12px 0 0' }}>{err}</p>}
       <div className="ag-wrap">
         <Outline doc={doc} model={model} ui={ui} patchUi={patchUi} up={up} setV={setV} firmLogo={firmLogo} setFirmLogo={setFirmLogo} />
         <main className="ag-main">
-          {ui.fillable && <FillablePanel onClose={() => patchUi({ fillable: false })} measure={measureFinal} />}
-          {ui.check && (
-            <div role="region" aria-label="Document check" className="card pad no-print" style={{ maxWidth: 816, margin: '0 auto 16px' }}>
-              {model.issues.length ? <>
-                <p style={{ margin: '0 0 8px', fontWeight: 700, color: '#8a4b00' }}>Fix these before sending</p>
-                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {model.issues.map((i, k) => <li key={k}><button type="button" className="linkbtn" style={{ textDecoration: 'underline' }} onClick={() => openClause(i.sec, i.cl)}>{i.t}</button></li>)}</ul>
-              </> : <p style={{ margin: 0, fontWeight: 700, color: 'var(--green)' }}>All fill points are complete and the payments add up to 100%.</p>}
-              <p className="muted" style={{ margin: '8px 0 0', fontSize: 13 }}>{model.changes.length} change(s) to the standard text will be listed in the Modifications Report.</p>
-            </div>)}
-          {ui.pages && <p className="muted no-print" style={{ maxWidth: 816, margin: '0 auto 12px', fontSize: 13 }}><em>Print layout: {pageCount || '…'} page{pageCount === 1 ? '' : 's'}, US Letter. To add or remove a page break, switch to Continuous and hover a section or clause heading.</em></p>}
           <div className={ui.pages ? 'ag-src-offscreen' : undefined} aria-hidden={ui.pages || undefined}>
-            <Document logo={doc.v.logo || firmLogo} doc={doc} model={model} draft={draft} showMarks={showMarks} changesIn={ui.changesIn} onOpen={openClause}
+            <Document tocPages={tocPages} logo={doc.v.logo || firmLogo} doc={doc} model={model} draft={draft} showMarks={showMarks} changesIn={ui.changesIn} onOpen={openClause}
               breaks={doc.pb ?? []} onToggleBreak={(id) => up((d) => { const b = new Set(d.pb ?? []); if (b.has(id)) b.delete(id); else b.add(id); d.pb = [...b] })} />
           </div>
           {ui.pages && <div ref={pagesRef} className="ag-screen-pages" aria-label="Agreement, print layout" />}
         </main>
+        <aside className="ag-tools no-print" aria-label="Document tools">
+          <div className="ag-tool" style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <span className="status" style={{ background: row.status === 'draft' ? '#fff' : row.status === 'sent' ? '#eef2f6' : '#e7f6ec' }}>{row.status[0].toUpperCase() + row.status.slice(1)}</span>{' '}
+            <span className="muted" aria-live="polite" style={{ fontSize: 13 }}>{saved === 'saved' ? 'All changes saved' : saved === 'saving' ? 'Saving…' : 'Unsaved changes'}</span>
+          </div>
+          <div className="ag-tool">
+            <span className="l">View</span>
+            <div className="ag-seg" role="group" aria-label="View">
+              <button type="button" aria-pressed={draft} onClick={() => patchUi({ mode: 'draft' })}>Draft</button>
+              <button type="button" aria-pressed={!draft} onClick={() => patchUi({ mode: 'final' })}>Final</button>
+            </div>
+            {!draft && <><span className="l" style={{ margin: '6px 0 0' }}>Changes</span>
+              <div className="ag-seg" role="group" aria-label="Show changes">
+                <button type="button" aria-pressed={ui.changesIn === 'text'} onClick={() => patchUi({ changesIn: 'text' })}>In the text</button>
+                <button type="button" aria-pressed={ui.changesIn === 'report'} onClick={() => patchUi({ changesIn: 'report' })}>Report only</button></div></>}
+            <span className="l" style={{ margin: '6px 0 0' }}>Layout</span>
+            <div className="ag-seg" role="group" aria-label="Layout">
+              <button type="button" aria-pressed={!ui.pages} onClick={() => patchUi({ pages: false })}>Continuous</button>
+              <button type="button" aria-pressed={ui.pages} onClick={() => patchUi({ pages: true })} title="Show the document as it will print, page by page">Pages</button>
+            </div>
+            {ui.pages && <p className="muted" style={{ margin: 0, fontSize: 12 }}><em>{pageCount || '…'} page{pageCount === 1 ? '' : 's'}, US Letter. Page breaks are added in Continuous: hover a heading.</em></p>}
+          </div>
+          <div className="ag-tool">
+            <button type="button" className="btn secondary" aria-expanded={ui.check} onClick={() => patchUi({ check: !ui.check })}>{model.issues.length ? `Check document (${model.issues.length})` : 'Check document ✓'}</button>
+            {ui.check && (
+              <div role="region" aria-label="Document check" style={{ fontSize: 13 }}>
+                {model.issues.length ? <>
+                  <p style={{ margin: '0 0 6px', fontWeight: 700, color: '#8a4b00' }}>Fix these before sending</p>
+                  <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {model.issues.map((i, k) => <li key={k}><button type="button" className="linkbtn" style={{ textDecoration: 'underline', textAlign: 'left' }} onClick={() => openClause(i.sec, i.cl)}>{i.t}</button></li>)}</ul>
+                </> : <p style={{ margin: 0, fontWeight: 700, color: 'var(--green)' }}>All fill points are complete and the payments add up to 100%.</p>}
+                <p className="muted" style={{ margin: '6px 0 0' }}>{model.changes.length} change(s) to the standard text will be listed in the Modifications Report.</p>
+              </div>)}
+          </div>
+          <div className="ag-tool">
+            <span className="l">Export</span>
+            <button type="button" className="btn secondary" onClick={printPdf}>Download PDF</button>
+            <button type="button" className="btn secondary" onClick={() => patchUi({ fillable: !ui.fillable })} aria-expanded={ui.fillable}>Make fillable…</button>
+            {ui.fillable && <FillablePanel onClose={() => patchUi({ fillable: false })} measure={measureFinal} />}
+          </div>
+          <div className="ag-tool">
+            <button type="button" className="btn" onClick={send} disabled={row.status !== 'draft'}>{row.status === 'draft' ? 'Send to client' : 'Sent'}</button>
+            {row.status === 'sent' && <p className="muted" style={{ margin: 0, fontSize: 12 }}>Marked as sent. Emailing the agreement and e-signature aren’t connected yet: download the PDF and send it yourself for now.</p>}
+          </div>
+          {err && <p className="err" role="alert" style={{ margin: 0, fontSize: 13 }}>{err}</p>}
+        </aside>
       </div>
     </div>
   )
@@ -314,7 +334,7 @@ function Outline({ doc, model, ui, patchUi, up, setV, firmLogo, setFirmLogo }: O
           {inp('projAddr', 'Project address')}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             {inp('projSize', 'Size')}
-            <Field id="ag-pt" label="Type"><select id="ag-pt" className="input" value={v.projType} onChange={setV('projType')}><option value="S">Shell (S)</option><option value="FO">Interior Finish-Out (FO)</option><option value="CON">Consultation (CON)</option></select></Field>
+            <Field id="ag-pt" label="Type"><TypePicker id="ag-pt" value={v.projType ?? ''} onChange={(t) => up((d) => { d.v.projType = t })} /></Field>
           </div>
           {inp('signer', 'Architect signature line')}
           <SignatureField value={v.archSig ?? ''} onChange={(u) => up((d) => { if (u) d.v.archSig = u; else delete d.v.archSig })} />
@@ -467,7 +487,7 @@ function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model
 
 // ---------------------------------------------------------------- document
 type Seg = { t: string; k: Run['k']; fp?: string }
-function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, breaks, onToggleBreak }: { logo: string; doc: DocState; model: ReturnType<typeof build>; draft: boolean; showMarks: boolean; changesIn: string; onOpen: (sec: number, cl: string) => void
+function Document({ tocPages, logo, doc, model, draft, showMarks, changesIn, onOpen, breaks, onToggleBreak }: { tocPages: Record<number, number>; logo: string; doc: DocState; model: ReturnType<typeof build>; draft: boolean; showMarks: boolean; changesIn: string; onOpen: (sec: number, cl: string) => void
   breaks: string[]; onToggleBreak: (id: string) => void }) {
   // Manual page breaks: "s3" = before Section 3, "c2.5" = before clause 2.5. Controls are screen-only (.ag-pb-ui).
   const hasBreak = (id: string) => breaks.includes(id)
@@ -604,18 +624,20 @@ function Document({ logo, doc, model, draft, showMarks, changesIn, onOpen, break
       <p className="ag-hd" style={{ margin: '0 0 4px', fontWeight: 700 }}>Project:</p>
       <table className="ag-box" style={{ fontSize: 12.5, maxWidth: 520 }}><tbody>
         <tr><td className="k">Name:</td><td>{v.projName}</td></tr><tr><td className="k">Address:</td><td>{v.projAddr}</td></tr>
-        <tr><td className="k">Size:</td><td>{v.projSize}</td></tr><tr><td className="k">Type:</td><td>{TYPES[v.projType] || ''}</td></tr>
+        <tr><td className="k">Size:</td><td>{v.projSize}</td></tr><tr><td className="k">Type:</td><td>{typeNames(v.projType)}</td></tr>
       </tbody></table>
 
       <h2 style={{ margin: '30px 0 8px', paddingTop: 14, borderTop: RULE, textAlign: 'center', fontSize: 13 }}>TABLE OF CONTENTS</h2>
       <ol style={{ listStyle: 'none', margin: '0 0 10px', padding: 0, fontSize: 12 }}>
-        {model.secs.map((s) => { const all = s.clauses.length > 0 && s.clauses.every((c) => c.off); return <li key={s.n} style={all && draft ? struck(false) : undefined}>SECTION {s.n} - {s.title}</li> })}
+        {model.secs.map((s) => { const all = s.clauses.length > 0 && s.clauses.every((c) => c.off)
+          return <li key={s.n} className="ag-toc" style={all && draft ? struck(false) : undefined}>
+            <span>SECTION {s.n} - {s.title}</span><span className="ag-toc-dots" aria-hidden="true" /><span className="ag-toc-pg" data-toc={s.n}>{tocPages[s.n] ?? ''}</span></li> })}
       </ol>
 
       {model.secs.map((s) => {
         const all = s.clauses.length > 0 && s.clauses.every((c) => c.off)
         return (
-          <section key={s.n} className={'ag-sec' + (hasBreak('s' + s.n) ? ' ag-pagebreak' : '')} style={{ marginTop: 24, position: 'relative' }}>
+          <section key={s.n} data-sec={s.n} className={'ag-sec' + (hasBreak('s' + s.n) ? ' ag-pagebreak' : '')} style={{ marginTop: 24, position: 'relative' }}>
             <BreakUI id={'s' + s.n} what={`Section ${s.n}`} />
             <h2 style={{ margin: '0 0 12px', paddingBottom: 6, borderBottom: RULE, textAlign: 'center', fontSize: 14.5, ...(all && draft ? struck(false) : {}) }}>SECTION {s.n} - {s.title}</h2>
             {s.clauses.map((c) => {
