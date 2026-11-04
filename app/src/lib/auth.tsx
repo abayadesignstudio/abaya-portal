@@ -1,32 +1,50 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase, type Profile } from './supabase'
 
 type Auth = { session: Session | null; profile: Profile | null; loading: boolean; signOut: () => Promise<void> }
 const Ctx = createContext<Auth>({ session: null, profile: null, loading: true, signOut: async () => {} })
 
+/**
+ * Sign-in state for the whole portal.
+ *
+ * Supabase re-announces the session whenever the tab regains focus and every time it refreshes the access
+ * token (roughly hourly). Those announcements must NOT put the app back into "Loading…": App.tsx replaces
+ * every screen while loading, which used to throw away open forms and unsaved input whenever you switched
+ * to another window. So "loading" is only true until the first profile for a signed-in user has arrived;
+ * later announcements for the same user refresh the profile quietly in the background.
+ */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
+  const loadedFor = useRef<string | null>(null) // user id whose profile is currently loaded
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
+    supabase.auth.getSession().then(({ data }) => { setSession(data.session); if (!data.session) setLoading(false) })
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      // keep the same object when nothing that matters changed, so screens don't re-render for nothing
+      setSession((old) => (old && s && old.user.id === s.user.id && old.access_token === s.access_token ? old : s))
+    })
     return () => sub.subscription.unsubscribe()
   }, [])
 
+  const uid = session?.user.id ?? null
   useEffect(() => {
     let live = true
-    if (!session) { setProfile(null); setLoading(false); return }
-    setLoading(true)
-    supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle().then(({ data }) => {
-      if (live) { setProfile(data as Profile | null); setLoading(false) }
+    if (!uid) { loadedFor.current = null; setProfile(null); setLoading(false); return }
+    const quiet = loadedFor.current === uid // same user: background refresh, no loading screen
+    if (!quiet) setLoading(true)
+    supabase.from('profiles').select('*').eq('id', uid).maybeSingle().then(({ data, error }) => {
+      if (!live) return
+      if (!(quiet && error)) setProfile((old) => (old && data && JSON.stringify(old) === JSON.stringify(data) ? old : (data as Profile | null)))
+      loadedFor.current = uid
+      setLoading(false)
     })
     return () => { live = false }
-  }, [session])
+  }, [uid, session?.access_token])
 
-  const signOut = async () => { await supabase.auth.signOut(); setProfile(null) }
+  const signOut = async () => { await supabase.auth.signOut(); loadedFor.current = null; setProfile(null) }
   return <Ctx.Provider value={{ session, profile, loading, signOut }}>{children}</Ctx.Provider>
 }
 export const useAuth = () => useContext(Ctx)
