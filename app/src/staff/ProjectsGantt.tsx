@@ -40,9 +40,10 @@ function Ring({ pct }: { pct: number | null }) {
 }
 
 type Dates = { start_date: string; end_date: string }
-/** A dated thing on a project's row: a milestone (deliverable), a task, or a calendar event / meeting. */
-type Mark = { key: string; project_id: string; kind: 'milestone' | 'task' | 'event'; title: string; date: string; done: boolean; phase_id?: string | null; time?: string | null; who?: string }
-const KIND_WORD = { milestone: 'Milestone', task: 'Task', event: 'Event' } as const
+/** A dated thing on a project's row: a milestone (a phase's end), a deliverable, a task, or a calendar event / meeting. */
+type Kind = 'milestone' | 'deliverable' | 'task' | 'event'
+type Mark = { key: string; project_id: string; kind: Kind; title: string; date: string; done: boolean; phase_id?: string | null; time?: string | null; who?: string }
+const KIND_WORD = { milestone: 'Milestone', deliverable: 'Deliverable', task: 'Task', event: 'Event' } as const
 
 /** Everything dated on these projects. Google meetings come from the calendar feed, which covers about a month either side of today. */
 function useMarks(ids: string[]) {
@@ -57,7 +58,7 @@ function useMarks(ids: string[]) {
     ])
     const first = (id: string | null) => { const p = (people.data ?? []).find((x) => x.id === id); return (p?.full_name || p?.email || '').split(/\s+/)[0] }
     const out: Mark[] = [
-      ...(dl.data ?? []).map((d) => ({ key: 'd' + d.id, project_id: d.project_id, kind: 'milestone' as const, title: d.title, date: d.due_date!, done: d.status === 'done', phase_id: d.phase_id })),
+      ...(dl.data ?? []).map((d) => ({ key: 'd' + d.id, project_id: d.project_id, kind: 'deliverable' as const, title: d.title, date: d.due_date!, done: d.status === 'done', phase_id: d.phase_id })),
       ...(tk.data ?? []).map((t) => ({ key: 't' + t.id, project_id: t.project_id!, kind: 'task' as const, title: t.title, date: t.due_on, done: !!t.done_at, time: t.due_time, who: first(t.assignee) })),
       ...(ev.data ?? []).map((e) => ({ key: 'e' + e.id, project_id: e.project_id!, kind: 'event' as const, title: e.title, date: e.starts_on, done: false, time: e.start_time })),
     ]
@@ -79,7 +80,13 @@ function useMarks(ids: string[]) {
     return out
   }, [key])
 }
-const ICON = { milestone: '◆', task: '', event: '◷' } as const
+/** Icons: task = Google Tasks style (blue, empty ring / check), milestone = flag diamond, deliverable = document, event = calendar. */
+function MarkIcon({ kind, done }: { kind: Kind; done: boolean }) {
+  if (kind === 'task') return <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#1a73e8" /><circle cx="12" cy="12" r="6.2" fill="none" stroke="#fff" strokeWidth="2" />{done && <path d="M9.2 12.2l2 2 3.8-4" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}</svg>
+  if (kind === 'milestone') return <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 1.5l10.5 10.5L12 22.5 1.5 12z" fill={done ? 'var(--mc)' : '#fff'} stroke="var(--mc)" strokeWidth="2" strokeLinejoin="round" />{done && <path d="M8.3 12.3l2.4 2.4 4.8-5" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}</svg>
+  if (kind === 'deliverable') return <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="11" fill={done ? 'var(--mc)' : '#fff'} stroke="var(--mc)" strokeWidth="1.6" /><path d="M8.5 6.5h5l2.5 2.5v8.5h-7.5z M13.5 6.5v2.5h2.5" fill="none" stroke={done ? '#fff' : 'var(--mc)'} strokeWidth="1.5" strokeLinejoin="round" />{done && <path d="M10 13.3l1.5 1.5 2.6-2.8" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />}</svg>
+  return <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#fff" stroke="var(--mc)" strokeWidth="1.6" /><rect x="7" y="8" width="10" height="9" rx="1.5" fill="none" stroke="var(--mc)" strokeWidth="1.5" /><path d="M7 11h10M9.5 6.5v3M14.5 6.5v3" stroke="var(--mc)" strokeWidth="1.5" strokeLinecap="round" /></svg>
+}
 /** Custom-order dragging, provided by the Projects page when Sort = Custom. */
 export type Reorder = { dragId: string | null; start: (id: string) => void; over: (id: string) => void; end: () => void; step: (id: string, dir: -1 | 1) => void }
 type Edge = 'start' | 'end' | 'move' // move = the whole phase, keeping its length
@@ -303,15 +310,19 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
                     })}
                     {showMarks && (() => {
                       // circles on the row at their dates; same-day ones sit side by side
-                      const mine = (marks.data ?? []).filter((m) => m.project_id === r.id).sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind))
+                      const ends: Mark[] = r.phases.filter((p) => p.end_date).map((p) => ({ key: 'm' + (p.id ?? p.code), project_id: r.id, kind: 'milestone' as const,
+                        title: `${PHASE_NAME[p.code] ?? p.code} complete`, date: (p.id && over[p.id]?.end_date) || p.end_date!, done: p.status === 'complete', phase_id: p.id ?? null }))
+                      const mine = [...ends, ...(marks.data ?? []).filter((m) => m.project_id === r.id)].sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind))
                       let prev = -1e9
                       return mine.map((m) => {
-                        const d = parse(m.date); const cx = Math.max(x(d) + px / 2, prev + 22); prev = cx
+                        const d = parse(m.date)
+                        // a phase's milestone hangs under the end of its bar; the rest sit on the day, side by side when they share it
+                        const cx = m.kind === 'milestone' ? x(addDays(d, 1)) - 9 : Math.max(x(d) + px / 2, prev + 24); if (m.kind !== 'milestone') prev = cx
                         const ph = r.phases.find((p) => (m.phase_id && p.id === m.phase_id) || (!m.phase_id && p.start_date && p.end_date && p.start_date <= m.date && p.end_date >= m.date))
-                        const late = !m.done && d < today && m.kind !== 'event'
+                        const late = !m.done && d < today && m.kind !== 'event' && m.kind !== 'milestone'
                         return <span key={m.key} className={`gt-mark k-${m.kind}${m.done ? ' done' : ''}${late ? ' late' : ''}`} style={{ left: cx, ['--c' as string]: color }} tabIndex={0}
                           aria-label={`${KIND_WORD[m.kind]}: ${m.title}, ${fmt(m.date)}${m.done ? ', done' : late ? ', overdue' : ''}`}>
-                          <span aria-hidden="true">{m.done ? '✓' : ICON[m.kind]}</span>
+                          <MarkIcon kind={m.kind} done={m.done} />
                           <span className="gt-mtip" role="tooltip">
                             {ph && <span className="gt-mtip-ph" style={{ background: color }}>{ph.code}</span>}
                             <strong>{m.title}</strong>
@@ -334,7 +345,12 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
             <button type="button" className="linkbtn" onClick={() => { const u = undo; setUndo(null); save(u.id, u.label, u.now, u.prev).then(() => setUndo(null)) }}>Undo</button></>}
         <button type="button" className="linkbtn" aria-label="Dismiss" onClick={() => { setUndo(null); setSaveErr('') }}>×</button>
       </div>}
-      <p className="muted gt-key"><em>Bars are phase dates. Solid = in progress, light = not started, faded = complete, striped = paused. Ring = fee used (hours × rates); orange at 75%, red at 90%. Hover a bar for dates and fee. Drag a bar to move the whole phase; drag either end to change its length. Click a project’s name to open it.</em></p>
+      <p className="muted gt-key"><em>Bars are phase dates. Solid = in progress, light = not started, faded = complete, striped = paused. Ring = fee used (hours × rates); orange at 75%, red at 90%. Hover a bar for dates and fee. Drag a bar to move the whole phase; drag either end to change its length. Click a project’s name to open it.</em>
+        {showMarks && <span className="gt-legend" style={{ ['--c' as string]: '#2b5c8a' }}>
+          <span className="gt-mark k-milestone"><MarkIcon kind="milestone" done={false} /></span>Milestone (phase end)
+          <span className="gt-mark k-deliverable"><MarkIcon kind="deliverable" done={false} /></span>Deliverable
+          <span className="gt-mark k-task"><MarkIcon kind="task" done={false} /></span>Task
+          <span className="gt-mark k-event"><MarkIcon kind="event" done={false} /></span>Event · filled = done, red = overdue</span>}</p>
     </div>
   )
 }
