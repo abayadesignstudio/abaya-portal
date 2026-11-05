@@ -60,7 +60,7 @@
 .gt-row:hover,.gt-row:focus-within{z-index:2}
 .gt-mark{position:absolute;top:21px;width:24px;height:24px;margin-left:-12px;z-index:3;display:inline-flex;align-items:center;justify-content:center;cursor:default;--mc:color-mix(in srgb,var(--c) 85%,#000)}
 .gt-mark svg{display:block;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.35))}
-.gt-mark.k-milestone{top:-3px;width:20px;height:25px;margin-left:-10px;z-index:4;--pin:color-mix(in srgb,var(--c) 70%,#fff)}
+.gt-mark.k-milestone{top:9px;width:20px;height:25px;margin-left:-10px;z-index:4;--pin:color-mix(in srgb,var(--c) 70%,#fff)}
 .gt-mark.k-milestone.done{--pin:var(--c)}
 .gt-mark.k-milestone .gt-mtip{top:28px}
 .gt-legend .gt-mark.k-milestone{--pin:var(--c)}
@@ -74,3 +74,15 @@
 .gt-legend{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin-top:6px;font-style:normal}
 .gt-legend .gt-mark{position:static;margin:0 0 0 10px;--mc:color-mix(in srgb,var(--c) 85%,#000)}
 .gt-legend .gt-mark:first-child{margin-left:0}
+/* add / edit milestones and deliverables */
+.gt-addmark{flex:none;width:26px;height:26px;border-radius:50%;border:1px dashed #b9b4aa;background:#fff;color:var(--muted);font:700 16px/1 Arial;cursor:pointer;opacity:0;transition:opacity .1s}
+.gt-proj:hover .gt-addmark,.gt-addmark:focus-visible{opacity:1}
+.gt-addmark:hover{border-style:solid;color:var(--navy);border-color:var(--navy)}
+@media (hover:none){.gt-addmark{opacity:1}}
+.gt-mark.edit{cursor:pointer}
+.gt-pop{position:fixed;z-index:90;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 40px rgba(2,37,61,.22);padding:14px;display:flex;flex-direction:column;gap:10px}
+.gt-kinds{display:flex;gap:6px}
+.gt-kinds button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;font:700 13.5px Arial;color:var(--muted);cursor:pointer}
+.gt-kinds button.on{border-color:var(--navy);color:var(--text);box-shadow:inset 0 0 0 1px var(--navy)}
+.gt-kinds .gt-mark{--mc:color-mix(in srgb,var(--c) 85%,#000);--pin:var(--c);width:auto;height:auto}
+.gt-howto{display:block;margin-top:4px}

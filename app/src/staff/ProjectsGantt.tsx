@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { createPortal } from 'react-dom'
 import { supabase, SECTOR_COLOR, PHASE_NAME, money } from '../lib/supabase'
 import { useLoad } from '../lib/useQuery'
 import './gantt.css'
@@ -42,7 +43,7 @@ function Ring({ pct }: { pct: number | null }) {
 type Dates = { start_date: string; end_date: string }
 /** A dated thing on a project's row: a milestone (a phase's end), a deliverable, a task, or a calendar event / meeting. */
 type Kind = 'milestone' | 'deliverable' | 'task' | 'event'
-type Mark = { key: string; project_id: string; kind: Kind; title: string; date: string; done: boolean; phase_id?: string | null; time?: string | null; who?: string }
+type Mark = { key: string; id?: string; project_id: string; kind: Kind; title: string; date: string; done: boolean; phase_id?: string | null; time?: string | null; who?: string }
 const KIND_WORD = { milestone: 'Milestone', deliverable: 'Deliverable', task: 'Task', event: 'Event' } as const
 
 /** Everything dated on these projects. Google meetings come from the calendar feed, which covers about a month either side of today. */
@@ -50,7 +51,8 @@ function useMarks(ids: string[]) {
   const key = ids.slice().sort().join(',')
   return useLoad(async () => {
     if (!ids.length) return [] as Mark[]
-    const [dl, tk, ev, people] = await Promise.all([
+    const [ms, dl, tk, ev, people] = await Promise.all([
+      supabase.from('milestones').select('id, project_id, phase_id, title, date, done').in('project_id', ids),
       supabase.from('deliverables').select('id, project_id, phase_id, title, due_date, status').in('project_id', ids).not('due_date', 'is', null),
       supabase.from('tasks').select('id, project_id, title, due_on, due_time, done_at, assignee').in('project_id', ids),
       supabase.from('calendar_events').select('id, project_id, title, starts_on, start_time').in('project_id', ids),
@@ -58,7 +60,8 @@ function useMarks(ids: string[]) {
     ])
     const first = (id: string | null) => { const p = (people.data ?? []).find((x) => x.id === id); return (p?.full_name || p?.email || '').split(/\s+/)[0] }
     const out: Mark[] = [
-      ...(dl.data ?? []).map((d) => ({ key: 'd' + d.id, project_id: d.project_id, kind: 'deliverable' as const, title: d.title, date: d.due_date!, done: d.status === 'done', phase_id: d.phase_id })),
+      ...(ms.data ?? []).map((m) => ({ key: 'm' + m.id, id: m.id, project_id: m.project_id, kind: 'milestone' as const, title: m.title, date: m.date, done: m.done, phase_id: m.phase_id })),
+      ...(dl.data ?? []).map((d) => ({ key: 'd' + d.id, id: d.id, project_id: d.project_id, kind: 'deliverable' as const, title: d.title, date: d.due_date!, done: d.status === 'done', phase_id: d.phase_id })),
       ...(tk.data ?? []).map((t) => ({ key: 't' + t.id, project_id: t.project_id!, kind: 'task' as const, title: t.title, date: t.due_on, done: !!t.done_at, time: t.due_time, who: first(t.assignee) })),
       ...(ev.data ?? []).map((e) => ({ key: 'e' + e.id, project_id: e.project_id!, kind: 'event' as const, title: e.title, date: e.starts_on, done: false, time: e.start_time })),
     ]
@@ -80,6 +83,63 @@ function useMarks(ids: string[]) {
     return out
   }, [key])
 }
+type ItemEdit = { mode: 'new' | 'edit'; kind: 'milestone' | 'deliverable'; id?: string; project: GRow; title: string; date: string; done: boolean; at: DOMRect }
+
+/** Small floating form: add or edit a milestone or a deliverable on a project. */
+function ItemPop({ item, onClose, onSaved }: { item: ItemEdit; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState(item)
+  const [err, setErr] = useState(''); const [busy, setBusy] = useState(false)
+  const box = useRef<HTMLFormElement>(null)
+  useEffect(() => {
+    box.current?.querySelector<HTMLInputElement>('input[type=text]')?.focus()
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const down = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) onClose() }
+    window.addEventListener('keydown', key); setTimeout(() => window.addEventListener('mousedown', down))
+    return () => { window.removeEventListener('keydown', key); window.removeEventListener('mousedown', down) }
+  }, [onClose])
+  const W = 320
+  const left = Math.max(8, Math.min(window.innerWidth - W - 8, item.at.left)), top = item.at.bottom + 8 + 300 > window.innerHeight ? Math.max(8, item.at.top - 308) : item.at.bottom + 8
+  const phaseFor = (d: string) => f.project.phases.find((p) => p.id && p.start_date && p.end_date && p.start_date <= d && p.end_date >= d)?.id ?? null
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault(); setErr('')
+    if (!f.title.trim()) return setErr('Give it a name.')
+    if (!f.date) return setErr('Pick a date.')
+    setBusy(true)
+    const row = f.kind === 'milestone'
+      ? { title: f.title.trim(), date: f.date, done: f.done, phase_id: phaseFor(f.date) }
+      : { title: f.title.trim(), due_date: f.date, status: f.done ? 'done' : 'todo', phase_id: phaseFor(f.date) }
+    const table = f.kind === 'milestone' ? 'milestones' : 'deliverables'
+    const r = f.mode === 'edit' ? await supabase.from(table).update(row).eq('id', f.id!) : await supabase.from(table).insert({ ...row, project_id: f.project.id })
+    setBusy(false)
+    if (r.error) setErr(r.error.message); else onSaved()
+  }
+  const remove = async () => {
+    if (!window.confirm(`Delete this ${f.kind}?`)) return
+    const r = await supabase.from(f.kind === 'milestone' ? 'milestones' : 'deliverables').delete().eq('id', f.id!)
+    if (r.error) setErr(r.error.message); else onSaved()
+  }
+  return createPortal(
+    <form ref={box} className="gt-pop" style={{ left, top, width: W }} onSubmit={save} role="dialog" aria-label={`${f.mode === 'new' ? 'Add' : 'Edit'} ${f.kind}`}>
+      <div className="row between"><strong className="row" style={{ gap: 6 }}><span className="tag" style={{ background: SECTOR_COLOR[f.project.sector ?? 'internal'] }}>{f.project.number}</span>{f.mode === 'new' ? 'Add' : 'Edit'}</strong>
+        <button type="button" className="linkbtn" aria-label="Close" onClick={onClose}>✕</button></div>
+      {f.mode === 'new' && <div className="gt-kinds" role="radiogroup" aria-label="Type">
+        {(['milestone', 'deliverable'] as const).map((k) => <button key={k} type="button" role="radio" aria-checked={f.kind === k} className={f.kind === k ? 'on' : ''} onClick={() => setF({ ...f, kind: k })}
+          style={{ ['--c' as string]: SECTOR_COLOR[f.project.sector ?? 'internal'] }}><span className={'gt-mark k-' + k} style={{ position: 'static', margin: 0 }}><MarkIcon kind={k} done={false} /></span>{KIND_WORD[k]}</button>)}
+      </div>}
+      <div><label className="l" htmlFor="gp-t">Name</label><input id="gp-t" type="text" className="input" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })}
+        placeholder={f.kind === 'milestone' ? 'e.g. Permit submitted' : 'e.g. 50% CD set to client'} /></div>
+      <div className="row" style={{ gap: 12, alignItems: 'flex-end' }}>
+        <div style={{ flex: 1 }}><label className="l" htmlFor="gp-d">{f.kind === 'milestone' ? 'Date' : 'Due'}</label><input id="gp-d" type="date" className="input" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></div>
+        <label className="row" style={{ gap: 6, minHeight: 44, fontSize: 14 }}><input type="checkbox" checked={f.done} onChange={(e) => setF({ ...f, done: e.target.checked })} style={{ width: 18, height: 18 }} />{f.kind === 'milestone' ? 'Reached' : 'Delivered'}</label>
+      </div>
+      {err && <p className="err" role="alert" style={{ margin: 0 }}>{err}</p>}
+      <div className="row between">
+        {f.mode === 'edit' ? <button type="button" className="linkbtn" style={{ color: 'var(--red)' }} onClick={remove}>Delete</button> : <span />}
+        <div className="row" style={{ gap: 8 }}><button type="button" className="btn small secondary" onClick={onClose}>Cancel</button><button className="btn small" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></div>
+      </div>
+    </form>, document.body)
+}
+
 /** Icons: task = Google-style red circle with a ringed check (grey when done), milestone = map pin, deliverable = paper airplane, event = calendar. */
 function MarkIcon({ kind, done }: { kind: Kind; done: boolean }) {
   // task: Google's red circle with a white ringed check; grey once it's done
@@ -227,6 +287,7 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
   const todayX = x(today)
   const [showMarks, setShowMarks] = useState(() => { try { return localStorage.getItem('abaya:gantt-marks') !== '0' } catch { return true } })
   const marks = useMarks(useMemo(() => rows.map((r) => r.id), [rows]))
+  const [item, setItem] = useState<ItemEdit | null>(null) // adding or editing a milestone / deliverable
   const time12 = (t?: string | null) => { if (!t) return ''; const [h, m] = t.split(':').map(Number); return ` · ${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')}${h < 12 ? 'am' : 'pm'}` }
   return (
     <div className="gt card">
@@ -269,6 +330,8 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
                     </div>
                     <div className="muted gt-sub">{r.status[0].toUpperCase() + r.status.slice(1)}{r.clients ? ` · ${r.clients.name}` : ''}</div>
                   </div>
+                  <button type="button" className="gt-addmark" aria-label={`Add a milestone or deliverable to ${r.number}`} title="Add a milestone or deliverable"
+                    onClick={(ev) => setItem({ mode: 'new', kind: 'milestone', project: r, title: '', date: isoOf(today), done: false, at: ev.currentTarget.getBoundingClientRect() })}>+</button>
                   <Ring pct={feeUsed[r.id] ?? null} />
                 </div>))}
             </div>
@@ -280,7 +343,10 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
                 const color = SECTOR_COLOR[r.sector ?? 'internal']
                 const phases = r.phases.filter((p) => p.start_date && p.end_date).sort((a, b) => a.start_date!.localeCompare(b.start_date!))
                 return (
-                  <div key={r.id} className="gt-row" style={{ top: i * 66 }}>
+                  <div key={r.id} className="gt-row" style={{ top: i * 66 }}
+                    onDoubleClick={(ev) => { if ((ev.target as HTMLElement).closest('.gt-bar, .gt-mark')) return
+                      const day = addDays(start, Math.floor((ev.clientX - ev.currentTarget.getBoundingClientRect().left) / px))
+                      setItem({ mode: 'new', kind: 'milestone', project: r, title: '', date: isoOf(day), done: false, at: new DOMRect(ev.clientX, ev.clientY, 0, 0) }) }}>
                     {phases.map((p) => {
                       const saved: Dates = { start_date: p.start_date!, end_date: p.end_date! }
                       const live = p.id && drag?.id === p.id ? drag.cur : (p.id && over[p.id]) || saved
@@ -313,24 +379,25 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
                     })}
                     {showMarks && (() => {
                       // circles on the row at their dates; same-day ones sit side by side
-                      const ends: Mark[] = r.phases.filter((p) => p.end_date).map((p) => ({ key: 'm' + (p.id ?? p.code), project_id: r.id, kind: 'milestone' as const,
-                        title: `${PHASE_NAME[p.code] ?? p.code} complete`, date: (p.id && over[p.id]?.end_date) || p.end_date!, done: p.status === 'complete', phase_id: p.id ?? null }))
-                      const mine = [...ends, ...(marks.data ?? []).filter((m) => m.project_id === r.id)].sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind))
+                      const mine = (marks.data ?? []).filter((m) => m.project_id === r.id).sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind))
                       let prev = -1e9
                       return mine.map((m) => {
                         const d = parse(m.date)
-                        // a phase's milestone pin stands over the end of its bar; the rest sit on the day, side by side when they share it
-                        const cx = m.kind === 'milestone' ? x(addDays(d, 1)) - 10 : Math.max(x(d) + px / 2, prev + 24); if (m.kind !== 'milestone') prev = cx
+                        // each sits on its day; same-day ones side by side
+                        const cx = Math.max(x(d) + px / 2, prev + 24); prev = cx
                         const ph = r.phases.find((p) => (m.phase_id && p.id === m.phase_id) || (!m.phase_id && p.start_date && p.end_date && p.start_date <= m.date && p.end_date >= m.date))
                         const late = !m.done && d < today && m.kind !== 'event' && m.kind !== 'milestone'
-                        return <span key={m.key} className={`gt-mark k-${m.kind}${m.done ? ' done' : ''}${late ? ' late' : ''}`} style={{ left: cx, ['--c' as string]: color }} tabIndex={0}
+                        const editable = !!m.id && (m.kind === 'milestone' || m.kind === 'deliverable')
+                        return <span key={m.key} className={`gt-mark k-${m.kind}${m.done ? ' done' : ''}${late ? ' late' : ''}${editable ? ' edit' : ''}`} style={{ left: cx, ['--c' as string]: color }} tabIndex={0}
+                          onClick={editable ? (ev) => { ev.stopPropagation(); setItem({ mode: 'edit', kind: m.kind as 'milestone' | 'deliverable', id: m.id!, project: r, title: m.title, date: m.date, done: m.done, at: ev.currentTarget.getBoundingClientRect() }) } : undefined}
+                          onKeyDown={editable ? (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); setItem({ mode: 'edit', kind: m.kind as 'milestone' | 'deliverable', id: m.id!, project: r, title: m.title, date: m.date, done: m.done, at: ev.currentTarget.getBoundingClientRect() }) } } : undefined}
                           aria-label={`${KIND_WORD[m.kind]}: ${m.title}, ${fmt(m.date)}${m.done ? ', done' : late ? ', overdue' : ''}`}>
                           <MarkIcon kind={m.kind} done={m.done} />
                           <span className="gt-mtip" role="tooltip">
                             {ph && <span className="gt-mtip-ph" style={{ background: color }}>{ph.code}</span>}
                             <strong>{m.title}</strong>
                             <span className="muted">{fmt(m.date)}{time12(m.time)}{m.who ? ` · ${m.who}` : ''}</span>
-                            <span className="gt-mtip-k">{KIND_WORD[m.kind]}{m.kind !== 'event' ? (m.done ? ' · done' : late ? ' · overdue' : ' · open') : ''}</span>
+                            <span className="gt-mtip-k">{KIND_WORD[m.kind]}{m.kind !== 'event' ? (m.done ? ' · done' : late ? ' · overdue' : ' · open') : ''}{editable ? ' · click to edit' : ''}</span>
                           </span>
                         </span>
                       })
@@ -350,10 +417,12 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
       </div>}
       <p className="muted gt-key"><em>Bars are phase dates. Solid = in progress, light = not started, faded = complete, striped = paused. Ring = fee used (hours × rates); orange at 75%, red at 90%. Hover a bar for dates and fee. Drag a bar to move the whole phase; drag either end to change its length. Click a project’s name to open it.</em>
         {showMarks && <span className="gt-legend" style={{ ['--c' as string]: '#2b5c8a' }}>
-          <span className="gt-mark k-milestone"><MarkIcon kind="milestone" done={false} /></span>Milestone (phase end)
+          <span className="gt-mark k-milestone"><MarkIcon kind="milestone" done={false} /></span>Milestone
           <span className="gt-mark k-deliverable"><MarkIcon kind="deliverable" done={false} /></span>Deliverable
           <span className="gt-mark k-task"><MarkIcon kind="task" done={false} /></span>Task
-          <span className="gt-mark k-event"><MarkIcon kind="event" done={false} /></span>Event · grey task / filled = done, red outline = overdue</span>}</p>
+          <span className="gt-mark k-event"><MarkIcon kind="event" done={false} /></span>Event · grey task / filled = done, red outline = overdue</span>}
+        <em className="gt-howto">Add a milestone or deliverable with the + beside a project, or double-click its row on the timeline. Click one to edit it.</em></p>
+      {item && <ItemPop item={item} onClose={() => setItem(null)} onSaved={() => { setItem(null); marks.reload() }} />}
     </div>
   )
 }
