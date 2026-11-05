@@ -10,6 +10,7 @@ export type Role = 'admin' | 'staff' | 'client' | 'none'
 export type Profile = {
   id: string; email: string; full_name: string | null; initials: string | null; title: string | null
   role: Role; client_id: string | null; util_target: number | null; bill_rate: number | null
+  avatar_url?: string | null
 }
 
 export const money = (n: number | string | null | undefined) =>

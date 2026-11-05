@@ -2,8 +2,8 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import type { Session } from '@supabase/supabase-js'
 import { supabase, type Profile } from './supabase'
 
-type Auth = { session: Session | null; profile: Profile | null; loading: boolean; recovering: boolean; endRecovery: () => void; signOut: () => Promise<void> }
-const Ctx = createContext<Auth>({ session: null, profile: null, loading: true, recovering: false, endRecovery: () => {}, signOut: async () => {} })
+type Auth = { session: Session | null; profile: Profile | null; loading: boolean; recovering: boolean; endRecovery: () => void; signOut: () => Promise<void>; refreshProfile: () => void }
+const Ctx = createContext<Auth>({ session: null, profile: null, loading: true, recovering: false, endRecovery: () => {}, signOut: async () => {}, refreshProfile: () => {} })
 
 /**
  * Sign-in state for the whole portal.
@@ -19,6 +19,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const loadedFor = useRef<string | null>(null) // user id whose profile is currently loaded
+  const [bump, setBump] = useState(0) // refreshProfile(): re-read the profile after the person edits it
   const [recovering, setRecovering] = useState(false) // opened a password-reset link: ask for a new password first
 
   useEffect(() => {
@@ -44,9 +45,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false)
     })
     return () => { live = false }
-  }, [uid, session?.access_token])
+  }, [uid, session?.access_token, bump])
 
   const signOut = async () => { await supabase.auth.signOut(); loadedFor.current = null; setProfile(null) }
-  return <Ctx.Provider value={{ session, profile, loading, recovering, endRecovery: () => setRecovering(false), signOut }}>{children}</Ctx.Provider>
+  return <Ctx.Provider value={{ session, profile, loading, recovering, endRecovery: () => setRecovering(false), signOut, refreshProfile: () => setBump((n) => n + 1) }}>{children}</Ctx.Provider>
 }
 export const useAuth = () => useContext(Ctx)

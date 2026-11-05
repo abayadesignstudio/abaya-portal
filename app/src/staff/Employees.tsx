@@ -1,19 +1,20 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { MULTIPLIER } from '../lib/fees'
+import Avatar from '../components/Avatar'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import { workload, fmt, AVAILABLE_HRS, yearFraction, isoDate, mondayOf } from './workload'
 import './home.css'
 
-type Person = { id: string; full_name: string | null; email: string; title: string | null; role: string; util_target: number | null; bill_rate: number | null }
+type Person = { id: string; full_name: string | null; email: string; title: string | null; role: string; util_target: number | null; bill_rate: number | null; avatar_url: string | null }
 type Entry = { profile_id: string; project_id: string | null; work_date: string; minutes: number; billable: boolean }
 
 export default function Employees() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const year = new Date().getFullYear()
-  const people = useLoad(async () => must(await supabase.from('profiles').select('id, full_name, email, title, role, util_target, bill_rate').in('role', ['admin', 'staff']).order('full_name')) as Person[])
+  const people = useLoad(async () => must(await supabase.from('profiles').select('id, full_name, email, title, role, util_target, bill_rate, avatar_url').in('role', ['admin', 'staff']).order('full_name')) as Person[])
   // Overhead (OH) time is never billable, whatever the entry says
   const time = useLoad(async () => (must(await supabase.from('time_entries').select('profile_id, project_id, work_date, minutes, billable, projects(number)').gte('work_date', `${year}-01-01`).lte('work_date', `${year}-12-31`)) as unknown as (Entry & { projects: { number: string } | null })[])
     .map((e) => ({ ...e, billable: e.billable && e.projects?.number !== 'OH' })))
@@ -56,7 +57,7 @@ function PersonCard({ p, w, canEdit, onSaved }: { p: Person; w: ReturnType<typeo
   return (
     <article className="card pad stack">
       <div className="row" style={{ gap: 12 }}>
-        <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--navy)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>{ini}</span>
+        <Avatar url={p.avatar_url} initials={ini} size={44} />
         <div style={{ flex: 1 }}><h2 style={{ fontSize: 18 }}>{p.full_name || p.email}</h2><p className="muted" style={{ margin: '2px 0 0', fontSize: 14 }}>{p.title || (p.role === 'admin' ? 'Admin' : 'Staff')}{p.bill_rate ? ` · $${p.bill_rate}/hr` : ''}</p></div>
         <div style={{ textAlign: 'right' }}><p className="num" style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>{w.util ? w.util + '%' : '—'}</p><p className="muted" style={{ margin: 0, fontSize: 12 }}>utilization target</p></div>
       </div>

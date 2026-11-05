@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
+import Avatar from '../components/Avatar'
 import { useState } from 'react'
 import { useAuth } from '../lib/auth'
 import SidebarTimer from '../components/Timer'
@@ -35,7 +36,7 @@ export default function StaffLayout() {
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2" /></svg>Settings
           </NavLink>
           <div className="me">
-            <span aria-hidden="true" style={{ width: 36, height: 36, border: '1px solid var(--pat)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{ini}</span>
+            <NavLink to="/account" onClick={() => setOpen(false)} aria-hidden="true" tabIndex={-1} title="Change your photo"><Avatar url={profile?.avatar_url} initials={ini} size={38} ring="var(--pat)" /></NavLink>
             <div><NavLink to="/account" onClick={() => setOpen(false)} title="My account and password" style={{ color: 'inherit', textDecoration: 'none', display: 'block' }}>{profile?.full_name || profile?.email}</NavLink><button onClick={signOut}>Sign out</button></div>
           </div>
         </div>

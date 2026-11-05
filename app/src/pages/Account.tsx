@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { PasswordForm } from './SetPassword'
+import Avatar from '../components/Avatar'
 
 /** My account: each person sets or changes their own sign-in password. */
 export default function Account() {
@@ -15,6 +16,7 @@ export default function Account() {
         <h2 id="acc-h" style={{ margin: 0 }}>{profile?.full_name || 'Your account'}</h2>
         <p className="muted" style={{ margin: 0 }}>Signed in as <strong>{session?.user.email}</strong>. You sign in with this email.</p>
       </section>
+      <PhotoSection />
       <GoogleSection />
       <section className="card pad stack" aria-labelledby="pw-h">
         <h2 id="pw-h" style={{ margin: 0 }}>Password</h2>
@@ -68,6 +70,72 @@ function GoogleSection() {
         {conn ? <button type="button" className="btn secondary" disabled={busy} onClick={disconnect}>Disconnect Google</button>
           : <button type="button" className="btn" disabled={busy || conn === undefined} onClick={connect}>{busy ? 'Opening Google…' : 'Connect Google'}</button>}
       </div>
+    </section>
+  )
+}
+
+/** Profile picture: cropped to a centered square and shrunk to 400px in the browser, stored in avatars/<my id>/. */
+function PhotoSection() {
+  const { profile, refreshProfile } = useAuth()
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null)
+  const square = (file: File) => new Promise<Blob>((resolve, reject) => {
+    const img = new Image(); const url = URL.createObjectURL(file)
+    img.onload = () => {
+      const side = Math.min(img.naturalWidth, img.naturalHeight), out = Math.min(400, side)
+      const c = document.createElement('canvas'); c.width = c.height = out
+      c.getContext('2d')!.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, out, out)
+      URL.revokeObjectURL(url)
+      c.toBlob((b) => (b ? resolve(b) : reject(new Error('Couldn’t read that image.'))), 'image/jpeg', 0.9)
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That file isn’t an image this browser can read. Try a JPG or PNG.')) }
+    img.src = url
+  })
+  const clearOld = async () => {
+    const { data } = await supabase.storage.from('avatars').list(profile!.id)
+    if (data?.length) await supabase.storage.from('avatars').remove(data.map((f) => `${profile!.id}/${f.name}`))
+  }
+  const upload = async (file: File | undefined) => {
+    if (!file || !profile) return
+    setBusy(true); setMsg(null)
+    try {
+      const blob = await square(file)
+      await clearOld()
+      const path = `${profile.id}/${Date.now()}.jpg`
+      const up = await supabase.storage.from('avatars').upload(path, blob, { contentType: 'image/jpeg', upsert: true })
+      if (up.error) throw up.error
+      const url = supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl
+      const r = await supabase.from('profiles').update({ avatar_url: url }).eq('id', profile.id)
+      if (r.error) throw r.error
+      refreshProfile(); setMsg({ ok: true, t: 'Photo updated.' })
+    } catch (e) { setMsg({ ok: false, t: e instanceof Error ? e.message : String(e) }) }
+    setBusy(false)
+  }
+  const remove = async () => {
+    if (!profile) return
+    setBusy(true); setMsg(null)
+    await clearOld()
+    const r = await supabase.from('profiles').update({ avatar_url: null }).eq('id', profile.id)
+    setBusy(false)
+    if (r.error) setMsg({ ok: false, t: r.error.message }); else { refreshProfile(); setMsg({ ok: true, t: 'Photo removed.' }) }
+  }
+  return (
+    <section className="card pad stack" aria-labelledby="ph-h">
+      <h2 id="ph-h" style={{ margin: 0 }}>Profile picture</h2>
+      <div className="row" style={{ gap: 18 }}>
+        <Avatar url={profile?.avatar_url} name={profile?.full_name || profile?.email} initials={profile?.initials} size={88} />
+        <div className="stack" style={{ gap: 8 }}>
+          <div className="row" style={{ gap: 8 }}>
+            <label className={'btn small' + (busy ? ' disabled' : '')} style={{ cursor: busy ? 'default' : 'pointer' }}>
+              {busy ? 'Saving…' : profile?.avatar_url ? 'Change photo' : 'Upload photo'}
+              <input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} className="sr" onChange={(e) => { upload(e.target.files?.[0]); e.target.value = '' }} />
+            </label>
+            {profile?.avatar_url && <button type="button" className="btn small secondary" disabled={busy} onClick={remove}>Remove</button>}
+          </div>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>JPG, PNG or WebP. It’s cropped to a centered square and shown as a circle.</p>
+        </div>
+      </div>
+      {msg && <p className={msg.ok ? 'ok' : 'err'} role={msg.ok ? 'status' : 'alert'} style={{ margin: 0 }}>{msg.t}</p>}
     </section>
   )
 }
