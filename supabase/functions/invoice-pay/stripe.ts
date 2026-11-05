@@ -9,6 +9,9 @@ const round2 = (n: number) => Math.round(n * 100) / 100
 // same estimates the invoice builder shows (cards 2.9% + 30¢; ACH 0.8%, $5 cap)
 export const cardFee = (t: number) => round2(t * 0.029 + 0.3)
 export const achFee = (t: number) => round2(Math.min(t * 0.008, 5))
+/** Card payment is only offered while the card fee would stay at or under this (invoices up to about $17,231). */
+export const CARD_FEE_MAX = 500
+export const cardAllowed = (t: number) => cardFee(t) <= CARD_FEE_MAX
 
 /** Flatten { a: { b: 1 } } into Stripe's form encoding a[b]=1. */
 function form(o: Record<string, unknown>, pre = '', out = new URLSearchParams()) {

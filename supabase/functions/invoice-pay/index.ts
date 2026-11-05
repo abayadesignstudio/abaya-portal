@@ -3,7 +3,7 @@
 //  (plus the processing fee when the invoice passes it to the client). verify_jwt is off: the invoice's unguessable
 //  view token is the key, the same as the invoice page itself. GET → { configured, mode } for the Settings page.
 import { admin, json, CORS } from './mail.ts'
-import { stripeConfigured, stripeMode, stripe, cardFee, achFee } from './stripe.ts'
+import { stripeConfigured, stripeMode, stripe, cardFee, achFee, cardAllowed } from './stripe.ts'
 
 const UUID = /^[0-9a-f-]{36}$/i
 
@@ -24,6 +24,7 @@ Deno.serve(async (req) => {
   const balance = Math.round((Number(inv.total) - Number(inv.amount_paid)) * 100) / 100
   if (balance < 0.5 || inv.status === 'paid') return json({ error: 'This invoice is already paid.' }, 409)
   if ((method === 'card' && !inv.allow_card) || (method === 'ach' && !inv.allow_ach)) return json({ error: 'That payment method isn’t offered on this invoice.' }, 400)
+  if (method === 'card' && !cardAllowed(balance)) return json({ error: 'Card payment isn’t available for an invoice of this size. Please pay by bank (ACH), wire or check.' }, 400)
   const fee = method === 'card' ? (inv.pass_card_fee ? cardFee(balance) : 0) : (inv.pass_ach_fee ? achFee(balance) : 0)
 
   let email: string | null = null

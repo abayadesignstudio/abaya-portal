@@ -167,7 +167,7 @@ function Panel({ inv, events, recipients, me, onClose, onOpen, onChanged }: { in
           <div><label className="l" htmlFor="rp-a">Amount</label><input id="rp-a" className="input num" inputMode="decimal" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} /></div>
           <div><label className="l" htmlFor="rp-d">Received</label><input id="rp-d" type="date" className="input" value={pay.date} onChange={(e) => setPay({ ...pay, date: e.target.value })} /></div>
         </div>
-        <div><label className="l" htmlFor="rp-m">Method</label><select id="rp-m" className="input" value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}>{['Paper Check', 'ACH', 'Wire', 'Bank Transfer', 'Credit card', 'Cash', 'Other'].map((m) => <option key={m}>{m}</option>)}</select></div>
+        <div><label className="l" htmlFor="rp-m">Method</label><select id="rp-m" className="input" value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}>{['Paper Check', 'ACH', 'Wire', 'Credit card', 'Cash', 'Other'].map((m) => <option key={m}>{m}</option>)}</select></div>
         <button className="btn small" onClick={record}>Save payment</button>
       </div>}
       <div><h2 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', marginBottom: 8 }}>Activity</h2>

@@ -32,12 +32,15 @@ Deno.serve(async (req) => {
     if (fs?.wire_routing && fs?.wire_account) wire = { bank_name: fs.wire_bank_name, bank_address: fs.wire_bank_address, account_name: fs.wire_account_name, routing: fs.wire_routing,
       account: fs.wire_account, swift: fs.wire_swift, notes: fs.wire_notes, phone: fs.phone }
   }
+  // card only while the card fee would stay at or under $500 (same rule as invoice-pay / _shared/stripe.ts)
+  const due = Math.max(0, Number(inv.total) - Number(inv.amount_paid))
+  const cardTooBig = Math.round((due * 0.029 + 0.3) * 100) / 100 > 500
   // deno-lint-ignore no-explicit-any
   const p = inv.projects as any, c = inv.clients as any
   return json({
     number: inv.number, status: inv.status, issue_date: inv.issue_date, due_date: inv.due_date, terms_days: inv.terms_days,
     period_start: inv.period_start, period_end: inv.period_end, total: Number(inv.total), amount_paid: Number(inv.amount_paid), note: inv.note,
-    allow_card: inv.allow_card, allow_ach: inv.allow_ach, pass_card_fee: inv.pass_card_fee, pass_ach_fee: inv.pass_ach_fee,
+    allow_card: inv.allow_card && !cardTooBig, card_limited: inv.allow_card && cardTooBig, allow_ach: inv.allow_ach, pass_card_fee: inv.pass_card_fee, pass_ach_fee: inv.pass_ach_fee,
     pay_online: !!Deno.env.get('STRIPE_SECRET_KEY'), advance: inv.billing_basis === 'advance', wire,
     project: { number: p?.number ?? '', name: p?.name ?? '', sector: p?.sector ?? null }, client: c?.name ?? null,
     lines: (lines ?? []).map((l) => ({ kind: l.kind, description: l.description, pct_to_date: l.pct_to_date === null ? null : Number(l.pct_to_date), amount: Number(l.amount) })),

@@ -91,7 +91,7 @@ function OnlinePayments() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <h2 id="op-h" style={{ margin: 0 }}>Online payments {st && <span className="status" style={{ marginLeft: 6, color: '#fff', background: ready ? (st.mode === 'test' ? '#b54708' : '#0e7c66') : '#667085', fontSize: 12, verticalAlign: 3 }}>
             {ready ? (st.mode === 'test' ? 'Connected · test mode' : 'Connected') : st.configured ? 'Almost there' : 'Not connected'}</span>}</h2>
-          <p className="muted" style={{ margin: '4px 0 0' }}>Clients pay invoices by bank transfer (ACH) or card through Stripe. Payments are recorded on the invoice automatically, and you get a notification. Each invoice’s payment options and fee pass-through are set in the invoice builder.</p>
+          <p className="muted" style={{ margin: '4px 0 0' }}>Clients pay invoices by bank (ACH) or card through Stripe; card isn’t offered when its fee would top $500. Wire instructions are set below under Firm. Payments are recorded on the invoice automatically, and you get a notification. Each invoice’s payment options and fee pass-through are set in the invoice builder.</p>
           {st && !ready && <p style={{ margin: '8px 0 0', fontSize: 14 }}>{st.configured
             ? <>Stripe is connected, but the webhook isn’t: add <code>STRIPE_WEBHOOK_SECRET</code> so payments mark invoices paid.</>
             : <>Add your Stripe keys to switch this on (steps in the “stripe-payments-setup” project doc). Until then, invoices show “Pay online — coming soon”.</>}</p>}

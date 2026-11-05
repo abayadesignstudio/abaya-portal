@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase, money, SECTOR_COLOR, PHASES, PHASE_NAME } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
-import { todayIso, addDays, fmtDate, num, round2, cardFee, achFee, nextInvoiceNumber, displayStatus, emailInvoice } from '../lib/invoices'
+import { todayIso, addDays, fmtDate, num, round2, cardFee, achFee, CARD_FEE_MAX, nextInvoiceNumber, displayStatus, emailInvoice } from '../lib/invoices'
 import './invoices.css'
 
 type Phase = { id: string; code: string; fee: number; status: string }
@@ -211,7 +211,9 @@ export default function InvoiceBuilder() {
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }} /><button type="button" className="btn small secondary" onClick={add}>Add</button></div>}
     </div>)
   const wireOn = opts.allow_wire && !!c.wireReady
-  const payWays = [opts.allow_ach ? 'bank transfer (ACH)' : '', wireOn ? 'wire' : '', opts.allow_card ? 'card' : ''].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' or $1') || 'check'
+  const cardTooBig = cardFee(total) > CARD_FEE_MAX // card is never offered when its fee would top $500
+  const cardOn = opts.allow_card && !cardTooBig
+  const payWays = [opts.allow_ach ? 'bank (ACH)' : '', wireOn ? 'wire' : '', cardOn ? 'card' : ''].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' or $1') || 'check'
 
   return (
     <div className="stack">
@@ -316,13 +318,14 @@ export default function InvoiceBuilder() {
           </section>
           <section className="card stack" style={sec}>
             <h2>Payment</h2>
+            {cardTooBig ? <p style={{ margin: 0, fontSize: 13.5 }}><strong>Card: not offered.</strong> <span className="muted">The card fee on this invoice would be ≈ {money(cardFee(total))}, over your {money(CARD_FEE_MAX)} limit (invoices over about $17,231).</span></p> : <>
             {tog('allow_card', 'Credit card')}
-            {opts.allow_card && <div style={{ marginLeft: 28 }}>{tog('pass_card_fee', 'Pass the card fee to the client', `Stripe fee on this invoice ≈ ${money(cardFee(total))}${opts.pass_card_fee ? ' — added to the client’s total' : ' — absorbed by you'}`)}</div>}
-            {tog('allow_ach', 'Bank transfer (ACH)', 'Clears in about 4 business days; drawings release when it clears.')}
+            {opts.allow_card && <div style={{ marginLeft: 28 }}>{tog('pass_card_fee', 'Pass the card fee to the client', `Stripe fee on this invoice ≈ ${money(cardFee(total))}${opts.pass_card_fee ? ' — added to the client’s total' : ' — absorbed by you'}`)}</div>}</>}
+            {tog('allow_ach', 'Bank (ACH)', 'Clears in about 4 business days; drawings release when it clears.')}
             {opts.allow_ach && <div style={{ marginLeft: 28 }}>{tog('pass_ach_fee', 'Pass the ACH fee to the client', `Stripe fee on this invoice ≈ ${money(achFee(total))}${opts.pass_ach_fee ? ' — added to the client’s total' : ' — absorbed by you'}`)}</div>}
             {(opts.allow_card && opts.pass_card_fee || opts.allow_ach && opts.pass_ach_fee) && <p role="note" className="err" style={{ margin: 0, fontSize: 12 }}>Card surcharges are limited by state law and card-network rules (caps and disclosure). Confirm before turning this on.</p>}
             {tog('allow_wire', 'Wire transfer', c.wireReady ? 'Shows your bank’s wire instructions on the invoice page (not in the email). No Stripe fee.' : 'Add your wire instructions in Settings → Firm to offer this.')}
-            {!opts.allow_card && !opts.allow_ach && !wireOn && <p style={{ margin: 0, fontSize: 13, color: '#b54708' }}>No online payment — the client can only pay by check.</p>}
+            {!cardOn && !opts.allow_ach && !wireOn && <p style={{ margin: 0, fontSize: 13, color: '#b54708' }}>No online payment — the client can only pay by check.</p>}
             <p className="muted" style={{ margin: 0, fontSize: 12 }}><em>Estimates use Stripe’s standard US rates (cards 2.9% + 30¢; ACH 0.8%, $5 cap). Check your account’s current rates. Online payment is connected on day 3.</em></p>
           </section>
           <section className="card stack" style={sec}>
@@ -425,7 +428,7 @@ export default function InvoiceBuilder() {
 
 function defaultMessage(p: Project, sender?: string | null) {
   const first = (sender ?? '').split(' ')[0] || 'Abaya Design Studio'
-  return `Hello,\nAttached is our invoice for ${p.name}. You can pay online by card or bank transfer from the link below.\nThank you,\n${first}`
+  return `Hello,\nAttached is our invoice for ${p.name}. You can view and pay it from the link below.\nThank you,\n${first}`
 }
 
 function PctInput({ value, disabled, bad, label, onCommit }: { value: number; disabled: boolean; bad: boolean; label: string; onCommit: (v: string) => void }) {

@@ -6,7 +6,7 @@ type Line = { kind: string; description: string; pct_to_date: number | null; amo
 type PublicInvoice = {
   number: string; status: string; issue_date: string | null; due_date: string | null; terms_days: number
   period_start: string | null; period_end: string | null; total: number; amount_paid: number; note: string | null
-  allow_card: boolean; allow_ach: boolean; pass_card_fee?: boolean; pass_ach_fee?: boolean; pay_online?: boolean; advance?: boolean;
+  allow_card: boolean; allow_ach: boolean; pass_card_fee?: boolean; pass_ach_fee?: boolean; pay_online?: boolean; advance?: boolean; card_limited?: boolean;
   wire?: { bank_name: string | null; bank_address: string | null; account_name: string | null; routing: string; account: string; swift: string | null; notes: string | null; phone: string | null } | null; project: { number: string; name: string; sector: string | null }; client: string | null; lines: Line[]
 }
 
@@ -76,7 +76,7 @@ export default function InvoiceView() {
     const g = groups.find(([k]) => k === h)
     if (g) g[1].push(l); else groups.push([h, [l]])
   }
-  const ways = [inv.allow_ach && 'bank transfer (ACH)', inv.allow_card && 'card'].filter(Boolean).join(' or ')
+  const ways = [inv.allow_ach && 'bank (ACH)', inv.allow_card && 'card'].filter(Boolean).join(' or ')
 
   return <>
     {header}
@@ -86,18 +86,19 @@ export default function InvoiceView() {
         <p className="iv-amt">{paid ? 'Paid' : money(balance)}</p>
         <p className={late ? 'iv-late' : 'iv-muted'}>{paid ? 'Thank you — this invoice is paid in full.' : inv.due_date ? `${late ? 'Was due' : 'Due'} ${fmt(inv.due_date)}` : 'Due on receipt'}</p>
         {returned && !paid && <p className="iv-thanks" role="status">{returned === 'ach'
-          ? 'Thank you! Your bank transfer is on its way. It usually takes about 4 business days to clear; we’ll mark the invoice paid when it does.'
+          ? 'Thank you! Your bank (ACH) payment is on its way. It usually takes about 4 business days to clear; we’ll mark the invoice paid when it does.'
           : 'Thank you! Your payment went through. It can take a minute to show here.'}</p>}
         {!paid && !returned && (inv.pay_online && (inv.allow_ach || inv.allow_card) ? <>
           <div className="iv-paybtns">
-            {inv.allow_ach && <button className="iv-btn" onClick={() => pay('ach')} disabled={!!paying}>{paying === 'ach' ? 'Opening…' : 'Pay by bank transfer'}</button>}
+            {inv.allow_ach && <button className="iv-btn" onClick={() => pay('ach')} disabled={!!paying}>{paying === 'ach' ? 'Opening…' : 'Pay by bank (ACH)'}</button>}
             {inv.wire && <button className="iv-btn secondary" aria-expanded={showWire} onClick={() => setShowWire(!showWire)}>Pay by wire</button>}
             {inv.allow_card && <button className={'iv-btn' + (inv.allow_ach || inv.wire ? ' secondary' : '')} onClick={() => pay('card')} disabled={!!paying}>{paying === 'card' ? 'Opening…' : 'Pay by card'}</button>}
           </div>
           {showWire && inv.wire && <Wire w={inv.wire} number={inv.number} amount={balance} />}
           <p className="iv-muted iv-small">
-            {inv.allow_ach && <>Bank transfer (ACH){inv.pass_ach_fee ? ` adds a ${money(achFee(balance))} processing fee` : ' has no added fee'}. </>}
+            {inv.allow_ach && <>Bank (ACH){inv.pass_ach_fee ? ` adds a ${money(achFee(balance))} processing fee` : ' has no added fee'}. </>}
             {inv.allow_card && <>Card{inv.pass_card_fee ? ` adds a ${money(cardFee(balance))} processing fee` : ' has no added fee'}. </>}
+            {inv.card_limited && <>Card payment isn’t available for an invoice of this size. </>}
             Payments are processed securely by Stripe. You can also pay by check payable to <strong>Abaya Design Studio, LLC</strong>.
           </p>
           {payErr && <p className="iv-late" role="alert">{payErr}</p>}

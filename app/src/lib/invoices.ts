@@ -70,6 +70,7 @@ export function activityOf(i: InvoiceRow, events: InvEvent[]): { label: string; 
 
 /** Stripe standard US pricing estimates (confirm against the account) */
 export const cardFee = (t: number) => round2(t * 0.029 + 0.3)
+export const CARD_FEE_MAX = 500 // card isn't offered when its fee would top this (same rule in the invoice-pay function)
 export const achFee = (t: number) => round2(Math.min(t * 0.008, 5))
 
 /** Next invoice number for a project: <project number>-NNN */
