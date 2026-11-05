@@ -38,10 +38,20 @@ function Ring({ pct }: { pct: number | null }) {
 }
 
 type Dates = { start_date: string; end_date: string }
+/** Custom-order dragging, provided by the Projects page when Sort = Custom. */
+export type Reorder = { dragId: string | null; start: (id: string) => void; over: (id: string) => void; end: () => void; step: (id: string, dir: -1 | 1) => void }
 type Drag = { id: string; edge: 'start' | 'end'; x0: number; orig: Dates; cur: Dates; moved: boolean }
 
-export default function ProjectsGantt({ rows, feeUsed, onDates }: { rows: GRow[]; feeUsed: Record<string, number | null>
-  onDates?: (phaseId: string, d: Dates) => Promise<string | null> }) {
+/** The ⠿ drag handle for Custom order (drag it, or focus it and use ↑ / ↓). */
+export function Grip({ id, name, r }: { id: string; name: string; r: Reorder }) {
+  return <span className="gt-grip" draggable role="button" tabIndex={0} aria-label={`Move ${name} (drag, or use the up and down arrow keys)`}
+    onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); r.start(id) }} onDragEnd={r.end}
+    onKeyDown={(e) => { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); r.step(id, e.key === 'ArrowUp' ? -1 : 1); requestAnimationFrame(() => (document.querySelector(`[data-grip="${id}"]`) as HTMLElement | null)?.focus()) } }}
+    data-grip={id}>⠿</span>
+}
+
+export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { rows: GRow[]; feeUsed: Record<string, number | null>
+  onDates?: (phaseId: string, d: Dates) => Promise<string | null>; reorder?: Reorder }) {
   // date changes: live preview while dragging, kept until the saved data comes back
   const [over, setOver] = useState<Record<string, Dates>>({})
   const [drag, setDrag] = useState<Drag | null>(null)
@@ -160,7 +170,9 @@ export default function ProjectsGantt({ rows, feeUsed, onDates }: { rows: GRow[]
           <div className="gt-bodyrow">
             <div className="gt-left" style={{ width: LEFT }}>
               {rows.map((r) => (
-                <div key={r.id} className="gt-proj">
+                <div key={r.id} className={'gt-proj' + (reorder?.dragId === r.id ? ' gt-dragrow' : '')}
+                  {...(reorder ? { onDragOver: (e: React.DragEvent) => { e.preventDefault(); reorder.over(r.id) }, onDrop: (e: React.DragEvent) => e.preventDefault() } : {})}>
+                  {reorder && <Grip id={r.id} name={r.name} r={reorder} />}
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
                       <span className="tag" style={{ background: SECTOR_COLOR[r.sector ?? 'internal'] }}>{r.number}</span>

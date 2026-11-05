@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASES } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
-import ProjectsGantt from './ProjectsGantt'
+import { useAuth } from '../lib/auth'
+import ProjectsGantt, { Grip, type Reorder } from './ProjectsGantt'
 import './admin.css'
 
 type Row = { id: string; number: string; name: string; status: string; category: string | null; sector: string | null; next_milestone: string | null
@@ -19,12 +20,13 @@ const PH_COLOR: Record<string, [string, string, string]> = {
 const SECTORS: [string, string][] = [['commercial', 'Commercial / Retail'], ['residential', 'Residential'], ['medical', 'Medical'], ['consultation', 'Consultation'], ['civic', 'Civic'], ['internal', 'Internal']]
 const TYPES: [string, string][] = [['all', 'All types'], ['S', 'Shell (S)'], ['FO', 'Finish-Out (FO)'], ['CON', 'Consultation (CON)']]
 const today = new Date().toISOString().slice(0, 10)
-const SORTS: [string, string][] = [['new', 'Newest to oldest'], ['old', 'Oldest to newest'], ['az', 'Alphabetical (A–Z)'], ['za', 'Alphabetical (Z–A)'], ['num-asc', 'Project number (asc)'], ['num-desc', 'Project number (desc)']]
+const SORTS: [string, string][] = [['custom', 'Custom'], ['new', 'Newest to oldest'], ['old', 'Oldest to newest'], ['az', 'Alphabetical (A–Z)'], ['za', 'Alphabetical (Z–A)'], ['num-asc', 'Project number (asc)'], ['num-desc', 'Project number (desc)']]
 // Project numbers are year + month + letter (2610A = Oct 2026, project A), so the number is the age. Numbers without
 // that pattern (VDRC) go last either way.
 const age = (n: string) => { const m = n.match(/(\d{4})([A-Za-z]*)/); return m ? `${m[1]}${m[2].toUpperCase().padEnd(3, ' ')}` : null }
-function sortRows(rows: Row[], by: string) {
+function sortRows(rows: Row[], by: string, custom: string[] = []) {
   const r = [...rows]
+  if (by === 'custom') { const at = new Map(custom.map((id, i) => [id, i])); return r.sort((a, b) => (at.get(a.id) ?? -1) - (at.get(b.id) ?? -1)) }
   const byAge = (dir: 1 | -1) => (a: Row, b: Row) => { const x = age(a.number), y = age(b.number); return !x && !y ? a.number.localeCompare(b.number) : !x ? 1 : !y ? -1 : dir * x.localeCompare(y) }
   if (by === 'new') r.sort(byAge(-1)); else if (by === 'old') r.sort(byAge(1))
   else if (by === 'az') r.sort((a, b) => a.name.localeCompare(b.name)); else if (by === 'za') r.sort((a, b) => b.name.localeCompare(a.name))
@@ -43,6 +45,11 @@ export default function Projects() {
   const [adding, setAdding] = useState(false)
   const [view, setView] = useState(() => remember('abaya.projects.view', 'timeline'))
   const [sort, setSort] = useState(() => remember('abaya.projects.sort', 'new'))
+  // Custom sort: my own order (saved to my account). Projects I haven't placed yet go on top, newest first.
+  const { profile } = useAuth()
+  const saved = useLoad(async () => { const { data } = await supabase.from('project_order').select('project_ids').maybeSingle(); return ((data?.project_ids ?? []) as string[]) }, [])
+  const [working, setWorking] = useState<string[] | null>(null)
+  const [dragId, setDragId] = useState<string | null>(null)
   const [err, setErr] = useState('')
   const { data, error, reload } = useLoad(async () => {
     const projects = must(await supabase.from('projects')
@@ -66,8 +73,36 @@ export default function Projects() {
     }
     return m
   }, [data])
+  const fullOrder = useMemo(() => {
+    const placed = (working ?? saved.data ?? []).filter((id) => all.some((p) => p.id === id))
+    const fresh = sortRows(all.filter((p) => !placed.includes(p.id)), 'new').map((p) => p.id)
+    return [...fresh, ...placed]
+  }, [working, saved.data, all])
   const rows = sortRows(all.filter((p) => (status === 'all' || p.status === status) && typeOk(p.category) &&
-    (!q || `${p.number} ${p.name} ${p.clients?.name ?? ''}`.toLowerCase().includes(q.toLowerCase()))), sort)
+    (!q || `${p.number} ${p.name} ${p.clients?.name ?? ''}`.toLowerCase().includes(q.toLowerCase()))), sort, fullOrder)
+  const saveOrder = async (ids: string[]) => {
+    const { error } = await supabase.from('project_order').upsert({ profile_id: profile!.id, project_ids: ids, updated_at: new Date().toISOString() })
+    setErr(error ? `Couldn’t save your order: ${error.message}` : '')
+  }
+  /** Put `id` where `target` is (after it when moving down, before it when moving up). */
+  const placeAt = (list: string[], id: string, target: string) => {
+    const from = list.indexOf(id), to = list.indexOf(target)
+    if (from < 0 || to < 0 || from === to) return list
+    const next = list.filter((x) => x !== id)
+    next.splice(next.indexOf(target) + (from < to ? 1 : 0), 0, id)
+    return next
+  }
+  const reorder: Reorder | undefined = sort === 'custom' ? {
+    dragId,
+    start: (id) => { setDragId(id); setWorking(fullOrder) },
+    over: (id) => { if (dragId && id !== dragId) setWorking((w) => placeAt(w ?? fullOrder, dragId, id)) },
+    end: () => { setDragId(null); if (working) saveOrder(working) },
+    step: (id, dir) => { // keyboard: swap with the neighbor shown above/below
+      const i = rows.findIndex((r) => r.id === id), j = i + dir
+      if (i < 0 || j < 0 || j >= rows.length) return
+      const next = placeAt(fullOrder, id, rows[j].id); setWorking(next); saveOrder(next)
+    },
+  } : undefined
   const feeUsed = useMemo(() => Object.fromEntries(all.map((p) => { const fee = p.phases.reduce((a, ph) => a + Number(ph.fee), 0); return [p.id, fee ? (labor[p.id] ?? 0) / fee * 100 : null] })), [all, labor])
   const count = (s: string) => all.filter((p) => (s === 'all' || p.status === s) && typeOk(p.category)).length
   const unset = all.filter((p) => !p.sector).length
@@ -104,14 +139,15 @@ export default function Projects() {
       </div>
       {unset > 0 && <p className="muted" style={{ margin: 0, fontSize: 14 }}><strong>{unset} project{unset === 1 ? '' : 's'}</strong> have no building type yet; pick one in the row to set its color.</p>}
       {(error || err) && <p className="err" role="alert">{error || err}</p>}
-      {view === 'timeline' && data && <ProjectsGantt rows={rows} feeUsed={feeUsed} onDates={async (id, d) => {
+      {sort === 'custom' && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Drag projects by the <span aria-hidden="true">⠿</span> handle to put them in your own order (or focus the handle and use ↑ / ↓). Your order is saved to your account; new projects appear at the top until you place them.</p>}
+      {view === 'timeline' && data && <ProjectsGantt rows={rows} feeUsed={feeUsed} reorder={reorder} onDates={async (id, d) => {
         const { error } = await supabase.from('phases').update(d).eq('id', id)
         if (!error) reload()
         return error?.message ?? null
       }} />}
       {view === 'table' && <><div className="card tablewrap">
         <table className="table" style={{ minWidth: 1100 }}>
-          <thead><tr><th>Project</th><th>Phases</th><th>Fee used</th><th className="r">Outstanding</th><th>Status</th></tr></thead>
+          <thead><tr>{reorder && <th style={{ width: 28 }}><span className="sr">Reorder</span></th>}<th>Project</th><th>Phases</th><th>Fee used</th><th className="r">Outstanding</th><th>Status</th></tr></thead>
           <tbody>
             {rows.map((p) => {
               const st = STATUS_STYLE[p.status] ?? STATUS_STYLE.active
@@ -121,7 +157,8 @@ export default function Projects() {
               const pct = fee ? used / fee * 100 : 0
               const o = owed[p.id]
               return (
-                <tr key={p.id}>
+                <tr key={p.id} className={reorder?.dragId === p.id ? 'gt-dragrow' : undefined} {...(reorder ? { onDragOver: (e: React.DragEvent) => { e.preventDefault(); reorder.over(p.id) }, onDrop: (e: React.DragEvent) => e.preventDefault() } : {})}>
+                  {reorder && <td style={{ padding: '0 0 0 8px' }}><Grip id={p.id} name={p.name} r={reorder} /></td>}
                   <td style={{ minWidth: 340 }}>
                     <div className="row" style={{ gap: 8 }}>
                       <span className="tag" style={{ background: SECTOR_COLOR[p.sector ?? 'internal'] }} title={p.sector ?? 'No building type'}>{p.number}</span>
@@ -146,7 +183,7 @@ export default function Projects() {
                   <td><span className="status" style={{ color: st[1], background: st[2] }}>{st[0]}</span></td>
                 </tr>)
             })}
-            {data && rows.length === 0 && <tr><td colSpan={5} className="muted" style={{ textAlign: 'center', padding: 28 }}><em>No projects match.</em></td></tr>}
+            {data && rows.length === 0 && <tr><td colSpan={reorder ? 6 : 5} className="muted" style={{ textAlign: 'center', padding: 28 }}><em>No projects match.</em></td></tr>}
           </tbody>
         </table>
       </div>
