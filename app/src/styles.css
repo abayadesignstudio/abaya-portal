@@ -138,3 +138,18 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .stimer-pbtn:focus-visible{outline:3px solid #7aa2c2;outline-offset:2px}
 .stimer-pill .stimer-clock{flex:1;text-align:center;color:#fff;font-size:16px}
 .stimer-pill .stimer-paused{color:#ffe1bf}
+/* today rows are buttons: click to select; the selected task drives the bar (▶ / time / ⚙) */
+.stoday li{padding:0;display:block}
+.stoday-row{width:100%;display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid transparent;border-radius:6px;background:none;color:#ede6d6;font:inherit;text-align:left;cursor:pointer}
+.stoday-row:hover{background:rgba(237,230,214,.08)}
+.stoday-row.on{background:rgba(50,213,131,.14)}
+.stoday-row.on.paused{background:rgba(245,185,113,.14)}
+.stoday-row.sel{border-color:#9a8f63;background:rgba(154,143,99,.22)}
+.stoday-row:focus-visible{outline:3px solid #7aa2c2;outline-offset:1px}
+.stoday-t{display:inline-flex;align-items:center;gap:6px}
+.stoday-t .stoday-dot{margin:0}
+.stimer-pill.sel{background:#9a8f63;color:#02253d}
+.stimer-pill.sel .stimer-pbtn{background:rgba(2,37,61,.16);color:#02253d}
+.stimer-pill.sel .stimer-pbtn:hover:not(:disabled){background:rgba(2,37,61,.28)}
+.stimer-pill.sel .stimer-clock{color:#02253d;cursor:default}
+.stimer-pill.sel .stimer-paused{color:#02253d;text-transform:none;letter-spacing:0;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

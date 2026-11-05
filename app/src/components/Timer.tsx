@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { PHASE_NAME } from '../lib/supabase'
 import { ACTIVITIES, OVERHEAD, ROLES, iso, announceTimeChange } from '../lib/time'
 import { supabase } from '../lib/supabase'
-import { useTimer, uniqueRecent, EMPTY_FIELDS, type TimerApi, type TimerFields, type TodayTask } from './useTimer'
+import { useTimer, uniqueRecent, clockOf, EMPTY_FIELDS, type TimerApi, type TimerFields, type TodayTask } from './useTimer'
 import Combobox, { sectorColor } from './Combobox'
 
 /** The time-entry form and recent list, shared by the sidebar popover and the phone sheet. */
@@ -139,8 +139,10 @@ export function PlayIcon({ running, pause }: { running: boolean; pause?: boolean
  *  The phone bar (MobileTimer) shares the same timer state via useTimer. */
 export default function SidebarTimer({ me }: { me: string }) {
   const api = useTimer(me)
-  const [open, setOpen] = useState<null | 'timer' | 'manual'>(null)
+  const [open, setOpen] = useState<null | 'timer' | 'manual' | 'task'>(null)
   const [flash, setFlash] = useState('')
+  // a task picked from today's list: the bar shows ▶ / its time today / ⚙ until you start it or pick another
+  const [selKey, setSelKey] = useState<string | null>(null)
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -158,17 +160,31 @@ export default function SidebarTimer({ me }: { me: string }) {
     setOpen(open === 'timer' ? null : 'timer')
   }
   const end = async () => { if (await api.stop()) { setOpen(null); setFlash('Time logged.') } else setOpen('timer') }
+  const r = api.running
+  const sameAsRunning = (t: TodayTask) => !!r && r.project_id === t.project_id && (r.phase_id ?? null) === t.phase_id && (r.role_label ?? null) === t.role_label && (r.activity ?? null) === t.activity
+  const sel = api.today.find((t) => t.key === selKey && !sameAsRunning(t)) ?? null
+  const play = async () => { if (sel && (await api.pickUp(sel))) { setSelKey(null); setOpen(null) } }
   return (
     <div ref={box} className="stimer">
-      <TodayList api={api} onPicked={(t) => setFlash(`Started ${taskName(t)}`)} />
+      <TodayList api={api} selected={sel?.key ?? null} onSelect={(t) => { setSelKey(sel?.key === t.key || sameAsRunning(t) ? null : t.key); if (open === 'task') setOpen(null) }} />
       {open && (
         <div className="stimer-pop" role="dialog" aria-label={open === 'manual' ? 'Manual time entry' : 'Timer'}>
           {open === 'manual'
             ? <ManualPanel api={api} me={me} idPrefix="tmm-" onDone={() => { setOpen(null); setFlash('Time logged.') }} onCancel={() => setOpen(null)} />
+            : open === 'task' && sel ? <TaskSettings api={api} me={me} task={sel} onPlay={play} onClose={() => setOpen(null)} />
             : <TimerPanel api={api} idPrefix="tm-" onDone={() => setOpen(null)} onCancel={() => setOpen(null)} />}
         </div>)}
       <div className="stimer-bar">
-        {running ? (
+        {sel ? (
+          // a recorded task is selected: ▶ carries on from its time today, ⚙ adds time or a note
+          <div className="stimer-pill sel">
+            <button type="button" className="stimer-pbtn" onClick={play} disabled={api.busy} aria-label={`Start the timer on ${taskName(sel)}${running ? ' (ends the current timer first)' : ''}`} title="Start">
+              <svg width="12" height="13" viewBox="0 0 12 13" aria-hidden="true"><path d="M1.5 1L11 6.5 1.5 12z" fill="currentColor" /></svg></button>
+            <span className="stimer-clock num" title={`${taskName(sel)} so far today`}>{clockOf(sel.minutes * 60000)}<small className="stimer-paused">{taskName(sel)}</small></span>
+            <button type="button" className="stimer-pbtn" onClick={() => setOpen(open === 'task' ? null : 'task')} aria-expanded={open === 'task'} aria-label={`Add time or a note to ${taskName(sel)}`} title="Add time or a note">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2" /><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" /></svg></button>
+          </div>
+        ) : running ? (
           // running: one green pill (amber while paused): pause / resume on the left, the time in the middle, stop on the right
           <div className={'stimer-pill' + (api.paused ? ' paused' : '')}>
             <button type="button" className="stimer-pbtn" onClick={circle} disabled={api.busy} aria-label={api.paused ? 'Resume the timer' : 'Pause the timer'} title={api.paused ? 'Resume' : 'Pause'}>
@@ -195,18 +211,16 @@ export default function SidebarTimer({ me }: { me: string }) {
 const taskName = (t: TodayTask) => t.projects?.number === 'OH' ? `Overhead${t.activity ? ' · ' + t.activity : ''}` : `${t.projects?.number ?? ''} ${t.phases?.code ?? ''}`.trim()
 const hm = (min: number) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`
 
-/** Above the timer: what I've logged today, one line per task, with ▶ to pick it back up. */
-function TodayList({ api, onPicked }: { api: TimerApi; onPicked: (t: TodayTask) => void }) {
+/** Above the timer: what I've logged today, one line per task. Click a line to select it (the bar below then offers ▶ and ⚙). */
+function TodayList({ api, selected, onSelect }: { api: TimerApi; selected: string | null; onSelect: (t: TodayTask) => void }) {
   const r = api.running
   const isCurrent = (t: TodayTask) => !!r && r.project_id === t.project_id && (r.phase_id ?? null) === t.phase_id && (r.role_label ?? null) === t.role_label && (r.activity ?? null) === t.activity
   const list = api.today
-  // the running timer's task: its line counts the clock too, so the list and the timer below read as one timer
   const liveMin = r ? Math.floor(api.elapsed / 60000) : 0
-  const hasCurrentRow = list.some(isCurrent)
   if (!list.length && !r) return null
   const proj = r ? api.projects.find((p) => p.id === r.project_id) : null
   const rows: (TodayTask & { current?: boolean })[] = list.map((t) => (isCurrent(t) ? { ...t, minutes: t.minutes + liveMin, current: true } : t))
-  if (r && !hasCurrentRow && proj) rows.unshift({ key: 'running', project_id: r.project_id, phase_id: r.phase_id, role_label: r.role_label, activity: r.activity, minutes: liveMin, last: '', current: true,
+  if (r && !list.some(isCurrent) && proj) rows.unshift({ key: 'running', project_id: r.project_id, phase_id: r.phase_id, role_label: r.role_label, activity: r.activity, minutes: liveMin, last: '', current: true,
     projects: { number: proj.number, name: proj.name, sector: proj.sector ?? null }, phases: r.phase_id ? { code: proj.phases.find((x) => x.id === r.phase_id)?.code ?? '' } : null })
   const total = rows.reduce((a, t) => a + t.minutes, 0)
   return (
@@ -214,20 +228,76 @@ function TodayList({ api, onPicked }: { api: TimerApi; onPicked: (t: TodayTask) 
       <div className="stoday-h"><span>Today</span><span className="num">{hm(total)}</span></div>
       <ul>{rows.map((t) => {
         const oh = t.projects?.number === 'OH'
-        return <li key={t.key} className={t.current ? (api.paused ? 'on paused' : 'on') : ''}>
-          <span className="stoday-txt">
-            <span className="stoday-chip" style={{ background: oh ? '#6b7280' : sectorColor(t.projects?.sector ?? null) }}>{oh ? 'OH' : t.projects?.number}</span>
-            <span className="stoday-name" title={[t.projects?.name, t.phases?.code, t.role_label, t.activity].filter(Boolean).join(' · ')}>
-              {oh ? (t.activity || 'Overhead') : t.projects?.name}{!oh && (t.phases?.code || t.activity) ? <span className="stoday-sub"> · {[t.phases?.code, t.activity].filter(Boolean).join(' · ')}</span> : null}</span>
-          </span>
-          <span className="num stoday-t">{hm(t.minutes)}</span>
-          {t.current
-            ? <button type="button" className="stoday-go stop" disabled={api.busy} onClick={() => api.stop()} aria-label={`End and log ${taskName(t)}`} title="End & log">
-                <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="1.5" fill="currentColor" /></svg></button>
-            : <button type="button" className="stoday-go" disabled={api.busy} onClick={async () => { if (await api.pickUp(t)) onPicked(t) }}
-                aria-label={`Start a timer on ${taskName(t)}${r ? ' (ends and logs the current timer first)' : ''}`} title={r ? 'End the current timer and switch to this' : 'Pick this back up'}>
-                <svg width="9" height="10" viewBox="0 0 9 10" aria-hidden="true"><path d="M0.5 0.6L8.5 5 0.5 9.4z" fill="currentColor" /></svg></button>}
+        return <li key={t.key}>
+          <button type="button" className={'stoday-row' + (t.current ? (api.paused ? ' on paused' : ' on') : '') + (selected === t.key ? ' sel' : '')} aria-pressed={selected === t.key}
+            onClick={() => onSelect(t)} title={t.current ? 'Timer is on this task' : 'Select to start it again, add time or a note'}>
+            <span className="stoday-txt">
+              <span className="stoday-chip" style={{ background: oh ? '#6b7280' : sectorColor(t.projects?.sector ?? null) }}>{oh ? 'OH' : t.projects?.number}</span>
+              <span className="stoday-name">{oh ? (t.activity || 'Overhead') : t.projects?.name}{!oh && (t.phases?.code || t.activity) ? <span className="stoday-sub"> · {[t.phases?.code, t.activity].filter(Boolean).join(' · ')}</span> : null}</span>
+            </span>
+            <span className="num stoday-t">{t.current && <span className="stoday-dot" aria-label={api.paused ? 'paused' : 'running'} />}{hm(t.minutes)}</span>
+          </button>
         </li>
       })}</ul>
     </section>)
+}
+
+/** ⚙ for a recorded task: add time in quick steps, add a note, or start it again. */
+function TaskSettings({ api, me, task, onPlay, onClose }: { api: TimerApi; me: string; task: TodayTask; onPlay: () => void; onClose: () => void }) {
+  const [msg, setMsg] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState(''); const [noteId, setNoteId] = useState<string | null>(null)
+  const today = iso(new Date())
+  useEffect(() => { // the latest entry today for this task: its note is the one you edit here
+    let live = true
+    supabase.from('time_entries').select('id, note, phase_id, role_label, activity, created_at').eq('profile_id', me).eq('work_date', today).eq('project_id', task.project_id)
+      .order('created_at', { ascending: false }).then(({ data }) => {
+        if (!live) return
+        const hit = ((data ?? []) as { id: string; note: string | null; phase_id: string | null; role_label: string | null; activity: string | null }[])
+          .find((e) => e.phase_id === task.phase_id && e.role_label === task.role_label && e.activity === task.activity)
+        setNoteId(hit?.id ?? null); setNote(hit?.note ?? '')
+      })
+    return () => { live = false }
+  }, [task.key]) // eslint-disable-line react-hooks/exhaustive-deps
+  const add = async (min: number) => {
+    setBusy(true); setErr(''); setMsg('')
+    const { error } = await supabase.from('time_entries').insert({ profile_id: me, project_id: task.project_id, phase_id: task.phase_id, role_label: task.role_label, activity: task.activity, work_date: today, minutes: min })
+    setBusy(false)
+    if (error) return setErr(error.message)
+    setMsg(`Added ${min >= 60 ? `${min / 60} hr` : `${min} min`}.`); announceTimeChange(); api.refreshRecent()
+  }
+  const saveNote = async () => {
+    setBusy(true); setErr(''); setMsg('')
+    const r = noteId ? await supabase.from('time_entries').update({ note: note.trim() || null }).eq('id', noteId)
+      : await supabase.from('time_entries').insert({ profile_id: me, project_id: task.project_id, phase_id: task.phase_id, role_label: task.role_label, activity: task.activity, work_date: today, minutes: 0, note: note.trim() || null })
+    setBusy(false)
+    if (r.error) return setErr(r.error.message)
+    setMsg('Note saved.'); announceTimeChange()
+  }
+  const oh = task.projects?.number === 'OH'
+  return (
+    <div className="stack" style={{ padding: 18, gap: 12 }}>
+      <div className="row between" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}>
+        <div style={{ minWidth: 0 }}>
+          <span className="tag" style={{ background: oh ? '#6b7280' : sectorColor(task.projects?.sector ?? null) }}>{oh ? 'OH' : task.projects?.number}</span>
+          <h2 style={{ fontSize: 19, margin: '6px 0 2px' }}>{oh ? (task.activity || 'Overhead') : task.projects?.name}</h2>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>{[task.phases?.code && (PHASE_NAME[task.phases.code] ?? task.phases.code), task.role_label, !oh && task.activity].filter(Boolean).join(' · ') || '—'}</p>
+        </div>
+        <button type="button" className="linkbtn" aria-label="Close" onClick={onClose}>✕</button>
+      </div>
+      <p style={{ margin: 0 }}>Today so far: <strong className="num">{hm(task.minutes)}</strong></p>
+      <div>
+        <p className="l" style={{ margin: '0 0 6px' }}>Add time</p>
+        <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+          {([[15, '+15 min'], [30, '+30 min'], [60, '+1 hr']] as const).map(([m, l]) => <button key={m} type="button" className="btn small secondary" style={{ flex: 1 }} disabled={busy} onClick={() => add(m)}>{l}</button>)}
+        </div>
+      </div>
+      <div><label className="l" htmlFor="ts-note">Note on today’s time</label>
+        <textarea id="ts-note" className="input" rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="What you worked on (optional)" style={{ background: '#f6f5f2', border: 0 }} />
+        <div className="row between" style={{ marginTop: 6 }}><a href="#/time" className="linkbtn" onClick={onClose}>Open timesheet</a>
+          <button type="button" className="btn small secondary" disabled={busy} onClick={saveNote}>Save note</button></div></div>
+      {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
+      {err && <p className="err" role="alert" style={{ margin: 0 }}>{err}</p>}
+      <button type="button" className="btn" disabled={api.busy} onClick={onPlay}>▶ Start timer from {hm(task.minutes)}</button>
+    </div>
+  )
 }
