@@ -105,3 +105,17 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .stoday-dot{width:8px;height:8px;border-radius:50%;background:#32d583;margin-left:-2px}
 .stimer-add,.stimer-end{flex:none;box-sizing:border-box;padding:0}
 .stimer-clock{min-width:0}
+/* timer + today list: one 8px inner padding, 6px gaps, 30px controls, nothing overlapping (sidebar content is 200px wide) */
+.stimer-bar{gap:6px;min-height:0;padding:8px}
+.stimer-go{padding:0;flex:none;width:30px;height:30px;align-items:center;justify-content:center}
+.stimer-go>span{width:30px!important;height:30px!important}
+.stimer-clock{flex:1;min-width:0;padding:0;font-size:15px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:clip;font-variant-numeric:tabular-nums}
+.stimer-paused{font-size:10px;margin-top:1px}
+.stimer-label{min-width:0;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stimer-add,.stimer-end{width:30px;height:30px;border-radius:8px}
+.stimer-add svg,.stimer-end svg{width:14px;height:14px}
+.stoday{padding:8px;margin-bottom:8px}
+.stoday-h{padding:0 0 6px}
+.stoday ul{padding:0;display:flex;flex-direction:column;gap:2px}
+.stoday li{gap:6px;padding:0 0 0 4px;min-height:34px}
+.stoday-go{width:30px;height:30px}
