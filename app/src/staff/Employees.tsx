@@ -1,34 +1,23 @@
-import { useMemo, useState } from 'react'
-import { supabase, SECTOR_COLOR } from '../lib/supabase'
+import { useState } from 'react'
+import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
-import { workload, fmt, AVAILABLE_HRS, yearFraction, isoDate, parseDate, mondayOf } from './workload'
+import { workload, fmt, AVAILABLE_HRS, yearFraction, isoDate, mondayOf } from './workload'
 import './home.css'
 
 type Person = { id: string; full_name: string | null; email: string; title: string | null; role: string; util_target: number | null; bill_rate: number | null }
-type Ev = { id: string; profile_id: string; title: string; starts_on: string; ends_on: string; projects: { number: string; sector: string | null } | null }
-type Dl = { id: string; assignee: string | null; title: string; due_date: string | null; status: string; created_at: string; projects: { number: string; sector: string | null } | null }
-const NC = 30 // 6 weeks of weekdays
+type Entry = { profile_id: string; project_id: string | null; work_date: string; minutes: number; billable: boolean }
 
 export default function Employees() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const year = new Date().getFullYear()
   const people = useLoad(async () => must(await supabase.from('profiles').select('id, full_name, email, title, role, util_target, bill_rate').in('role', ['admin', 'staff']).order('full_name')) as Person[])
-  const time = useLoad(async () => must(await supabase.from('time_entries').select('profile_id, minutes, billable').gte('work_date', `${year}-01-01`)) as { profile_id: string; minutes: number; billable: boolean }[])
-  const [start, setStart] = useState(() => { const m = mondayOf(new Date()); m.setDate(m.getDate() - 7); return m })
-  const days = useMemo(() => Array.from({ length: NC }, (_, i) => { const d = new Date(start); d.setDate(d.getDate() + Math.floor(i / 5) * 7 + (i % 5)); return d }), [start])
-  const end = days[NC - 1]
-  const sched = useLoad(async () => {
-    const ev = must(await supabase.from('calendar_events').select('id, profile_id, title, starts_on, ends_on, projects(number, sector)').lte('starts_on', isoDate(end)).gte('ends_on', isoDate(start))) as unknown as Ev[]
-    const dl = must(await supabase.from('deliverables').select('id, assignee, title, due_date, status, created_at, projects(number, sector)').neq('status', 'done').not('assignee', 'is', null)) as unknown as Dl[]
-    return { ev, dl }
-  }, [start])
-  const projects = useLoad(async () => must(await supabase.from('projects').select('id, number, name').in('status', ['active', 'paused']).order('number', { ascending: false })) as { id: string; number: string; name: string }[])
+  const time = useLoad(async () => must(await supabase.from('time_entries').select('profile_id, project_id, work_date, minutes, billable').gte('work_date', `${year}-01-01`)) as Entry[])
+  // a person's rate on a project (set on the project's team) wins over their standard rate
+  const rates = useLoad(async () => must(await supabase.from('project_members').select('profile_id, project_id, bill_rate').not('bill_rate', 'is', null)) as { profile_id: string; project_id: string; bill_rate: number }[])
 
   const frac = yearFraction()
-  const colOf = (s: string) => { const d = parseDate(s); const wk = Math.floor((mondayOf(d).getTime() - start.getTime()) / (7 * 86400000)); const wd = (d.getDay() + 6) % 7; return wk * 5 + Math.min(wd, 4) }
-  const todayCol = colOf(isoDate(new Date()))
 
   return (
     <div className="stack">
@@ -39,51 +28,14 @@ export default function Employees() {
         {(people.data ?? []).map((p) => {
           const mine = (time.data ?? []).filter((t) => t.profile_id === p.id)
           const w = workload(p.util_target, mine.reduce((a, t) => a + t.minutes, 0), mine.filter((t) => t.billable).reduce((a, t) => a + t.minutes, 0))
-          return <PersonCard key={p.id} p={p} w={w} canEdit={isAdmin} onSaved={people.reload} />
+          return <div key={p.id} className="em-col">
+            <PersonCard p={p} w={w} canEdit={isAdmin} onSaved={people.reload} />
+            <EarnedCard p={p} entries={mine} rates={rates.data ?? []} target={w.target} />
+          </div>
         })}
         {people.data && people.data.length === 0 && <p className="muted"><em>No staff have signed in yet.</em></p>}
       </section>
 
-      <section className="card pad stack" aria-labelledby="em-cal">
-        <div className="row between">
-          <div><h2 id="em-cal">Schedule</h2><p className="muted" style={{ margin: '3px 0 0', fontSize: 13 }}>Portal calendar events and open deliverables. Google Calendar sync isn’t connected yet.</p></div>
-          <div className="row">
-            <button className="btn small secondary" aria-label="Earlier" onClick={() => { const d = new Date(start); d.setDate(d.getDate() - 7); setStart(d) }}>‹</button>
-            <button className="btn small secondary" onClick={() => { const m = mondayOf(new Date()); m.setDate(m.getDate() - 7); setStart(m) }}>Today</button>
-            <button className="btn small secondary" aria-label="Later" onClick={() => { const d = new Date(start); d.setDate(d.getDate() + 7); setStart(d) }}>›</button>
-          </div>
-        </div>
-        {sched.error && <p className="err">{sched.error}</p>}
-        <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 1000 }}>
-          <div className="sched">
-            <span />
-            <div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)' }}>{[0, 1, 2, 3, 4, 5].map((w) => <span key={w} style={{ padding: '0 6px 6px', fontSize: 13, fontWeight: 700, borderLeft: '1px solid #d6d1c6' }}>Week of {days[w * 5].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>)}</div>
-              <div className="sched-cols">{days.map((d, i) => <span key={i} className="num" style={{ margin: '0 1px', padding: '3px 0', textAlign: 'center', fontSize: 11, borderRadius: 4, background: i === todayCol ? 'var(--navy)' : 'transparent', color: i === todayCol ? '#fff' : 'var(--muted)' }}>{'MTWTF'[i % 5]}<br />{d.getDate()}</span>)}</div>
-            </div>
-          </div>
-          {(people.data ?? []).map((p) => {
-            const bars = [
-              ...(sched.data?.ev ?? []).filter((e) => e.profile_id === p.id).map((e) => ({ id: e.id, label: e.title, num: e.projects?.number, sector: e.projects?.sector, a: colOf(e.starts_on), b: colOf(e.ends_on) })),
-              ...(sched.data?.dl ?? []).filter((d) => d.assignee === p.id && d.due_date).map((d) => ({ id: d.id, label: d.title, num: d.projects?.number, sector: d.projects?.sector, a: colOf(d.created_at.slice(0, 10)), b: colOf(d.due_date!) })),
-            ].map((x) => ({ ...x, a: Math.max(0, x.a), b: Math.min(NC - 1, x.b) })).filter((x) => x.a <= x.b && x.b >= 0 && x.a < NC).sort((x, y) => x.a - y.a)
-            const lanes: number[] = []
-            const placed = bars.map((x) => { let l = lanes.findIndex((e) => e < x.a); if (l < 0) { l = lanes.length; lanes.push(-1) } lanes[l] = x.b; return { ...x, lane: l } })
-            return (
-              <div key={p.id} className="sched" style={{ borderTop: '1px solid var(--line)' }}>
-                <div style={{ padding: '10px 10px 10px 0', fontWeight: 700, fontSize: 15 }}>{p.full_name || p.email}</div>
-                <div style={{ position: 'relative', height: Math.max(1, lanes.length) * 34 + 10 }}>
-                  <div aria-hidden="true" className="sched-cols" style={{ position: 'absolute', inset: 0 }}>{days.map((_, i) => <span key={i} style={{ borderLeft: `1px solid ${i % 5 === 0 ? '#d6d1c6' : '#efece6'}`, background: i === todayCol ? 'rgba(2,37,61,.06)' : 'transparent' }} />)}</div>
-                  <ul className="sched-cols" style={{ listStyle: 'none', margin: 0, padding: 0, position: 'absolute', inset: 0 }}>
-                    {placed.map((x) => <li key={x.id} title={`${x.num ?? ''} ${x.label}`} style={{ gridColumn: `${x.a + 1} / ${x.b + 2}`, gridRow: 1, alignSelf: 'start', marginTop: x.lane * 34 + 6, marginInline: 2, height: 28, minWidth: 0, padding: '0 8px', borderRadius: 5, background: SECTOR_COLOR[x.sector ?? 'internal'], color: '#fff', fontSize: 12, lineHeight: '28px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {x.num && <strong>{x.num} · </strong>}{x.label}</li>)}
-                  </ul>
-                </div>
-              </div>)
-          })}
-        </div></div>
-        <AddTask people={people.data ?? []} projects={projects.data ?? []} me={profile!.id} onSaved={sched.reload} />
-      </section>
     </div>
   )
 }
@@ -133,33 +85,47 @@ function PersonCard({ p, w, canEdit, onSaved }: { p: Person; w: ReturnType<typeo
   )
 }
 
-function AddTask({ people, projects, me, onSaved }: { people: Person[]; projects: { id: string; number: string; name: string }[]; me: string; onSaved: () => void }) {
-  const today = isoDate(new Date())
-  const [f, setF] = useState({ who: '', project_id: '', title: '', s: today, e: today })
-  const [err, setErr] = useState(''); const [msg, setMsg] = useState('')
-  const set = (k: keyof typeof f) => (ev: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => { setF({ ...f, [k]: ev.target.value }); setMsg(''); setErr('') }
-  const save = async () => {
-    if (!f.who) return setErr('Choose a person.')
-    if (!f.title.trim()) return setErr('Give the task a name.')
-    if (f.e < f.s) return setErr('The end date must be on or after the start date.')
-    const { error } = await supabase.from('calendar_events').insert({ profile_id: f.who, created_by: me, project_id: f.project_id || null, title: f.title.trim(), starts_on: f.s, ends_on: f.e })
-    if (error) return setErr(error.message)
-    const who = people.find((p) => p.id === f.who)
-    setMsg(`Added “${f.title.trim()}” for ${who?.full_name || who?.email}.`); setF({ ...f, title: '' }); onSaved()
-  }
+// ---- billable earnings: billable hours × rate, this week / month / year, against the person's quota
+const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US')
+const hr = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+const weekdays = (a: Date, b: Date) => { let n = 0; const d = new Date(a); while (d <= b) { if (d.getDay() % 6) n++; d.setDate(d.getDate() + 1) } return n }
+function EarnedCard({ p, entries, rates, target }: { p: Person; entries: Entry[]; rates: { profile_id: string; project_id: string; bill_rate: number }[]; target: number }) {
+  const now = new Date(); const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const rateOf = (e: Entry) => Number(rates.find((r) => r.profile_id === p.id && r.project_id === e.project_id)?.bill_rate ?? p.bill_rate ?? 0)
+  const wk0 = mondayOf(today), wk1 = new Date(wk0); wk1.setDate(wk1.getDate() + 6)
+  const mo0 = new Date(today.getFullYear(), today.getMonth(), 1), mo1 = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+  const yr0 = new Date(today.getFullYear(), 0, 1), yr1 = new Date(today.getFullYear(), 11, 31)
+  const yrDays = weekdays(yr0, yr1)
+  const periods = ([['This week', `${wk0.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${wk1.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, wk0, wk1],
+    ['This month', today.toLocaleDateString('en-US', { month: 'long' }), mo0, mo1], ['This year', String(today.getFullYear()), yr0, yr1]] as [string, string, Date, Date][]).map(([label, sub, a, b]) => {
+    const from = isoDate(a), to = isoDate(b)
+    const mine = entries.filter((e) => e.billable && e.work_date >= from && e.work_date <= to)
+    const hrs = mine.reduce((s, e) => s + e.minutes / 60, 0)
+    const earned = mine.reduce((s, e) => s + e.minutes / 60 * rateOf(e), 0)
+    // quota: the yearly billable target spread over the year's weekdays; the full year uses the target itself
+    const quotaHrs = label === 'This year' ? target : target * weekdays(a, b) / yrDays
+    const quota = quotaHrs * Number(p.bill_rate ?? 0)
+    const pace = weekdays(a, b) ? Math.min(1, weekdays(a, today < b ? today : b) / weekdays(a, b)) : 0
+    return { label, sub, hrs, earned, quotaHrs, quota, left: Math.max(0, quotaHrs - hrs), pace }
+  })
   return (
-    <div className="stack" role="group" aria-labelledby="em-add" style={{ padding: 16, borderRadius: 8, background: '#f6f5f2', border: '1px solid var(--line)', gap: 12 }}>
-      <h3 id="em-add" style={{ margin: 0, fontSize: 16 }}>Add a task</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        <div><label className="l" htmlFor="at-w">Person</label><select id="at-w" className="input" value={f.who} onChange={set('who')}><option value="">Choose…</option>{people.map((p) => <option key={p.id} value={p.id}>{p.full_name || p.email}</option>)}</select></div>
-        <div><label className="l" htmlFor="at-p">Project</label><select id="at-p" className="input" value={f.project_id} onChange={set('project_id')}><option value="">—</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.number === 'OH' ? 'Internal' : `${p.number} · ${p.name}`}</option>)}</select></div>
-        <div style={{ gridColumn: 'span 2' }}><label className="l" htmlFor="at-t">Task</label><input id="at-t" className="input" value={f.title} onChange={set('title')} placeholder="e.g. Revise reflected ceiling plan" /></div>
-        <div><label className="l" htmlFor="at-s">Start</label><input id="at-s" type="date" className="input" value={f.s} onChange={set('s')} /></div>
-        <div><label className="l" htmlFor="at-e">End</label><input id="at-e" type="date" className="input" value={f.e} onChange={set('e')} /></div>
-      </div>
-      <div className="row between"><span className="muted" style={{ fontSize: 13 }}>Saved to the portal calendar. Google Calendar sync comes later.</span><button className="btn" onClick={save}>Add task</button></div>
-      {err && <p className="err" role="alert">{err}</p>}
-      {msg && <p className="ok" role="status">{msg}</p>}
-    </div>
+    <article className="card pad stack em-earn" aria-label={`${p.full_name || p.email} billable earnings`}>
+      <div><h3>Billable earned</h3><p className="muted">Billable hours × billing rate. Quota = utilization target{p.bill_rate ? ` at $${p.bill_rate}/hr` : ''}.</p></div>
+      {!target ? <p className="muted" style={{ margin: 0, fontSize: 14 }}><em>Set a utilization target to see a quota.</em></p> : null}
+      {periods.map((x) => {
+        const met = x.quotaHrs > 0 && x.hrs >= x.quotaHrs - 0.005
+        const behind = !met && x.hrs < x.quotaHrs * x.pace - 0.5
+        return <div key={x.label} className="em-per">
+          <div className="row between"><span><strong>{x.label}</strong> <span className="muted">· {x.sub}</span></span>
+            <span className="num"><strong>{usd(x.earned)}</strong>{x.quota > 0 && <span className="muted"> of {usd(x.quota)}</span>}</span></div>
+          {x.quotaHrs > 0 && <div className="bar" role="img" aria-label={`${Math.round(x.hrs / x.quotaHrs * 100)}% of quota`} style={{ marginTop: 6 }}>
+            <span className="fill" style={{ width: Math.min(100, x.hrs / x.quotaHrs * 100) + '%', background: met ? 'var(--green)' : undefined }} />
+            {x.pace < 1 && <span className="tick" style={{ left: x.pace * 100 + '%' }} />}</div>}
+          <div className="row between em-per-sub"><span className="num">{hr(x.hrs)} billable hrs</span>
+            {x.quotaHrs > 0 && <span className="num" style={{ fontWeight: 700, color: met ? 'var(--green)' : behind ? 'var(--red)' : 'var(--text)' }}>{met ? `Quota met${x.hrs - x.quotaHrs >= 0.05 ? ` · +${hr(x.hrs - x.quotaHrs)} hrs` : ''}` : `${hr(x.left)} hrs left to quota`}</span>}</div>
+        </div>
+      })}
+      {target > 0 && <p className="muted" style={{ margin: 0, fontSize: 12 }}><em>Orange tick = where you should be by today.</em></p>}
+    </article>
   )
 }

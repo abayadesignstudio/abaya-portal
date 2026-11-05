@@ -118,3 +118,8 @@
 .td-up{padding-top:10px;border-top:1px solid #ece9e3}
 .td-day{display:flex;align-items:flex-start;gap:8px}
 .td-up .td-date{color:#3b4350;line-height:1.25}
+.em-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.em-earn h3{margin:0;font-size:16px}
+.em-earn>div>p{margin:2px 0 0;font-size:12.5px}
+.em-per{padding-top:10px;border-top:1px solid #ece9e3;font-size:14px}
+.em-per-sub{margin-top:6px;font-size:13px}
