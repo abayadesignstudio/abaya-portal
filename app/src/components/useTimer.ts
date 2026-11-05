@@ -76,13 +76,16 @@ export function useTimer(me: string) {
     setRecentKey((k) => k + 1); return true
   }
 
+  // the clock carries on from what's already logged today for the same task (display only; ending logs just the new time)
+  const loggedToday = t ? (today.data ?? []).filter((x) => x.project_id === t.project_id && x.phase_id === (t.phase_id ?? null) && x.role_label === (t.role_label ?? null) && x.activity === (t.activity ?? null))
+    .reduce((n, x) => n + x.minutes, 0) : 0
   const patchTimer = async (patch: Record<string, unknown>) => {
     const { error } = await supabase.from('timers').update(patch).eq('profile_id', me)
     if (error) { setErr(error.message); return false }
     setErr(''); announceTimeChange(); return true
   }
   return {
-    v, setV, setField, err, setErr, busy, running: t ?? null, paused, elapsed, clock: clockOf(elapsed), today: today.data ?? [],
+    v, setV, setField, err, setErr, busy, running: t ?? null, paused, elapsed, clock: clockOf(elapsed + loggedToday * 60000), today: today.data ?? [], loggedToday,
     /** Freeze the clock. */
     pause: () => run(async () => !!t && !t.paused_at && patchTimer({ paused_at: new Date().toISOString() })),
     /** Carry on: bank the stretch before the pause and start a new stretch now. */

@@ -167,17 +167,23 @@ export default function SidebarTimer({ me }: { me: string }) {
             ? <ManualPanel api={api} me={me} idPrefix="tmm-" onDone={() => { setOpen(null); setFlash('Time logged.') }} onCancel={() => setOpen(null)} />
             : <TimerPanel api={api} idPrefix="tm-" onDone={() => setOpen(null)} onCancel={() => setOpen(null)} />}
         </div>)}
-      <div className={'stimer-bar' + (running ? (api.paused ? ' paused' : ' on') : '')}>
-        <button type="button" className="stimer-go" onClick={circle} disabled={api.busy}
-          aria-label={!running ? 'Start a timer' : api.paused ? 'Resume the timer' : 'Pause the timer'} title={!running ? 'Start a timer' : api.paused ? 'Resume' : 'Pause'}>
-          <PlayIcon running={running && !api.paused} pause={running && !api.paused} />
-        </button>
-        {running
-          ? <button type="button" className="stimer-clock num" onClick={() => setOpen(open === 'timer' ? null : 'timer')} aria-expanded={open === 'timer'} title="Edit or switch the running entry">
+      <div className="stimer-bar">
+        {running ? (
+          // running: one green pill (amber while paused): pause / resume on the left, the time in the middle, stop on the right
+          <div className={'stimer-pill' + (api.paused ? ' paused' : '')}>
+            <button type="button" className="stimer-pbtn" onClick={circle} disabled={api.busy} aria-label={api.paused ? 'Resume the timer' : 'Pause the timer'} title={api.paused ? 'Resume' : 'Pause'}>
+              {api.paused ? <svg width="12" height="13" viewBox="0 0 12 13" aria-hidden="true"><path d="M1.5 1L11 6.5 1.5 12z" fill="currentColor" /></svg>
+                : <svg width="12" height="13" viewBox="0 0 12 13" aria-hidden="true"><rect x="1" width="3.6" height="13" rx="1" fill="currentColor" /><rect x="7.4" width="3.6" height="13" rx="1" fill="currentColor" /></svg>}
+            </button>
+            <button type="button" className="stimer-clock num" onClick={() => setOpen(open === 'timer' ? null : 'timer')} aria-expanded={open === 'timer'} title="Edit or switch the running entry">
               {api.clock}{api.paused && <small className="stimer-paused">Paused</small>}</button>
-          : <span className="stimer-label">{flash || 'Timer'}</span>}
-        {running && <button type="button" className="stimer-end" onClick={end} disabled={api.busy} aria-label="End and log the time" title="End & log">
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="2" /></svg></button>}
+            <button type="button" className="stimer-pbtn" onClick={end} disabled={api.busy} aria-label="End and log the time" title="End & log">
+              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect width="12" height="12" rx="2" fill="currentColor" /></svg></button>
+          </div>
+        ) : <>
+          <button type="button" className="stimer-go" onClick={circle} aria-label="Start a timer" title="Start a timer"><PlayIcon running={false} /></button>
+          <span className="stimer-label">{flash || 'Timer'}</span>
+        </>}
         <button type="button" className="stimer-add" onClick={() => setOpen(open === 'manual' ? null : 'manual')} aria-expanded={open === 'manual'} aria-label="Add a manual time entry" title="Manual entry">
           <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
         </button>

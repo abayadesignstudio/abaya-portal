@@ -130,3 +130,11 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .stoday-go.stop{padding:0;color:#ede6d6}
 .stoday-go.stop:hover:not(:disabled){background:rgba(217,45,32,.6);color:#fff}
 .stimer-add,.stimer-end{border-radius:50%}
+/* running timer: one green pill — pause left, time centered, stop right */
+.stimer-pill{flex:1;min-width:0;display:flex;align-items:center;gap:6px;padding:4px;border-radius:999px;background:#039855;color:#fff}
+.stimer-pill.paused{background:#b54708}
+.stimer-pbtn{flex:none;width:30px;height:30px;border-radius:50%;border:0;background:rgba(255,255,255,.2);color:#fff;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.stimer-pbtn:hover:not(:disabled){background:rgba(255,255,255,.34)}
+.stimer-pbtn:focus-visible{outline:3px solid #7aa2c2;outline-offset:2px}
+.stimer-pill .stimer-clock{flex:1;text-align:center;color:#fff;font-size:16px}
+.stimer-pill .stimer-paused{color:#ffe1bf}
