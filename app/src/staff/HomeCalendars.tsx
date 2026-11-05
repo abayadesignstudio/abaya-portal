@@ -432,16 +432,19 @@ type Open = { kind: 'new'; day: string } | { kind: 'task'; task: Task } | { kind
 /** Home: month calendar of everyone's tasks and Google meetings, shown as "Name: item", filterable by person.
  *  Works like Google Calendar: click an empty spot on a day to add an event or a task; click an item for details. */
 export function MonthCalendar({ me, admin, people, projects }: { me: string; admin: boolean; people: Person[]; projects: Proj[] }) {
-  const expanded = true // full month (the week-only view was removed)
-  const [cursor, setCursor] = useState(() => new Date()) // a day in the month on screen
+  // Google Calendar-style views; the choice is remembered on this device
+  const [view, setViewRaw] = useState<View>(() => { try { const v = localStorage.getItem('abaya:cal-view'); return (VIEWS.some(([k]) => k === v) ? v : 'month') as View } catch { return 'month' } })
+  const setView = (v: View) => { setViewRaw(v); try { localStorage.setItem('abaya:cal-view', v) } catch { /* private mode */ } }
+  const expanded = view === 'month'
+  const [cursor, setCursor] = useState(() => new Date()) // a day in the period on screen
   const month = new Date(cursor.getFullYear(), cursor.getMonth(), 1)
   const [who, setWho] = useState<string>('all')
   const [open, setOpen] = useState<(Open & { anchor: DOMRect }) | null>(null)
   const [msg, setMsg] = useState('')
   const pop = (o: Open, el: HTMLElement) => { setOpen({ ...o, anchor: el.getBoundingClientRect() }); setMsg('') }
-  const anchor = expanded ? month : cursor
-  const start = addDays(anchor, -anchor.getDay()) // Sunday on or before the 1st (month) or the day (week)
-  const span = expanded ? 42 : 7
+  const day0 = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate())
+  const start = view === 'month' ? addDays(month, -month.getDay()) : view === 'week' ? addDays(day0, -day0.getDay()) : day0 // Sunday-first weeks
+  const span = view === 'month' ? 42 : view === 'week' ? 7 : view === 'day' ? 1 : SCHEDULE_DAYS
   const cells = useMemo(() => Array.from({ length: span }, (_, i) => addDays(start, i)), [start.getTime(), span]) // eslint-disable-line react-hooks/exhaustive-deps
   const from = isoDate(cells[0]), to = isoDate(cells[span - 1])
   const tasks = useTasks(from, to)
@@ -470,11 +473,12 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   useCalendarChanges((kind) => { if (kind === 'tasks') { tasks.reload(); evs.reload() } else { feed.reload(); links.reload() } })
   const reload = () => calendarChanged('tasks')
   const today = isoDate(new Date())
-  const shift = (n: number) => setCursor(expanded ? new Date(month.getFullYear(), month.getMonth() + n, 1) : addDays(cursor, 7 * n))
+  const shift = (n: number) => setCursor(view === 'month' ? new Date(month.getFullYear(), month.getMonth() + n, 1) : addDays(day0, n * (view === 'week' ? 7 : view === 'day' ? 1 : SCHEDULE_DAYS)))
   const last = new Date(month.getFullYear(), month.getMonth() + 1, 0)
   const rows = expanded ? Math.ceil((Math.round((last.getTime() - start.getTime()) / 86400000) + 1) / 7) : 1 // weeks this month touches
-  const weekEnd = addDays(start, 6)
-  const heading = expanded ? month.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  const weekEnd = addDays(start, span - 1)
+  const heading = view === 'month' ? month.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    : view === 'day' ? day0.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
     : start.getMonth() === weekEnd.getMonth() ? `${start.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} – ${weekEnd.getDate()}, ${weekEnd.getFullYear()}`
     : `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${weekEnd.getFullYear()}`
   const show = (pid: string) => who === 'all' || pid === who
@@ -482,14 +486,42 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   const rank = (pid: string) => order.findIndex((p) => p.id === pid)
   const done = (m: string) => { setOpen(null); setMsg(m) } // the change itself reloads the lists (calendarChanged)
   const close = () => setOpen(null)
+  // everything on one day, for the day / week / schedule views
+  const itemsFor = (k: string): DayItems => {
+    const g = (gByDay.get(k) ?? []).filter((e) => who === 'all' || e.people.includes(who))
+    const t = (tasks.data ?? []).filter((x) => x.due_on === k && show(x.assignee)).sort((a, b) => rank(a.assignee) - rank(b.assignee))
+    return {
+      bills: showBills ? (bills.data ?? []).filter((b) => b.due_on === k) : [],
+      evs: (evs.data ?? []).filter((e) => e.starts_on <= k && e.ends_on >= k && show(e.profile_id)),
+      gAll: g.filter((e) => e.all_day), gTimed: g.filter((e) => !e.all_day),
+      tAll: t.filter((x) => !x.due_time), tTimed: t.filter((x) => x.due_time),
+    }
+  }
+  const gItem = (e: GM) => <GEventItem key={e.key} e={e} me={me} people={people} project={projOf(e)} onOpen={(x, el) => pop({ kind: 'event', ev: x }, el)} />
+  const tItem = (t: Task) => <TaskItem key={t.id} t={t} me={me} admin={admin} people={people} prefixName onChange={reload} onEdit={(x, el) => pop({ kind: 'task', task: x }, el)} />
+  /** the untimed things on a day (all = also the timed ones, in time order, for the schedule list) */
+  const renderAllDay = (k: string, all?: boolean) => { const x = itemsFor(k); return <ul className="tk-list">
+    {x.bills.map((b) => <BillItem key={b.id} b={b} onChange={bills.reload} />)}
+    {x.gAll.map(gItem)}
+    {x.evs.map((e) => <EventItem key={e.id} e={e} me={me} admin={admin} people={people} onChange={reload} />)}
+    {all ? [...x.gTimed.map((e) => ({ at: hhmm(e.start), el: gItem(e) })), ...x.tTimed.map((t) => ({ at: t.due_time!.slice(0, 5), el: tItem(t) }))].sort((a, b) => a.at.localeCompare(b.at)).map((y) => y.el) : null}
+    {x.tAll.map(tItem)}
+  </ul> }
+  const renderTimed = (k: string): Timed[] => { const x = itemsFor(k); return [
+    ...x.gTimed.map((e) => { const s = new Date(e.start), en = new Date(e.end)
+      const a = isoDate(s) < k ? 0 : s.getHours() * 60 + s.getMinutes(), b = isoDate(en) > k ? 1440 : en.getHours() * 60 + en.getMinutes()
+      return { key: e.key, a, b: Math.max(b, a + 15), el: <ul className="tk-list">{gItem(e)}</ul> } }),
+    ...x.tTimed.map((t) => { const a = minutes(t.due_time!.slice(0, 5)); return { key: t.id, a, b: a + 30, el: <ul className="tk-list">{tItem(t)}</ul> } }),
+  ] }
   return (
     <section className="card pad stack" aria-labelledby="mc-h">
       <div className="row between">
         <h2 id="mc-h">{heading}</h2>
         <div className="row">
-          <button className="btn small secondary" aria-label={expanded ? 'Previous month' : 'Previous week'} onClick={() => shift(-1)}>‹</button>
+          <div className="cv-seg" role="group" aria-label="Calendar view">{VIEWS.map(([k, l]) => <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)}>{l}</button>)}</div>
+          <button className="btn small secondary" aria-label={`Previous ${view === 'schedule' ? 'period' : view}`} onClick={() => shift(-1)}>‹</button>
           <button className="btn small secondary" onClick={() => setCursor(new Date())}>Today</button>
-          <button className="btn small secondary" aria-label={expanded ? 'Next month' : 'Next week'} onClick={() => shift(1)}>›</button>
+          <button className="btn small secondary" aria-label={`Next ${view === 'schedule' ? 'period' : view}`} onClick={() => shift(1)}>›</button>
           <button className="btn small" onClick={(e) => pop({ kind: 'new', day: today }, e.currentTarget)}>+ Create</button>
         </div>
       </div>
@@ -501,7 +533,9 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
       {feed.data && !connected && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Your Google Calendar meetings can show here, and events you add go to your Google Calendar: <a href="#/account">connect Google on My account</a>.</p>}
       {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
       {(tasks.error || evs.error) && <p className="err">{tasks.error || evs.error}</p>}
-      <div style={{ overflowX: 'auto' }}><div className="mc" id="mc-grid" style={{ minWidth: 760 }}>
+      {(view === 'week' || view === 'day') && <TimeGrid days={cells} today={today} items={itemsFor} renderAllDay={renderAllDay} renderTimed={renderTimed} onEmpty={(k, el) => pop({ kind: 'new', day: k }, el)} />}
+      {view === 'schedule' && <ScheduleList days={cells} today={today} items={itemsFor} renderAll={(k) => renderAllDay(k, true)} onAdd={(k, el) => pop({ kind: 'new', day: k }, el)} />}
+      {view === 'month' && <div style={{ overflowX: 'auto' }}><div className="mc" id="mc-grid" style={{ minWidth: 760 }}>
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => <div key={d} className="mc-h">{d}</div>)}
         {cells.slice(0, rows * 7).map((d) => {
           const k = isoDate(d); const out = expanded && d.getMonth() !== month.getMonth()
@@ -523,7 +557,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
               </ul>
             </div>)
         })}
-      </div></div>
+      </div></div>}
       {open && <Pop key={open.kind + ('ev' in open ? open.ev.key : 'task' in open ? open.task.id : open.day)} anchor={open.anchor} onClose={close}
         label={open.kind === 'new' ? 'Create' : open.kind === 'task' ? 'Edit task' : open.kind === 'edit' ? 'Edit event' : 'Event details'}>
         {open.kind === 'new' && <QuickCreate me={me} admin={admin} people={people} projects={projects} day={open.day} connected={connected} onCancel={close} onDone={done} />}
@@ -535,6 +569,75 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
       </Pop>}
     </section>
   )
+}
+
+type View = 'schedule' | 'day' | 'week' | 'month'
+const VIEWS: [View, string][] = [['schedule', 'Schedule'], ['day', 'Day'], ['week', 'Week'], ['month', 'Month']]
+const SCHEDULE_DAYS = 30
+const HOUR = 48 // px per hour in the day / week timeline
+type DayItems = { bills: BillRow[]; evs: Ev[]; gAll: GM[]; gTimed: GM[]; tAll: Task[]; tTimed: Task[] }
+type Timed = { key: string; a: number; b: number; el: React.ReactNode } // minutes from midnight
+
+/** Day and week views: an all-day strip on top, then an hourly timeline (opens scrolled to 7am), like Google Calendar. */
+function TimeGrid({ days, today, items, renderAllDay, renderTimed, onEmpty }: { days: Date[]; today: string; items: (k: string) => DayItems
+  renderAllDay: (k: string) => React.ReactNode; renderTimed: (k: string) => Timed[]; onEmpty: (k: string, el: HTMLElement) => void }) {
+  const body = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => { if (body.current) body.current.scrollTop = 7 * HOUR - 8 }, [days.length])
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(t) }, [])
+  const cols = `56px repeat(${days.length}, minmax(${days.length > 1 ? 84 : 200}px, 1fr))`
+  const anyAllDay = days.some((d) => { const x = items(isoDate(d)); return x.bills.length + x.evs.length + x.gAll.length + x.tAll.length > 0 })
+  return (
+    <div className="cv-wrap" style={{ overflowX: 'auto' }}><div style={{ minWidth: days.length > 1 ? 650 : 0 }}>
+      <div className="cv-head" style={{ gridTemplateColumns: cols }}>
+        <span />
+        {days.map((d) => { const k = isoDate(d); return <div key={k} className={'cv-dh' + (k === today ? ' today' : '')}>
+          <span>{d.toLocaleDateString('en-US', { weekday: 'short' })}</span><strong className="num">{d.getDate()}</strong></div> })}
+      </div>
+      {anyAllDay && <div className="cv-allday" style={{ gridTemplateColumns: cols }}>
+        <span className="cv-gut">all day</span>
+        {days.map((d) => { const k = isoDate(d); return <div key={k} className="cv-adcell">{renderAllDay(k)}</div> })}
+      </div>}
+      <div className="cv-body" ref={body}>
+        <div className="cv-grid" style={{ gridTemplateColumns: cols, height: 24 * HOUR }}>
+          <div className="cv-hours">{Array.from({ length: 24 }, (_, h) => <span key={h} style={{ top: h * HOUR }}>{h === 0 ? '' : `${((h + 11) % 12) + 1} ${h < 12 ? 'AM' : 'PM'}`}</span>)}</div>
+          {days.map((d) => {
+            const k = isoDate(d)
+            // side-by-side lanes for overlapping items
+            const list = renderTimed(k).sort((x, y) => x.a - y.a || y.b - x.b)
+            // groups of items that overlap each other share the width; anything on its own gets the full column
+            const placed: (Timed & { lane: number; n: number })[] = []
+            let group: (Timed & { lane: number; n: number })[] = [], lanes: number[] = [], groupEnd = -1
+            const flush = () => { group.forEach((g) => { g.n = lanes.length }); placed.push(...group); group = []; lanes = [] }
+            for (const x of list) {
+              if (x.a >= groupEnd) { flush(); groupEnd = -1 }
+              let l = lanes.findIndex((end) => end <= x.a); if (l < 0) { l = lanes.length; lanes.push(0) } lanes[l] = x.b
+              group.push({ ...x, lane: l, n: 1 }); groupEnd = Math.max(groupEnd, x.b)
+            }
+            flush()
+            return <div key={k} className={'cv-col' + (k === today ? ' today' : '')}
+              onClick={(e) => { if (!(e.target as HTMLElement).closest('.tk, button, input, a, label')) onEmpty(k, e.currentTarget) }}>
+              {Array.from({ length: 24 }, (_, h) => <span key={h} className="cv-line" style={{ top: h * HOUR }} />)}
+              {placed.map((x) => <div key={x.key} className="cv-ev" style={{ top: x.a / 60 * HOUR, height: Math.max(22, (x.b - x.a) / 60 * HOUR - 2), left: `calc(${x.lane / x.n * 100}% + 2px)`, width: `calc(${100 / x.n}% - 4px)` }}>{x.el}</div>)}
+              {k === today && <span className="cv-now" style={{ top: (now.getHours() * 60 + now.getMinutes()) / 60 * HOUR }} aria-hidden="true" />}
+            </div>
+          })}
+        </div>
+      </div>
+    </div></div>
+  )
+}
+
+/** Schedule view: the next 30 days as a list, only days that have something on them. */
+function ScheduleList({ days, today, items, renderAll, onAdd }: { days: Date[]; today: string; items: (k: string) => DayItems; renderAll: (k: string) => React.ReactNode; onAdd: (k: string, el: HTMLElement) => void }) {
+  const busy = days.filter((d) => { const x = items(isoDate(d)); return x.bills.length + x.evs.length + x.gAll.length + x.gTimed.length + x.tAll.length + x.tTimed.length > 0 })
+  if (!busy.length) return <p className="muted" style={{ margin: 0 }}><em>Nothing scheduled from {days[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to {days[days.length - 1].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.</em></p>
+  return <ol className="cv-sched">{busy.map((d) => { const k = isoDate(d); return (
+    <li key={k} className={k === today ? 'today' : ''}>
+      <div className="cv-sd"><strong className="num">{d.getDate()}</strong><span>{d.toLocaleDateString('en-US', { month: 'short', weekday: 'short' })}</span>
+        <button type="button" className="mc-add" onClick={(e) => onAdd(k, e.currentTarget.closest('li') as HTMLElement)} aria-label={`Add an event or task on ${d.toDateString()}`}>+</button></div>
+      <div className="cv-si">{renderAll(k)}</div>
+    </li>) })}</ol>
 }
 
 /** Home sidebar: my day. My meetings today (Google), my tasks due today, anything overdue, and what's coming up in the
