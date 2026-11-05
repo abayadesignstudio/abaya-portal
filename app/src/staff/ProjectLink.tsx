@@ -72,11 +72,6 @@ export default function ProjectLink({ projectId, clientId, agreementId, cover, o
     if (!window.confirm('Replace the owner and project details on the cover with the project’s records?')) return
     fillCover(coverFrom(current)); setMsg({ ok: true, t: 'Cover details replaced with the project’s.' })
   }
-  const unlink = async () => {
-    setBusy(true); setMsg(null)
-    try { await save(null, null); setMsg({ ok: true, t: 'Unlinked. The cover text is unchanged.' }) } catch (e) { setMsg({ ok: false, t: (e as Error).message }) }
-    setBusy(false)
-  }
   const create = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy(true); setMsg(null)
     try {
@@ -112,7 +107,7 @@ export default function ProjectLink({ projectId, clientId, agreementId, cover, o
         <div className="row" style={{ gap: 6 }}>
           <button type="button" className="btn small secondary" disabled={busy} onClick={openAdd}>+ New project…</button>
           {current && differs(current) && <button type="button" className="btn small secondary" disabled={busy} onClick={replaceCover}>Use project’s details</button>}
-          {(projectId || clientId) && <button type="button" className="linkbtn" style={{ fontSize: 13, textDecoration: 'underline' }} disabled={busy} onClick={unlink}>Unlink</button>}
+          {/* no Unlink: every agreement belongs to a project; link it to a different one instead */}
         </div>
       </>}
       {adding && (

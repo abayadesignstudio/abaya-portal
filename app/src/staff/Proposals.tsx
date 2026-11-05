@@ -20,6 +20,17 @@ export default function Proposals() {
   const { profile } = useAuth()
   const [filter, setFilter] = useState('all')
   const [projectId, setProjectId] = useState('')
+  // "+ New project…": every proposal belongs to a project; a prospective job starts as a project with status Proposal
+  const [np, setNp] = useState({ number: '', name: '', client: '', newClient: '', category: 'S', sector: 'commercial' })
+  const clients = useLoad(async () => must(await supabase.from('clients').select('id, name').order('name')) as { id: string; name: string }[])
+  const allNumbers = useLoad(async () => (must(await supabase.from('projects').select('number')) as { number: string }[]).map((x) => x.number))
+  /** Next free number for this month: YYMM + letter (2611A, 2611B, …). */
+  const suggestNumber = () => {
+    const d = new Date(); const ym = `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, '0')}`
+    const taken = new Set((allNumbers.data ?? []).map((n) => n.toUpperCase()))
+    for (const c of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') if (!taken.has(ym + c)) return ym + c
+    return ym
+  }
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const list = useLoad(async () => must(await supabase.from('agreements')
@@ -29,15 +40,29 @@ export default function Proposals() {
     .neq('number', 'OH').in('status', ['active', 'paused', 'proposal']).order('number', { ascending: false })) as unknown as Proj[])
 
   const create = async () => {
-    setBusy(true); setErr('')
-    const p = projects.data?.find((x) => x.id === projectId)
-    const fees = p ? Object.fromEntries(p.phases.filter((ph) => Number(ph.fee) > 0).map((ph) => [ph.code, Number(ph.fee)])) : {}
+    setErr('')
+    if (!projectId) return setErr('Choose the project this proposal is for, or pick “+ New project…”.')
+    setBusy(true)
+    let p = projects.data?.find((x) => x.id === projectId)
+    if (projectId === 'new') {
+      if (!np.number.trim() || !np.name.trim()) { setBusy(false); return setErr('Give the new project a number and a name.') }
+      if (np.client === 'new' && !np.newClient.trim()) { setBusy(false); return setErr('Enter the new client’s name.') }
+      try {
+        let cid: string | null = np.client && np.client !== 'new' ? np.client : null
+        if (np.client === 'new') cid = (must(await supabase.from('clients').insert({ name: np.newClient.trim() }).select('id').single()) as { id: string }).id
+        const made = must(await supabase.from('projects').insert({ number: np.number.trim(), name: np.name.trim(), client_id: cid, category: np.category, sector: np.sector, status: 'proposal' })
+          .select('id, number, name, address, category, client_id, clients(name, phone, billing_email, address), phases(code, fee)').single()) as unknown as Proj
+        p = made
+      } catch (e) { setBusy(false); return setErr(/duplicate|unique/i.test(String((e as Error).message)) ? `Project number ${np.number.trim()} is already used.` : (e as Error).message) }
+    }
+    if (!p) { setBusy(false); return setErr('That project wasn’t found. Reload the page and try again.') }
+    const fees = p ? Object.fromEntries((p.phases ?? []).filter((ph) => Number(ph.fee) > 0).map((ph) => [ph.code, Number(ph.fee)])) : {}
     const doc = newDoc(p ? {
       projName: p.name, projAddr: p.address ?? '', projType: p.category ?? 'S',
       ownerName: p.clients?.name ?? '', ownerPhone: p.clients?.phone ?? '', ownerEmail: p.clients?.billing_email ?? '', ownerAddr: p.clients?.address ?? '',
     } : {}, fees)
     const { data, error } = await supabase.from('agreements').insert({
-      title: p ? `${p.name} — Proposal` : 'Untitled proposal', project_id: p?.id ?? null, client_id: p?.client_id ?? null,
+      title: `${p.name} — Proposal`, project_id: p.id, client_id: p.client_id ?? null,
       doc, total_fee: +doc.v.fee || 0, created_by: profile?.id,
     }).select('id').single()
     setBusy(false)
@@ -102,15 +127,27 @@ export default function Proposals() {
         <h2 id="np-h">New proposal</h2>
         <div className="row" style={{ alignItems: 'flex-end' }}>
           <div style={{ minWidth: 320, flex: 1, maxWidth: 520 }}>
-            <label className="l" htmlFor="np-proj">Start from a project (optional)</label>
-            <select id="np-proj" className="input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-              <option value="">Blank — fill everything in the editor</option>
+            <label className="l" htmlFor="np-proj">Project</label>
+            <select id="np-proj" className="input" value={projectId} onChange={(e) => { setProjectId(e.target.value); if (e.target.value === 'new' && !np.number) setNp({ ...np, number: suggestNumber() }) }}>
+              <option value="">Choose a project…</option>
+              <option value="new">+ New project…</option>
               {projects.data?.map((p) => <option key={p.id} value={p.id}>{p.number} · {p.name}{p.clients ? ` — ${p.clients.name}` : ''}</option>)}
             </select>
           </div>
-          <button type="button" className="btn" onClick={create} disabled={busy}>{busy ? 'Creating…' : 'Create proposal'}</button>
+          <button type="button" className="btn" onClick={create} disabled={busy || !projectId}>{busy ? 'Creating…' : 'Create proposal'}</button>
         </div>
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Starting from a project fills in the owner, project name and address, and turns on the phases that have fees, with the fee total.</em></p>
+        {projectId === 'new' && <div className="np-grid">
+          <div><label className="l" htmlFor="npn">Number</label><input id="npn" className="input" value={np.number} onChange={(e) => setNp({ ...np, number: e.target.value })} /></div>
+          <div><label className="l" htmlFor="npname">Project name</label><input id="npname" className="input" value={np.name} onChange={(e) => setNp({ ...np, name: e.target.value })} placeholder="e.g. Smith Residence" /></div>
+          <div><label className="l" htmlFor="npc">Client</label><select id="npc" className="input" value={np.client} onChange={(e) => setNp({ ...np, client: e.target.value })}>
+            <option value="">—</option>{clients.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}<option value="new">+ New client…</option></select></div>
+          {np.client === 'new' && <div><label className="l" htmlFor="npnc">New client name</label><input id="npnc" className="input" value={np.newClient} onChange={(e) => setNp({ ...np, newClient: e.target.value })} /></div>}
+          <div><label className="l" htmlFor="npt">Type</label><select id="npt" className="input" value={np.category} onChange={(e) => setNp({ ...np, category: e.target.value })}>
+            <option value="S">Shell (S)</option><option value="FO">Finish-Out (FO)</option><option value="CON">Consultation (CON)</option></select></div>
+          <div><label className="l" htmlFor="nps">Building type</label><select id="nps" className="input" value={np.sector} onChange={(e) => setNp({ ...np, sector: e.target.value })}>
+            <option value="commercial">Commercial / Retail</option><option value="residential">Residential</option><option value="medical">Medical</option><option value="consultation">Consultation</option><option value="civic">Civic</option><option value="internal">Internal</option></select></div>
+        </div>}
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Every proposal belongs to a project. For a new job, pick “+ New project…”: it’s created with status Proposal and moves to Active when you set it on the project page. Starting from a project fills in the owner, project name and address, and turns on the phases that have fees.</em></p>
       </section>
       {err && <p className="err" role="alert">{err}</p>}
       {note && <p className="ok" role="status">{note}</p>}

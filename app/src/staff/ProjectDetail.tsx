@@ -13,7 +13,7 @@ import { sortPhases, fmtDate, signedPhotoUrls, uid, extOf,
 type Phase = { id: string; code: string; fee: number; fee_pct: number | null; status: string; start_date: string | null; end_date: string | null; meetings_included: number | null }
 type Entry = { phase_id: string | null; minutes: number; profiles: { full_name: string | null; bill_rate: number | null } | null }
 type Project = { id: string; number: string; name: string; status: string; category: string | null; sector: string | null; address: string | null; next_milestone: string | null; client_id: string | null; clients: { name: string } | null }
-type Inv = { id: string; number: string; status: string; total: number }
+type Inv = { id: string; number: string; status: string; total: number; amount_paid: number | null; issue_date: string | null; due_date: string | null }
 
 // Project sub-menu, Monograph-style: core pages, then client-facing content
 const NAV_MAIN = [['overview', 'Overview'], ['budget', 'Budget'], ['settings', 'Details'], ['drawings', 'Files']] as const
@@ -30,7 +30,7 @@ export default function ProjectDetail() {
     const phases = sortPhases(must(await supabase.from('phases').select('id, code, fee, fee_pct, status, start_date, end_date, meetings_included').eq('project_id', id!)) as Phase[])
     const billed = must(await supabase.from('phase_billing').select('phase_id, billed').eq('project_id', id!)) as { phase_id: string; billed: number }[]
     const time = must(await supabase.from('time_entries').select('phase_id, minutes, profiles(full_name, bill_rate)').eq('project_id', id!)) as unknown as Entry[]
-    const invoices = must(await supabase.from('invoices').select('id, number, status, total').eq('project_id', id!).order('issue_date', { ascending: false })) as Inv[]
+    const invoices = must(await supabase.from('invoices').select('id, number, status, total, amount_paid, issue_date, due_date').eq('project_id', id!).order('issue_date', { ascending: false, nullsFirst: true })) as Inv[]
     const agreements = await linkedAgreements(id!)
     return { p, phases, billed, time, invoices, agreements }
   }, [id])
@@ -87,6 +87,20 @@ export default function ProjectDetail() {
               <span><Link to={`/proposals/${g.id}`} style={{ fontWeight: 700 }}>{g.title}</Link> <span className="pill" style={{ marginLeft: 6 }}>{g.status[0].toUpperCase() + g.status.slice(1)}</span></span>
               <strong className="num">{money(Number(g.total_fee ?? 0))}</strong></li>))}
             {agreements.length > 1 && <li className="row between" style={{ padding: '6px 0', borderTop: '1px solid #ece9e3' }}><span className="muted">Total of linked agreements (voided ones don’t count)</span><strong className="num">{money(cf ?? 0)}</strong></li>}</ul>}
+      </section>
+      <section className="card pad stack" aria-labelledby="pi-h" style={{ gap: 8 }}>
+        <div className="row between"><h2 id="pi-h" style={{ fontSize: 17 }}>Invoices <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {invoices.length}</span></h2>
+          <Link className="btn small secondary" to={`/invoices/new?project=${p.id}`}>+ New invoice</Link></div>
+        {invoices.length === 0 ? <p className="muted" style={{ margin: 0 }}>No invoices on this project yet.</p>
+          : <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 640 }}>
+            <thead><tr><th>Invoice</th><th>Status</th><th>Issued</th><th>Due</th><th className="r">Total</th><th className="r">Balance</th></tr></thead>
+            <tbody>{invoices.map((i) => { const bal = Number(i.total) - Number(i.amount_paid ?? 0); const late = i.status === 'open' && i.due_date && i.due_date < new Date().toISOString().slice(0, 10)
+              return <tr key={i.id}>
+                <td><Link to={`/invoices/${i.id}`} style={{ fontWeight: 700 }}>{i.number}</Link></td>
+                <td><span className="pill" style={late ? { borderColor: '#d92d20', color: '#b42318' } : undefined}>{late ? 'Past due' : i.status[0].toUpperCase() + i.status.slice(1)}</span></td>
+                <td className="num">{fmtDate(i.issue_date)}</td><td className="num">{fmtDate(i.due_date)}</td>
+                <td className="r num">{money(i.total)}</td><td className="r num" style={{ fontWeight: bal > 0.005 && i.status !== 'void' ? 700 : 400 }}>{i.status === 'void' ? '—' : money(Math.max(0, bal))}</td></tr> })}</tbody>
+          </table></div>}
       </section>
       <section className="card pad stack">
         <h2>Phases</h2>

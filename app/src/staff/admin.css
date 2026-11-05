@@ -17,3 +17,4 @@
 .formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;align-items:end}
 .tablewrap{overflow-x:auto}
 .inline-select{min-height:34px;padding:4px 8px;border:1px solid #b9b4aa;border-radius:6px;font:13px Arial;background:#fff}
+.np-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
