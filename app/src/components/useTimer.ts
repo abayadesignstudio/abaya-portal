@@ -3,11 +3,14 @@ import { supabase } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import { loadProjects, iso, announceTimeChange, TIME_CHANGED } from '../lib/time'
 
-export type RunningTimer = { project_id: string; phase_id: string | null; role_label: string | null; activity: string | null; note: string | null; started_at: string; banked_minutes: number }
+export type RunningTimer = { project_id: string; phase_id: string | null; role_label: string | null; activity: string | null; note: string | null; started_at: string; banked_minutes: number; paused_at?: string | null; banked_seconds?: number }
 export type Recent = { project_id: string; phase_id: string | null; role_label: string | null; activity: string | null; projects: { number: string; name: string } | null; phases: { code: string } | null }
 export type TimerFields = { project_id: string; phase_id: string; role_label: string; activity: string; note: string }
 export const EMPTY_FIELDS: TimerFields = { project_id: '', phase_id: '', role_label: '', activity: '', note: '' }
 
+/** Today's logged time, one line per task (project · phase · role · activity), newest first. */
+export type TodayTask = { key: string; project_id: string; phase_id: string | null; role_label: string | null; activity: string | null; minutes: number; last: string
+  projects: { number: string; name: string; sector: string | null } | null; phases: { code: string } | null }
 export const clockOf = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` }
 
 /** Shared timer state. Every instance (sidebar popover, phone bar) reads the same `timers` row
@@ -23,17 +26,30 @@ export function useTimer(me: string) {
   const recent = useLoad(async () => must(await supabase.from('time_entries').select('project_id, phase_id, role_label, activity, projects(number, name), phases(code)')
     .eq('profile_id', me).order('created_at', { ascending: false }).limit(40)) as unknown as Recent[], [me, recentKey])
 
+  const today = useLoad(async () => {
+    const rows = must(await supabase.from('time_entries').select('project_id, phase_id, role_label, activity, minutes, created_at, projects(number, name, sector), phases(code)')
+      .eq('profile_id', me).eq('work_date', iso(new Date())).order('created_at', { ascending: false })) as unknown as (Omit<TodayTask, 'key' | 'last'> & { created_at: string })[]
+    const m = new Map<string, TodayTask>()
+    for (const r of rows) {
+      const key = `${r.project_id}|${r.phase_id}|${r.role_label}|${r.activity}`
+      const o = m.get(key)
+      if (o) o.minutes += r.minutes; else m.set(key, { ...r, key, last: r.created_at })
+    }
+    return [...m.values()]
+  }, [me, recentKey])
   const t = timer.data
   useEffect(() => { const i = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(i) }, [])
   useEffect(() => { if (t) setV({ project_id: t.project_id, phase_id: t.phase_id ?? '', role_label: t.role_label ?? '', activity: t.activity ?? '', note: t.note ?? '' }) }, [t])
-  const reloadTimer = timer.reload
+  const reloadTimer = timer.reload, reloadToday = today.reload
   useEffect(() => {
-    const f = () => reloadTimer()
+    const f = () => { reloadTimer(); reloadToday() }
     window.addEventListener(TIME_CHANGED, f); window.addEventListener('focus', f)
     return () => { window.removeEventListener(TIME_CHANGED, f); window.removeEventListener('focus', f) }
-  }, [reloadTimer])
+  }, [reloadTimer, reloadToday])
 
-  const elapsed = t ? now - new Date(t.started_at).getTime() + t.banked_minutes * 60000 : 0
+  // running stretch since started_at (frozen at paused_at while paused) + time banked from earlier stretches
+  const paused = !!t?.paused_at
+  const elapsed = t ? (t.paused_at ? new Date(t.paused_at).getTime() : now) - new Date(t.started_at).getTime() + t.banked_minutes * 60000 + (t.banked_seconds ?? 0) * 1000 : 0
   const proj = projects.data?.find((p) => p.id === v.project_id)
   const isOverhead = proj?.number === 'OH'
   const setField = useCallback((k: keyof TimerFields, value: string) =>
@@ -43,7 +59,7 @@ export function useTimer(me: string) {
   const run = async (fn: () => Promise<boolean>) => { setBusy(true); try { return await fn() } finally { setBusy(false) } }
   const startNow = async () => {
     if (!v.project_id) { setErr('Choose a project.'); return false }
-    const { error } = await supabase.from('timers').upsert({ profile_id: me, ...fields(), started_at: new Date().toISOString(), banked_minutes: 0 })
+    const { error } = await supabase.from('timers').upsert({ profile_id: me, ...fields(), started_at: new Date().toISOString(), banked_minutes: 0, banked_seconds: 0, paused_at: null })
     if (error) { setErr(error.message); return false }
     setErr(''); announceTimeChange(); return true
   }
@@ -60,8 +76,33 @@ export function useTimer(me: string) {
     setRecentKey((k) => k + 1); return true
   }
 
+  const patchTimer = async (patch: Record<string, unknown>) => {
+    const { error } = await supabase.from('timers').update(patch).eq('profile_id', me)
+    if (error) { setErr(error.message); return false }
+    setErr(''); announceTimeChange(); return true
+  }
   return {
-    v, setV, setField, err, setErr, busy, running: t ?? null, elapsed, clock: clockOf(elapsed),
+    v, setV, setField, err, setErr, busy, running: t ?? null, paused, elapsed, clock: clockOf(elapsed), today: today.data ?? [],
+    /** Freeze the clock. */
+    pause: () => run(async () => !!t && !t.paused_at && patchTimer({ paused_at: new Date().toISOString() })),
+    /** Carry on: bank the stretch before the pause and start a new stretch now. */
+    resume: () => run(async () => {
+      if (!t?.paused_at) return false
+      const stretch = Math.round((new Date(t.paused_at).getTime() - new Date(t.started_at).getTime()) / 1000)
+      return patchTimer({ banked_seconds: (t.banked_seconds ?? 0) + Math.max(0, stretch), started_at: new Date().toISOString(), paused_at: null })
+    }),
+    /** Back to 00:00 on the same task (nothing is logged). */
+    restart: () => run(async () => !!t && patchTimer({ started_at: new Date().toISOString(), banked_minutes: 0, banked_seconds: 0, paused_at: null })),
+    /** Start a timer on a task from today's list (logging whatever is running first). */
+    pickUp: (x: TodayTask) => run(async () => {
+      if (t && !(await logNow())) return false
+      const next = { project_id: x.project_id, phase_id: x.phase_id ?? '', role_label: x.role_label ?? '', activity: x.activity ?? '', note: '' }
+      setV(next)
+      const { error } = await supabase.from('timers').upsert({ profile_id: me, project_id: next.project_id, phase_id: x.phase_id, role_label: x.role_label, activity: x.activity, note: null,
+        started_at: new Date().toISOString(), banked_minutes: 0, banked_seconds: 0, paused_at: null })
+      if (error) { setErr(error.message); return false }
+      setErr(''); announceTimeChange(); return true
+    }),
     projects: projects.data ?? [], proj, isOverhead, recent: recent.data ?? [],
     start: () => run(startNow),
     stop: () => run(async () => { const ok = await logNow(); if (ok) { setV(EMPTY_FIELDS); setErr(''); announceTimeChange() } return ok }),

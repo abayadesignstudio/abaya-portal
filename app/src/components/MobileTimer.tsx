@@ -24,11 +24,12 @@ export default function MobileTimer({ me }: { me: string }) {
     <div className="mtimer">
       <div className="mtimer-bar" role="region" aria-label="Timer">
         <button type="button" className="mtimer-open" onClick={() => setOpen(true)} aria-expanded={open}>
-          <span className="num mtimer-clock" style={{ color: running ? '#039855' : '#5f6368' }}>{api.clock}</span>
+          <span className="num mtimer-clock" style={{ color: running ? (api.paused ? '#b54708' : '#039855') : '#5f6368' }}>{api.clock}</span>
           <span className="mtimer-label">{running ? (proj ? (proj.number === 'OH' ? `Overhead${running.activity ? ' · ' + running.activity : ''}` : `${proj.number} · ${proj.name}`) : 'Running') : 'No timer running'}</span>
         </button>
+        {running && <button type="button" className="btn secondary mtimer-go" disabled={api.busy} onClick={() => (api.paused ? api.resume() : api.pause())}>{api.paused ? '▶ Resume' : '❚❚ Pause'}</button>}
         {running
-          ? <button type="button" className="btn mtimer-go" disabled={api.busy} onClick={() => api.stop()} aria-label="Stop and log time"><PlayIcon running /> Stop</button>
+          ? <button type="button" className="btn mtimer-go" disabled={api.busy} onClick={() => api.stop()} aria-label="End and log time"><PlayIcon running /> End</button>
           : <button type="button" className="btn mtimer-go" onClick={() => setOpen(true)}><PlayIcon running={false} /> Start</button>}
       </div>
       {open && (

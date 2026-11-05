@@ -84,3 +84,22 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .pd-inv th,.pd-inv td{padding-left:8px;padding-right:8px;white-space:nowrap}
 .pd-ahead{font-size:12px;font-weight:700;color:var(--amber);margin-top:2px}
 .av-img{object-fit:cover;display:block;padding:0}
+/* timer: pause / end, and today's logged tasks above it */
+.stimer-bar.paused{background:rgba(181,71,8,.18)}
+.stimer-paused{display:block;font-size:11px;font-weight:700;color:#f5b971;letter-spacing:.04em;text-transform:uppercase;margin-top:-2px}
+.stimer-end{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;border:1px solid rgba(154,143,99,.6);background:none;color:#ede6d6;cursor:pointer}
+.stimer-end:hover{background:rgba(217,45,32,.35)}
+.stimer-end:focus-visible{outline:3px solid #7aa2c2;outline-offset:2px}
+.stoday{margin-bottom:8px;border-radius:10px;background:rgba(237,230,214,.05);border:1px solid rgba(154,143,99,.25);overflow:hidden}
+.stoday-h{display:flex;justify-content:space-between;padding:7px 10px 4px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#c8bf9f}
+.stoday ul{list-style:none;margin:0;padding:0 4px 4px;max-height:176px;overflow-y:auto;scrollbar-width:thin}
+.stoday li{display:flex;align-items:center;gap:6px;padding:4px 4px 4px 6px;border-radius:6px;font-size:13px;color:#ede6d6}
+.stoday li:hover,.stoday li.on{background:rgba(237,230,214,.08)}
+.stoday-chip{flex:none;padding:1px 5px;border-radius:4px;font-size:10.5px;font-weight:700;color:#fff}
+.stoday-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stoday-t{flex:none;font-size:12.5px;color:#c8bf9f}
+.stoday-go{flex:none;width:26px;height:26px;border-radius:50%;border:1px solid rgba(154,143,99,.6);background:none;color:#ede6d6;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0 0 0 2px}
+.stoday-go:hover:not(:disabled){background:#9a8f63;color:#02253d}
+.stoday-go:disabled{cursor:default}
+.stoday-go:focus-visible{outline:3px solid #7aa2c2;outline-offset:1px}
+.stoday-dot{width:8px;height:8px;border-radius:50%;background:#32d583;margin-left:-2px}
