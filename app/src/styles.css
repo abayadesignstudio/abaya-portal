@@ -103,3 +103,5 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .stoday-go:disabled{cursor:default}
 .stoday-go:focus-visible{outline:3px solid #7aa2c2;outline-offset:1px}
 .stoday-dot{width:8px;height:8px;border-radius:50%;background:#32d583;margin-left:-2px}
+.stimer-add,.stimer-end{flex:none;box-sizing:border-box;padding:0}
+.stimer-clock{min-width:0}
