@@ -201,7 +201,7 @@ export default function SidebarTimer({ me }: { me: string }) {
           <button type="button" className="stimer-go" onClick={circle} aria-label="Start a timer" title="Start a timer"><PlayIcon running={false} /></button>
           <span className="stimer-label">{flash || 'Timer'}</span>
         </>}
-        {!sel && <button type="button" className="stimer-add" onClick={() => setOpen(open === 'manual' ? null : 'manual')} aria-expanded={open === 'manual'} aria-label="Add a manual time entry" title="Manual entry">
+        {!sel && !running && <button type="button" className="stimer-add" onClick={() => setOpen(open === 'manual' ? null : 'manual')} aria-expanded={open === 'manual'} aria-label="Add a manual time entry" title="Manual entry">
           <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
         </button>}
       </div>
@@ -217,11 +217,11 @@ function TodayList({ api, selected, onSelect }: { api: TimerApi; selected: strin
   const r = api.running
   const isCurrent = (t: TodayTask) => !!r && r.project_id === t.project_id && (r.phase_id ?? null) === t.phase_id && (r.role_label ?? null) === t.role_label && (r.activity ?? null) === t.activity
   const list = api.today
-  const liveMin = r ? Math.floor(api.elapsed / 60000) : 0
   if (!list.length && !r) return null
   const proj = r ? api.projects.find((p) => p.id === r.project_id) : null
-  const rows: (TodayTask & { current?: boolean })[] = list.map((t) => (isCurrent(t) ? { ...t, minutes: t.minutes + liveMin, current: true } : t))
-  if (r && !list.some(isCurrent) && proj) rows.unshift({ key: 'running', project_id: r.project_id, phase_id: r.phase_id, role_label: r.role_label, activity: r.activity, minutes: liveMin, last: '', current: true,
+  // logged time only: the running clock is in the bar below, not repeated here
+  const rows: (TodayTask & { current?: boolean })[] = list.map((t) => (isCurrent(t) ? { ...t, current: true } : t))
+  if (r && !list.some(isCurrent) && proj) rows.unshift({ key: 'running', project_id: r.project_id, phase_id: r.phase_id, role_label: r.role_label, activity: r.activity, minutes: 0, last: '', current: true,
     projects: { number: proj.number, name: proj.name, sector: proj.sector ?? null }, phases: r.phase_id ? { code: proj.phases.find((x) => x.id === r.phase_id)?.code ?? '' } : null })
   const total = rows.reduce((a, t) => a + t.minutes, 0)
   return (
@@ -236,7 +236,7 @@ function TodayList({ api, selected, onSelect }: { api: TimerApi; selected: strin
               <span className="stoday-chip" style={{ background: oh ? '#6b7280' : sectorColor(t.projects?.sector ?? null) }}>{oh ? 'OH' : t.projects?.number}</span>
               <span className="stoday-name">{oh ? (t.activity || 'Overhead') : t.projects?.name}{!oh && (t.phases?.code || t.activity) ? <span className="stoday-sub"> · {[t.phases?.code, t.activity].filter(Boolean).join(' · ')}</span> : null}</span>
             </span>
-            <span className="num stoday-t">{t.current && <span className="stoday-dot" aria-label={api.paused ? 'paused' : 'running'} />}{hm(t.minutes)}</span>
+            <span className="num stoday-t">{t.current && <span className="stoday-dot" aria-label={api.paused ? 'timer paused' : 'timer running'} />}{t.current && t.key === 'running' ? <span className="stoday-now">{api.paused ? 'Paused' : 'Now'}</span> : hm(t.minutes)}</span>
           </button>
         </li>
       })}</ul>
