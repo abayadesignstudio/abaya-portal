@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { SECTOR_COLOR, PHASE_NAME, money } from '../lib/supabase'
 import './gantt.css'
 
 // Projects as a Gantt chart (like Monograph): one row per project, one bar per phase (from its start/end dates).
 // Left: project number (building-type color), name, client and fee used. Right: a scrollable week/month timeline with
-// today marked. Zoom with − / + or the scale menu; "Today" scrolls back to now. Click a bar or a name to open the project.
+// today marked. Zoom with − / + or the scale menu; "Today" scrolls back to now. Click a project's name to open it.
 // Drag either end of a bar to change that phase's start or end date (or focus an end and use ← / →); Undo puts it back.
 
 export type GPhase = { id?: string; code: string; status: string; fee: number; start_date: string | null; end_date: string | null }
@@ -42,12 +42,10 @@ type Drag = { id: string; edge: 'start' | 'end'; x0: number; orig: Dates; cur: D
 
 export default function ProjectsGantt({ rows, feeUsed, onDates }: { rows: GRow[]; feeUsed: Record<string, number | null>
   onDates?: (phaseId: string, d: Dates) => Promise<string | null> }) {
-  const nav = useNavigate()
   // date changes: live preview while dragging, kept until the saved data comes back
   const [over, setOver] = useState<Record<string, Dates>>({})
   const [drag, setDrag] = useState<Drag | null>(null)
   const dragRef = useRef<Drag | null>(null); dragRef.current = drag
-  const justDragged = useRef(false)
   const [undo, setUndo] = useState<{ id: string; label: string; prev: Dates; now: Dates } | null>(null)
   const [saveErr, setSaveErr] = useState('')
   useEffect(() => { setOver({}) }, [rows])
@@ -76,7 +74,7 @@ export default function ProjectsGantt({ rows, feeUsed, onDates }: { rows: GRow[]
   const endDrag = (label: string) => {
     const d = dragRef.current; if (!d) return
     setDrag(null)
-    if (d.moved) { justDragged.current = true; setTimeout(() => { justDragged.current = false }, 0); save(d.id, label, d.orig, d.cur) }
+    if (d.moved) save(d.id, label, d.orig, d.cur)
   }
   const scroller = useRef<HTMLDivElement>(null)
   const [zi, setZi] = useState(() => { try { const r = localStorage.getItem('abaya.gantt.zoom'); const v = r === null ? NaN : Number(r); return v >= 0 && v < ZOOMS.length ? v : 5 } catch { return 5 } })
@@ -199,7 +197,7 @@ export default function ProjectsGantt({ rows, feeUsed, onDates }: { rows: GRow[]
                       ) : null
                       return (
                         <div key={p.code} className={'gt-bar st-' + p.status + (dragging ? ' dragging' : '')} style={{ left, width: w, ['--c' as string]: color }}>
-                          <button type="button" className="gt-hit" title={tip} aria-label={tip.replace(/\n/g, ', ')} onClick={() => { if (!justDragged.current) nav(`/projects/${r.id}`) }} />
+                          <span className="gt-hit" title={tip} role="img" aria-label={tip.replace(/\n/g, ', ')} />
                           <span className="gt-chip">{p.code}</span>
                           {handle('start')}{handle('end')}
                           {dragging && <span className={'gt-drag-tip ' + drag!.edge}>{drag!.edge === 'start' ? short(live.start_date) : short(live.end_date)}</span>}
@@ -218,7 +216,7 @@ export default function ProjectsGantt({ rows, feeUsed, onDates }: { rows: GRow[]
             <button type="button" className="linkbtn" onClick={() => { const u = undo; setUndo(null); save(u.id, u.label, u.now, u.prev).then(() => setUndo(null)) }}>Undo</button></>}
         <button type="button" className="linkbtn" aria-label="Dismiss" onClick={() => { setUndo(null); setSaveErr('') }}>×</button>
       </div>}
-      <p className="muted gt-key"><em>Bars are phase dates. Solid = in progress, light = not started, faded = complete, striped = paused. Ring = fee used (hours × rates); orange at 75%, red at 90%. Hover a bar for dates and fee; drag either end to change its dates; click it to open the project.</em></p>
+      <p className="muted gt-key"><em>Bars are phase dates. Solid = in progress, light = not started, faded = complete, striped = paused. Ring = fee used (hours × rates); orange at 75%, red at 90%. Hover a bar for dates and fee; drag either end to change its dates. Click a project’s name to open it.</em></p>
     </div>
   )
 }
