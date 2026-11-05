@@ -6,7 +6,44 @@ import RowMenu from '../../components/RowMenu'
 
 type Phase = { id: string; code: string; fee: number; status: string; start_date: string | null; end_date: string | null }
 export type Person = { id: string; full_name: string | null; email: string; initials: string | null; title: string | null; bill_rate: number | null }
-export type Member = { profile_id: string; role_label: string | null; bill_rate: number | null }
+export type Member = { profile_id: string; role_label: string | null; bill_rate: number | null; rate_id?: string | null }
+export type Rate = { id: string; role: string; level: string; rate: number; sort: number }
+/** The firm's rate table (Settings → Billable rates), roles in their set order. */
+export function useRates() {
+  return useLoad(async () => must(await supabase.from('billing_rates').select('id, role, level, rate, sort').order('sort').order('level')) as Rate[])
+}
+
+/** Pick a role, then one of that role's rates — the two always go together (like Monograph). */
+export function RoleRateDialog({ name, role, rate, rates, onSave, onClose }: { name: string; role: string; rate: number; rates: Rate[]
+  onSave: (v: { role_label: string | null; bill_rate: number | null; rate_id: string | null }) => void; onClose: () => void }) {
+  const roles = [...new Set(rates.map((r) => r.role))]
+  const [r, setR] = useState(roles.includes(role) ? role : '')
+  const levels = rates.filter((x) => x.role === r)
+  const [lv, setLv] = useState(() => (levels.find((x) => Math.abs(Number(x.rate) - rate) < 0.005) ?? levels[0])?.id ?? '')
+  useEffect(() => { if (!levels.some((x) => x.id === lv)) setLv(levels[0]?.id ?? '') }, [r]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [onClose])
+  const pick = rates.find((x) => x.id === lv)
+  return (
+    <div className="rr-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="rr" role="dialog" aria-modal="true" aria-labelledby="rr-h">
+        <div className="row between"><h2 id="rr-h" style={{ margin: 0, fontSize: 21 }}>Edit role &amp; billable rate</h2>
+          <button type="button" className="rr-x" aria-label="Close" onClick={onClose}>×</button></div>
+        <p className="muted" style={{ margin: 0, fontSize: 14 }}>{name} on this project</p>
+        <div><label className="l" htmlFor="rr-role">Role</label>
+          <select id="rr-role" className="input" value={r} onChange={(e) => setR(e.target.value)} autoFocus>
+            <option value="">No role (use their standard rate)</option>{roles.map((x) => <option key={x}>{x}</option>)}</select></div>
+        <div><label className="l" htmlFor="rr-rate">Billable rate</label>
+          <select id="rr-rate" className="input" value={lv} onChange={(e) => setLv(e.target.value)} disabled={!r}>
+            {!r && <option value="">Pick a role first</option>}
+            {levels.map((x) => <option key={x.id} value={x.id}>{x.level} — {money(x.rate)}</option>)}</select></div>
+        {rates.length === 0 && <p className="muted" style={{ margin: 0, fontSize: 13 }}>No rates yet: add them in Settings → Billable rates.</p>}
+        <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+          <button type="button" className="btn secondary" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn" disabled={!!r && !pick} onClick={() => onSave(r && pick ? { role_label: pick.role, bill_rate: Number(pick.rate), rate_id: pick.id } : { role_label: null, bill_rate: null, rate_id: null })}>Save</button>
+        </div>
+      </div>
+    </div>)
+}
 export type Alloc = { phase_id: string; profile_id: string; hours: number }
 export type Logged = { phase_id: string | null; profile_id: string; minutes: number }
 type Consultant = { id: string; phase_id: string | null; name: string; discipline: string | null; fee: number; billed: number; markup_pct: number }
@@ -150,6 +187,7 @@ export function TeamTable({ phase, projectId, people, allocs, logged = [], rateO
   rateOf: (id: string) => number; roleOf: (id: string) => string; hasMember: (id: string) => boolean; run: (fn: () => Promise<unknown>) => void
 }) {
   const [editing, setEditing] = useState<string | null>(null) // whose role & rate is being edited
+  const rates = useRates()
   const fee = Number(phase.fee)
   const pById = Object.fromEntries(people.map((p) => [p.id, p]))
   const totalBudget = allocs.reduce((a, x) => a + Number(x.hours) * rateOf(x.profile_id), 0)
@@ -180,15 +218,8 @@ export function TeamTable({ phase, projectId, people, allocs, logged = [], rateO
             <div key={a.profile_id} className="tt-row">
               <span className="tt-who"><span className="pb-avatar tt-av" aria-hidden="true">{initialsOf(p)}</span>
                 <span><span className="tt-name" title={nameOf(p)}>{shortName(p)}</span>{lg > 0 && <span className="tt-logged" style={{ color: hrs && lg > hrs ? 'var(--red)' : undefined }}>{lg} hrs logged</span>}</span></span>
-              {editing === a.profile_id
-                ? <span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
-                    <label className="sr" htmlFor={`role-${phase.id}-${a.profile_id}`}>Role for {nameOf(p)}</label>
-                    <select id={`role-${phase.id}-${a.profile_id}`} className="input" style={{ minHeight: 36, padding: '4px 8px' }} value={role} onChange={(e) => setMember(a.profile_id, { role_label: e.target.value || null })}>
-                      <option value="">Role…</option>{Array.from(new Set([...ROLE_OPTIONS, role].filter(Boolean))).map((r) => <option key={r}>{r}</option>)}</select>
-                    <NumIn label={`Billable rate for ${nameOf(p)}`} prefix="$" value={rate} width={92} onCommit={(v) => setMember(a.profile_id, { bill_rate: v })} />
-                    <button type="button" className="linkbtn" onClick={() => setEditing(null)}>Done</button></span>
-                : <span className="tt-role"><span className="tt-coin" aria-hidden="true">$</span>{role || 'No role'} – {money(rate)}
-                    <button type="button" className="tt-edit" aria-label={`Edit role and rate for ${nameOf(p)}`} onClick={() => setEditing(a.profile_id)}>✎</button></span>}
+              <span className="tt-role"><span className="tt-coin" aria-hidden="true">$</span>{role || 'No role'} – {money(rate)}
+                <button type="button" className="tt-edit" aria-label={`Edit role and rate for ${nameOf(p)}`} onClick={() => setEditing(a.profile_id)}>✎</button></span>
               <span className="tt-pair">
                 <NumIn label={`Hours for ${nameOf(p)} on ${phase.code}`} value={round2(hrs)} onCommit={(v) => setHours(a.profile_id, v)} />
                 <NumIn label={`Percent of ${phase.code} fee for ${nameOf(p)}`} suffix="%" value={fee ? Math.round(budget / fee * 1000) / 10 : 0} disabled={!rate || !fee}
@@ -205,6 +236,8 @@ export function TeamTable({ phase, projectId, people, allocs, logged = [], rateO
         <div className="tt-row total"><span>Total</span><span /><span className="tt-pair plain"><span className="num tt-r">{round2(totalHours)}</span><span className="num tt-r">{fee ? Math.round(totalBudget / fee * 100) : 0}%</span></span>
           <span className="num tt-r">{money(totalBudget)}</span><span /></div>
       </div>
+      {editing && <RoleRateDialog name={nameOf(pById[editing])} role={roleOf(editing)} rate={rateOf(editing)} rates={rates.data ?? []}
+        onClose={() => setEditing(null)} onSave={(v) => { const pid = editing; setEditing(null); setMember(pid, v) }} />}
       <div>
         <label className="sr" htmlFor={`assign-${phase.id}`}>Assign team member to {phase.code}</label>
         <select id={`assign-${phase.id}`} className="input" style={{ width: 260 }} value="" onChange={(e) => assign(e.target.value)} disabled={available.length === 0}>

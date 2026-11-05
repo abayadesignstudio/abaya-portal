@@ -18,3 +18,8 @@
 .tablewrap{overflow-x:auto}
 .inline-select{min-height:34px;padding:4px 8px;border:1px solid #b9b4aa;border-radius:6px;font:13px Arial;background:#fff}
 .np-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.br-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px}
+.br-role{display:flex;flex-direction:column;gap:6px;padding:12px;border:1px solid var(--line);border-radius:10px}
+.br-line{display:grid;grid-template-columns:minmax(170px,1fr) 128px 26px;gap:6px;align-items:center}
+.br-money{display:flex;align-items:center;gap:4px}
+.br-money .input{text-align:right}

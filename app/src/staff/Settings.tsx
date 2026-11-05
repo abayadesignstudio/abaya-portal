@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
+import { useRates, type Rate } from './budget/BudgetTab'
 import './admin.css'
 
 type FS = { digest_time: string; digest_enabled: boolean; reminder_days: number[]; late_rate_monthly: number; firm_name: string | null; address: string | null; phone: string | null; billing_email: string | null; check_payee: string | null }
@@ -16,8 +17,61 @@ export default function Settings() {
       <h1>Settings</h1>
       <FirmSettings admin={admin} />
       {admin && <OnlinePayments />}
+      {admin && <BillableRates />}
       {admin ? <People me={profile!.id} /> : <p className="muted">Only admins can manage people and invitations.</p>}
     </div>
+  )
+}
+
+/** Firm rate table: roles and their rate levels. Project team members pick a role, then one of its rates. */
+function BillableRates() {
+  const rates = useRates()
+  const [f, setF] = useState({ role: '', level: '', rate: '' })
+  const [err, setErr] = useState(''); const [msg, setMsg] = useState('')
+  const list = rates.data ?? []
+  const roles = [...new Set(list.map((r) => r.role))]
+  const run = async (fn: () => Promise<void>, ok: string) => { try { await fn(); setErr(''); setMsg(ok); rates.reload() } catch (e) { setMsg(''); setErr(e instanceof Error ? e.message : String(e)) } }
+  const add = (e: React.FormEvent) => {
+    e.preventDefault()
+    const role = f.role.trim(), rate = parseFloat(f.rate.replace(/[$,]/g, ''))
+    if (!role || !(rate >= 0)) return setErr('Enter a role and a rate.')
+    const sameRole = list.filter((r) => r.role === role)
+    const level = f.level.trim() || `${role} ${sameRole.length + 1}`
+    const sort = sameRole.length ? Math.max(...sameRole.map((r) => r.sort)) : (list.length ? Math.max(...list.map((r) => r.sort)) + 10 : 10)
+    run(async () => { must(await supabase.from('billing_rates').insert({ role, level, rate, sort })); setF({ role: '', level: '', rate: '' }) }, `Added ${level}.`)
+  }
+  // changing a level's rate also updates the project team members who use that level
+  const setRate = (r: Rate, v: string) => { const rate = parseFloat(v.replace(/[$,]/g, '')); if (!(rate >= 0) || rate === Number(r.rate)) return
+    run(async () => { must(await supabase.from('billing_rates').update({ rate }).eq('id', r.id)); must(await supabase.from('project_members').update({ bill_rate: rate }).eq('rate_id', r.id)) }, `${r.level} is now $${rate.toFixed(2)}/hr, including on projects that use it.`) }
+  const setLevel = (r: Rate, v: string) => { const level = v.trim(); if (!level || level === r.level) return
+    run(async () => { must(await supabase.from('billing_rates').update({ level }).eq('id', r.id)) }, 'Renamed.') }
+  const remove = (r: Rate) => { if (!window.confirm(`Remove ${r.level}? People on projects keep their current rate.`)) return
+    run(async () => { must(await supabase.from('billing_rates').delete().eq('id', r.id)) }, `Removed ${r.level}.`) }
+  return (
+    <section className="card pad stack" aria-labelledby="br-h">
+      <h2 id="br-h" style={{ margin: 0 }}>Billable rates</h2>
+      <p className="muted" style={{ margin: 0 }}>Each role has one or more rate levels. On a project’s team, you pick a person’s role and then one of that role’s rates, so the two always match. Changing a rate here updates everyone on projects at that level.</p>
+      {rates.error && <p className="err">{rates.error}</p>}
+      <div className="br-grid">
+        {roles.map((role) => <div key={role} className="br-role">
+          <strong>{role}</strong>
+          {list.filter((r) => r.role === role).map((r) => <div key={r.id} className="br-line">
+            <input className="input" aria-label={`Name of ${r.level}`} defaultValue={r.level} onBlur={(e) => setLevel(r, e.target.value)} />
+            <span className="br-money"><span aria-hidden="true">$</span><input className="input num" aria-label={`Rate for ${r.level}`} inputMode="decimal" defaultValue={Number(r.rate).toFixed(2)}
+              onBlur={(e) => setRate(r, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} /><span className="muted">/hr</span></span>
+            <button type="button" className="linkbtn" style={{ color: 'var(--muted)', fontSize: 18 }} aria-label={`Remove ${r.level}`} onClick={() => remove(r)}>×</button>
+          </div>)}
+        </div>)}
+      </div>
+      <form onSubmit={add} className="row" style={{ alignItems: 'flex-end', gap: 8 }}>
+        <div><label className="l" htmlFor="br-r">Role</label><input id="br-r" className="input" list="br-roles" placeholder="e.g. Principal" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} />
+          <datalist id="br-roles">{roles.map((r) => <option key={r} value={r} />)}</datalist></div>
+        <div><label className="l" htmlFor="br-l">Level name (optional)</label><input id="br-l" className="input" placeholder={f.role ? `${f.role} ${list.filter((r) => r.role === f.role.trim()).length + 1}` : 'e.g. Principal 2'} value={f.level} onChange={(e) => setF({ ...f, level: e.target.value })} /></div>
+        <div style={{ width: 140 }}><label className="l" htmlFor="br-rate">Rate ($/hr)</label><input id="br-rate" className="input num" inputMode="decimal" value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} /></div>
+        <button className="btn secondary">+ Add rate</button>
+      </form>
+      {err && <p className="err" role="alert" style={{ margin: 0 }}>{err}</p>}{msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
+    </section>
   )
 }
 
