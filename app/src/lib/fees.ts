@@ -25,3 +25,6 @@ export async function syncPctPhases(projectId: string, total?: number | null) {
   }
   return n
 }
+
+/** Billing multiplier: billable rate = pay × MULTIPLIER, so pay = billed ÷ MULTIPLIER and the rest is overhead & profit. */
+export const MULTIPLIER = 2

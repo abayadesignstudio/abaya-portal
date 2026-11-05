@@ -3,7 +3,7 @@ import { supabase, money } from '../../lib/supabase'
 import { useLoad, must } from '../../lib/useQuery'
 import { sortPhases, fmtDate } from '../../lib/projectContent'
 import RowMenu from '../../components/RowMenu'
-import { linkedAgreements, contractFee } from '../../lib/fees'
+import { linkedAgreements, contractFee, MULTIPLIER } from '../../lib/fees'
 
 type Phase = { id: string; code: string; fee: number; status: string; start_date: string | null; end_date: string | null }
 export type Person = { id: string; full_name: string | null; email: string; initials: string | null; title: string | null; bill_rate: number | null }
@@ -126,7 +126,6 @@ export default function BudgetTab({ projectId }: { projectId: string }) {
 
 // Billable rates are set at this multiple of what people are paid, so pay = billable ÷ multiplier and the rest covers
 // overhead and profit. (Firm-wide; change here if the multiplier changes.)
-const MULTIPLIER = 2
 
 /** Per person on this project: hours budgeted and logged, what those hours bill, their pay at the multiplier, and the
  *  overhead/profit left over. */

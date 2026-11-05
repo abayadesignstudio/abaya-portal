@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { MULTIPLIER } from '../lib/fees'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import { workload, fmt, AVAILABLE_HRS, yearFraction, isoDate, mondayOf } from './workload'
@@ -110,7 +111,8 @@ function EarnedCard({ p, entries, rates, target }: { p: Person; entries: Entry[]
   })
   return (
     <article className="card pad stack em-earn" aria-label={`${p.full_name || p.email} billable earnings`}>
-      <div><h3>Billable earned</h3><p className="muted">Billable hours × billing rate. Quota = utilization target{p.bill_rate ? ` at $${p.bill_rate}/hr` : ''}.</p></div>
+      <div><h3>Billable earned</h3><p className="muted">Billed = billable hours × billing rate, split {MULTIPLIER}× into pay (billed ÷ {MULTIPLIER}) and overhead &amp; profit (the rest). Quota = utilization target{p.bill_rate ? ` at $${p.bill_rate}/hr` : ''}.</p>
+        <p className="em-key" aria-hidden="true"><span><i className="k-pay" />Pay</span><span><i className="k-oh" />Overhead &amp; profit</span></p></div>
       {!target ? <p className="muted" style={{ margin: 0, fontSize: 14 }}><em>Set a utilization target to see a quota.</em></p> : null}
       {periods.map((x) => {
         const met = x.quotaHrs > 0 && x.hrs >= x.quotaHrs - 0.005
@@ -118,8 +120,9 @@ function EarnedCard({ p, entries, rates, target }: { p: Person; entries: Entry[]
         return <div key={x.label} className="em-per">
           <div className="row between"><span><strong>{x.label}</strong> <span className="muted">· {x.sub}</span></span>
             <span className="num"><strong>{usd(x.earned)}</strong>{x.quota > 0 && <span className="muted"> of {usd(x.quota)}</span>}</span></div>
+          <div className="row between em-split num"><span>Pay <strong>{usd(x.earned / MULTIPLIER)}</strong></span><span>Overhead &amp; profit <strong>{usd(x.earned - x.earned / MULTIPLIER)}</strong>{x.quota > 0 && <span className="muted"> of {usd(x.quota - x.quota / MULTIPLIER)}</span>}</span></div>
           {x.quotaHrs > 0 && <div className="bar" role="img" aria-label={`${Math.round(x.hrs / x.quotaHrs * 100)}% of quota`} style={{ marginTop: 6 }}>
-            <span className="fill" style={{ width: Math.min(100, x.hrs / x.quotaHrs * 100) + '%', background: met ? 'var(--green)' : undefined }} />
+            <span className="fill em-fill" style={{ width: Math.min(100, x.hrs / x.quotaHrs * 100) + '%' }}><span className="k-pay" style={{ width: 100 / MULTIPLIER + '%' }} /><span className="k-oh" /></span>
             {x.pace < 1 && <span className="tick" style={{ left: x.pace * 100 + '%' }} />}</div>}
           <div className="row between em-per-sub"><span className="num">{hr(x.hrs)} billable hrs</span>
             {x.quotaHrs > 0 && <span className="num" style={{ fontWeight: 700, color: met ? 'var(--green)' : behind ? 'var(--red)' : 'var(--text)' }}>{met ? `Quota met${x.hrs - x.quotaHrs >= 0.05 ? ` · +${hr(x.hrs - x.quotaHrs)} hrs` : ''}` : `${hr(x.left)} hrs left to quota`}</span>}</div>
