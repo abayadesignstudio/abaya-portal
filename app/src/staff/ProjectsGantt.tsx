@@ -80,9 +80,10 @@ function useMarks(ids: string[]) {
     return out
   }, [key])
 }
-/** Icons: task = Google Tasks style (blue, empty ring / check), milestone = flag diamond, deliverable = document, event = calendar. */
+/** Icons: task = Google-style red circle with a ringed check (grey when done), milestone = flag diamond, deliverable = document, event = calendar. */
 function MarkIcon({ kind, done }: { kind: Kind; done: boolean }) {
-  if (kind === 'task') return <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#1a73e8" /><circle cx="12" cy="12" r="6.2" fill="none" stroke="#fff" strokeWidth="2" />{done && <path d="M9.2 12.2l2 2 3.8-4" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}</svg>
+  // task: Google's red circle with a white ringed check; grey once it's done
+  if (kind === 'task') return <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="11" fill={done ? '#9aa0a6' : '#e8233b'} /><circle cx="12" cy="12" r="6.6" fill="none" stroke="#fff" strokeWidth="1.8" /><path d="M9.1 12.1l2.1 2.1 3.9-4.1" fill="none" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" /></svg>
   if (kind === 'milestone') return <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 1.5l10.5 10.5L12 22.5 1.5 12z" fill={done ? 'var(--mc)' : '#fff'} stroke="var(--mc)" strokeWidth="2" strokeLinejoin="round" />{done && <path d="M8.3 12.3l2.4 2.4 4.8-5" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}</svg>
   if (kind === 'deliverable') return <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="11" fill={done ? 'var(--mc)' : '#fff'} stroke="var(--mc)" strokeWidth="1.6" /><path d="M8.5 6.5h5l2.5 2.5v8.5h-7.5z M13.5 6.5v2.5h2.5" fill="none" stroke={done ? '#fff' : 'var(--mc)'} strokeWidth="1.5" strokeLinejoin="round" />{done && <path d="M10 13.3l1.5 1.5 2.6-2.8" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />}</svg>
   return <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#fff" stroke="var(--mc)" strokeWidth="1.6" /><rect x="7" y="8" width="10" height="9" rx="1.5" fill="none" stroke="var(--mc)" strokeWidth="1.5" /><path d="M7 11h10M9.5 6.5v3M14.5 6.5v3" stroke="var(--mc)" strokeWidth="1.5" strokeLinecap="round" /></svg>
@@ -350,7 +351,7 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
           <span className="gt-mark k-milestone"><MarkIcon kind="milestone" done={false} /></span>Milestone (phase end)
           <span className="gt-mark k-deliverable"><MarkIcon kind="deliverable" done={false} /></span>Deliverable
           <span className="gt-mark k-task"><MarkIcon kind="task" done={false} /></span>Task
-          <span className="gt-mark k-event"><MarkIcon kind="event" done={false} /></span>Event · filled = done, red = overdue</span>}</p>
+          <span className="gt-mark k-event"><MarkIcon kind="event" done={false} /></span>Event · grey task / filled = done, red outline = overdue</span>}</p>
     </div>
   )
 }
