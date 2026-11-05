@@ -1,26 +1,9 @@
-// A toothed gear like the iPhone Settings icon: an outer cog with many fine teeth, a hollow middle and an inner hub.
-const TEETH = 18
-const gear = (() => {
-  const pts: string[] = []
-  const rO = 11.2, rI = 9.4 // tooth tips, roots
-  for (let i = 0; i < TEETH; i++) {
-    const a = (i / TEETH) * Math.PI * 2, w = (Math.PI * 2) / TEETH
-    for (const [r, t] of [[rI, -0.5], [rO, -0.22], [rO, 0.22], [rI, 0.5]] as const) {
-      const ang = a + t * w
-      pts.push(`${(12 + r * Math.cos(ang)).toFixed(2)},${(12 + r * Math.sin(ang)).toFixed(2)}`)
-    }
-  }
-  return `M${pts.join('L')}Z`
-})()
-
-export default function GearIcon({ size = 18, title }: { size?: number; title?: string }) {
+// Settings gear: an outlined cog with six rounded teeth and a ring in the middle.
+export default function GearIcon({ size = 18, strokeWidth = 2 }: { size?: number; strokeWidth?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden={title ? undefined : true} role={title ? 'img' : undefined}>
-      {title && <title>{title}</title>}
-      {/* the cog, with its middle cut out (evenodd), then a hub with spokes like Apple's */}
-      <path d={`${gear} M12,5.6a6.4,6.4 0 1,0 0.01,0Z`} fill="currentColor" fillRule="evenodd" />
-      <circle cx="12" cy="12" r="2.2" fill="currentColor" />
-      {[0, 60, 120, 180, 240, 300].map((d) => <rect key={d} x="11.35" y="6.4" width="1.3" height="4" rx=".6" fill="currentColor" transform={`rotate(${d} 12 12)`} />)}
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   )
 }

@@ -175,7 +175,7 @@ export default function SidebarTimer({ me }: { me: string }) {
             : open === 'task' && sel ? <TaskSettings api={api} me={me} task={sel} onPlay={play} onClose={() => setOpen(null)} />
             : <TimerPanel api={api} idPrefix="tm-" onDone={() => setOpen(null)} onCancel={() => setOpen(null)} />}
         </div>)}
-      <div className="stimer-bar">
+      <div className={'stimer-bar' + (sel ? ' selb' : running ? ' run' + (api.paused ? ' paused' : '') : '')}>
         {sel ? (
           // a recorded task is selected: ▶ carries on from its time today, ⚙ adds time or a note
           <div className="stimer-pill sel">

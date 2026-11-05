@@ -153,3 +153,17 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .stimer-pill.sel .stimer-pbtn:hover:not(:disabled){background:rgba(2,37,61,.28)}
 .stimer-pill.sel .stimer-clock{color:#02253d;cursor:default}
 .stimer-pill.sel .stimer-paused{color:#02253d;text-transform:none;letter-spacing:0;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* settings gear beside your name at the bottom of the sidebar */
+.side .me>div{flex:1;min-width:0}
+.side .me>div>a{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.me-gear{flex:none;width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#ede6d6;border:1px solid rgba(154,143,99,.5)}
+.me-gear:hover,.me-gear.active{background:rgba(154,143,99,.25)}
+.me-gear:focus-visible{outline:3px solid #7aa2c2;outline-offset:2px}
+.side .stimer{padding-bottom:14px}
+/* running / selected timer fills the bar's own outline (no separate pill) */
+.stimer-bar.run{background:#039855;border-color:#039855;color:#fff}
+.stimer-bar.run.paused{background:#b54708;border-color:#b54708}
+.stimer-bar.selb{background:#9a8f63;border-color:#9a8f63;color:#02253d}
+.stimer-bar .stimer-pill{padding:0;border-radius:0;background:none}
+.stimer-bar.run .stimer-add{border-color:rgba(255,255,255,.5);color:#fff}
+.stimer-bar.run .stimer-add:hover{background:rgba(255,255,255,.2)}

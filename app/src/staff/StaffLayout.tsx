@@ -33,12 +33,11 @@ export default function StaffLayout() {
         </div>
         <div>
           <SidebarTimer me={profile!.id} />
-          <NavLink to="/settings" className={({ isActive }) => 'side-settings' + (isActive ? ' active' : '')} onClick={() => setOpen(false)}>
-            <GearIcon size={18} />Settings
-          </NavLink>
           <div className="me">
             <NavLink to="/account" onClick={() => setOpen(false)} aria-hidden="true" tabIndex={-1} title="Change your photo" style={{ color: "inherit" }}><Avatar url={profile?.avatar_url} initials={ini} size={38} ring="var(--pat)" /></NavLink>
             <div><NavLink to="/account" onClick={() => setOpen(false)} title="My account and password" style={{ color: 'inherit', textDecoration: 'none', display: 'block' }}>{profile?.full_name || profile?.email}</NavLink><button onClick={signOut}>Sign out</button></div>
+            {/* firm settings live with your name */}
+            <NavLink to="/settings" className={({ isActive }) => 'me-gear' + (isActive ? ' active' : '')} onClick={() => setOpen(false)} aria-label="Settings" title="Settings"><GearIcon size={20} /></NavLink>
           </div>
         </div>
       </aside>
