@@ -172,7 +172,7 @@ export default function SidebarTimer({ me }: { me: string }) {
         <div className="stimer-pop" role="dialog" aria-label={open === 'manual' ? 'Manual time entry' : 'Timer'}>
           {open === 'manual'
             ? <ManualPanel api={api} me={me} idPrefix="tmm-" onDone={() => { setOpen(null); setFlash('Time logged.') }} onCancel={() => setOpen(null)} />
-            : open === 'task' && sel ? <TaskSettings api={api} me={me} task={sel} onPlay={play} onClose={() => setOpen(null)} />
+            : open === 'task' && sel ? <TaskSettings api={api} me={me} task={sel} onPlay={play} onClose={() => setOpen(null)} onRekey={setSelKey} />
             : <TimerPanel api={api} idPrefix="tm-" onDone={() => setOpen(null)} onCancel={() => setOpen(null)} />}
         </div>)}
       <div className={'stimer-bar' + (sel ? ' selb' : running ? ' run' + (api.paused ? ' paused' : '') : '')}>
@@ -244,7 +244,27 @@ function TodayList({ api, selected, onSelect }: { api: TimerApi; selected: strin
 }
 
 /** ⚙ for a recorded task: add time in quick steps, add a note, or start it again. */
-function TaskSettings({ api, me, task, onPlay, onClose }: { api: TimerApi; me: string; task: TodayTask; onPlay: () => void; onClose: () => void }) {
+function TaskSettings({ api, me, task, onPlay, onClose, onRekey }: { api: TimerApi; me: string; task: TodayTask; onPlay: () => void; onClose: () => void; onRekey: (key: string) => void }) {
+  // type of service: phase, role and activity (changing them relabels today's time on this task)
+  const [svc, setSvc] = useState({ phase_id: task.phase_id ?? '', role_label: task.role_label ?? '', activity: task.activity ?? '' })
+  useEffect(() => { setSvc({ phase_id: task.phase_id ?? '', role_label: task.role_label ?? '', activity: task.activity ?? '' }) }, [task.key])
+  const oh = task.projects?.number === 'OH'
+  const svcProj = api.projects.find((p) => p.id === task.project_id)
+  const svcChanged = svc.phase_id !== (task.phase_id ?? '') || svc.role_label !== (task.role_label ?? '') || svc.activity !== (task.activity ?? '')
+  const saveSvc = async () => {
+    setBusy(true); setErr(''); setMsg('')
+    let q = supabase.from('time_entries').update({ phase_id: svc.phase_id || null, role_label: svc.role_label || null, activity: svc.activity || null })
+      .eq('profile_id', me).eq('work_date', iso(new Date())).eq('project_id', task.project_id)
+    q = task.phase_id ? q.eq('phase_id', task.phase_id) : q.is('phase_id', null)
+    q = task.role_label ? q.eq('role_label', task.role_label) : q.is('role_label', null)
+    q = task.activity ? q.eq('activity', task.activity) : q.is('activity', null)
+    const { error } = await q
+    if (!error) await supabase.from('timesheet_rows').insert({ profile_id: me, project_id: task.project_id, phase_id: svc.phase_id || null, role_label: svc.role_label || null, activity: svc.activity || null })
+    setBusy(false)
+    if (error) return setErr(error.message)
+    onRekey(`${task.project_id}|${svc.phase_id || null}|${svc.role_label || null}|${svc.activity || null}`)
+    setMsg('Type of service updated.'); announceTimeChange()
+  }
   const [msg, setMsg] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false)
   const [note, setNote] = useState(''); const [noteId, setNoteId] = useState<string | null>(null)
   const today = iso(new Date())
@@ -274,20 +294,29 @@ function TaskSettings({ api, me, task, onPlay, onClose }: { api: TimerApi; me: s
     if (r.error) return setErr(r.error.message)
     setMsg('Note saved.'); announceTimeChange()
   }
-  const oh = task.projects?.number === 'OH'
   return (
     <div className="stack" style={{ padding: 18, gap: 12 }}>
       <div className="row between" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}>
         <div style={{ minWidth: 0 }}>
           <span className="tag" style={{ background: oh ? '#6b7280' : sectorColor(task.projects?.sector ?? null) }}>{oh ? 'OH' : task.projects?.number}</span>
           <h2 style={{ fontSize: 19, margin: '6px 0 2px' }}>{oh ? (task.activity || 'Overhead') : task.projects?.name}</h2>
-          <p className="muted" style={{ margin: 0, fontSize: 13 }}>{[task.phases?.code && (PHASE_NAME[task.phases.code] ?? task.phases.code), task.role_label, !oh && task.activity].filter(Boolean).join(' · ') || '—'}</p>
+
         </div>
         <button type="button" className="linkbtn" aria-label="Close" onClick={onClose}>✕</button>
       </div>
       <p style={{ margin: 0 }}>Today so far: <strong className="num">{hm(task.minutes)}</strong></p>
+      <fieldset className="ts-svc"><legend className="l">Type of service</legend>
+        {!oh && <div><label className="sr" htmlFor="ts-ph">Phase</label><select id="ts-ph" className="input" value={svc.phase_id} onChange={(e) => setSvc({ ...svc, phase_id: e.target.value })}>
+          <option value="">{svcProj && (svcProj.phases ?? []).length === 0 ? 'No phases set up' : 'Phase'}</option>
+          {(svcProj?.phases ?? []).map((x) => <option key={x.id} value={x.id}>{x.code} · {PHASE_NAME[x.code] ?? x.code}</option>)}</select></div>}
+        <div className="tm-pair">
+          <div><label className="sr" htmlFor="ts-r">Role</label><select id="ts-r" className="input" value={svc.role_label} onChange={(e) => setSvc({ ...svc, role_label: e.target.value })}><option value="">Role</option>{ROLES.map((x) => <option key={x}>{x}</option>)}</select></div>
+          <div><label className="sr" htmlFor="ts-a">Activity</label><select id="ts-a" className="input" value={svc.activity} onChange={(e) => setSvc({ ...svc, activity: e.target.value })}><option value="">{oh ? 'Overhead type' : 'Activity'}</option>{(oh ? OVERHEAD : ACTIVITIES).map((x) => <option key={x}>{x}</option>)}</select></div>
+        </div>
+        {svcChanged && <button type="button" className="btn small" disabled={busy} onClick={saveSvc} style={{ alignSelf: 'flex-end' }}>Save type of service</button>}
+      </fieldset>
       <div>
-        <p className="l" style={{ margin: '0 0 6px' }}>Add time</p>
+        <p className="l" style={{ margin: '0 0 6px', fontWeight: 700, fontSize: 14 }}>Add time</p>
         <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
           {([[15, '+15 min'], [30, '+30 min'], [60, '+1 hr']] as const).map(([m, l]) => <button key={m} type="button" className="btn small secondary" style={{ flex: 1 }} disabled={busy} onClick={() => add(m)}>{l}</button>)}
         </div>

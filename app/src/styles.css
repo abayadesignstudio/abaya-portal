@@ -168,3 +168,5 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .stimer-bar.run .stimer-add{border-color:rgba(255,255,255,.5);color:#fff}
 .stimer-bar.run .stimer-add:hover{background:rgba(255,255,255,.2)}
 .stoday-now{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#32d583}
+.ts-svc{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.ts-svc legend{padding:0;margin-bottom:6px}
