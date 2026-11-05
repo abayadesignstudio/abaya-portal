@@ -60,9 +60,10 @@
 .gt-row:hover,.gt-row:focus-within{z-index:2}
 .gt-mark{position:absolute;top:21px;width:24px;height:24px;margin-left:-12px;z-index:3;display:inline-flex;align-items:center;justify-content:center;cursor:default;--mc:color-mix(in srgb,var(--c) 85%,#000)}
 .gt-mark svg{display:block;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.35))}
-.gt-mark.k-milestone{top:41px;width:18px;height:18px;margin-left:-9px;z-index:4}
-.gt-mark.k-milestone svg{width:18px;height:18px}
-.gt-mark.k-milestone .gt-mtip{top:22px}
+.gt-mark.k-milestone{top:-3px;width:20px;height:25px;margin-left:-10px;z-index:4;--pin:color-mix(in srgb,var(--c) 70%,#fff)}
+.gt-mark.k-milestone.done{--pin:var(--c)}
+.gt-mark.k-milestone .gt-mtip{top:28px}
+.gt-legend .gt-mark.k-milestone{--pin:var(--c)}
 .gt-mark.late{--mc:#d92d20}
 .gt-mark:focus-visible{outline:2px solid var(--navy);outline-offset:2px}
 .gt-mtip{display:none;position:absolute;top:28px;left:50%;transform:translateX(-30%);min-width:220px;max-width:320px;padding:10px 12px;border-radius:8px;background:#fff;color:var(--text);box-shadow:0 8px 24px rgba(0,0,0,.18);border:1px solid var(--line);font-size:13px;font-weight:400;text-align:left;flex-direction:column;gap:3px;white-space:normal;z-index:10}
