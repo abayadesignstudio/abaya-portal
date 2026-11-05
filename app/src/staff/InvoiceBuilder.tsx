@@ -13,7 +13,7 @@ type Project = { id: string; number: string; name: string; sector: string | null
 type Inv = {
   id: string; number: string; project_id: string; client_id: string | null; status: string; period_start: string | null; period_end: string | null; issue_date: string | null
   terms_days: number; due_date: string | null; total: number; amount_paid: number; note: string | null; allow_card: boolean; allow_ach: boolean; pass_card_fee: boolean; pass_ach_fee: boolean
-  reminders: boolean; hold_drawings: boolean; email_subject: string | null; email_message: string | null; agreement_mode: string; show_prior_balance: boolean; sent_at: string | null
+  reminders: boolean; hold_drawings: boolean; email_subject: string | null; email_message: string | null; agreement_mode: string; show_prior_balance: boolean; sent_at: string | null; billing_basis?: string | null
 }
 type Line = { kind: string; phase_id: string | null; description: string; pct_to_date: number | null; amount: number; sort: number }
 
@@ -65,7 +65,7 @@ export default function InvoiceBuilder() {
   const [toList, setToList] = useState<string[]>([]); const [ccList, setCcList] = useState<string[]>([]); const [newTo, setNewTo] = useState(''); const [newCc, setNewCc] = useState('')
   const [subject, setSubject] = useState(''); const [message, setMessage] = useState(''); const [note, setNote] = useState('')
   const [issue, setIssue] = useState(todayIso()); const [terms, setTerms] = useState(0)
-  const [opts, setOpts] = useState({ allow_card: true, allow_ach: true, pass_card_fee: false, pass_ach_fee: false, reminders: true, hold_drawings: true, show_prior_balance: true, agreement_mode: 'link' })
+  const [opts, setOpts] = useState({ allow_card: true, allow_ach: true, pass_card_fee: false, pass_ach_fee: false, reminders: true, hold_drawings: true, show_prior_balance: true, agreement_mode: 'link', billing_basis: 'progress' })
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [ok, setOk] = useState('')
   const [hydrated, setHydrated] = useState('')
 
@@ -80,7 +80,7 @@ export default function InvoiceBuilder() {
       const i = e.inv
       setFrom(i.period_start ?? ''); setTo(i.period_end ?? todayIso()); setIssue(i.issue_date ?? todayIso()); setTerms(i.terms_days ?? 0); setNote(i.note ?? '')
       setSubject(i.email_subject ?? `Invoice ${i.number} — ${c.p.name}`); setMessage(i.email_message ?? defaultMessage(c.p, profile?.full_name))
-      setOpts({ allow_card: i.allow_card, allow_ach: i.allow_ach, pass_card_fee: i.pass_card_fee, pass_ach_fee: i.pass_ach_fee, reminders: i.reminders, hold_drawings: i.hold_drawings, show_prior_balance: i.show_prior_balance, agreement_mode: i.agreement_mode })
+      setOpts({ allow_card: i.allow_card, allow_ach: i.allow_ach, pass_card_fee: i.pass_card_fee, pass_ach_fee: i.pass_ach_fee, reminders: i.reminders, hold_drawings: i.hold_drawings, show_prior_balance: i.show_prior_balance, agreement_mode: i.agreement_mode, billing_basis: i.billing_basis ?? 'progress' })
       const d: Record<string, string> = {}; e.lines.filter((l) => l.kind === 'phase' && l.phase_id).forEach((l) => { d[l.phase_id!] = String(l.amount) }); setDue(d)
       setItems(e.lines.filter((l) => !['phase', 'expense', 'markup'].includes(l.kind)).map((l) => ({ kind: l.kind, description: l.description, amount: String(l.amount) })))
       setMarkup(e.lines.some((l) => l.kind === 'markup') || !e.lines.some((l) => l.kind === 'expense'))
@@ -98,6 +98,7 @@ export default function InvoiceBuilder() {
   }, [ctx.data, existing.data, id, hydrated, profile])
 
   const locked = !!existing.data && existing.data.inv.status !== 'draft'
+  const advance = opts.billing_basis === 'advance' // down payment: phases billed ahead of the work, not for work done
   const c = ctx.data
 
   // ---- math
@@ -126,7 +127,7 @@ export default function InvoiceBuilder() {
 
   // ---- persistence
   const buildLines = (): Omit<Line, 'sort'>[] => [
-    ...phaseRows.filter((r) => r.d !== 0).map((r) => ({ kind: 'phase', phase_id: r.ph.id, description: `${r.ph.code} · ${PHASE_NAME[r.ph.code]}`, pct_to_date: round2(r.pct), amount: round2(r.d) })),
+    ...phaseRows.filter((r) => r.d !== 0).map((r) => ({ kind: 'phase', phase_id: r.ph.id, description: `${r.ph.code} · ${PHASE_NAME[r.ph.code]}${advance ? ' — billed in advance' : ''}`, pct_to_date: round2(r.pct), amount: round2(r.d) })),
     ...exSel.map((x) => ({ kind: 'expense', phase_id: null, description: x.description, pct_to_date: null, amount: Number(x.amount) })),
     ...(exMark ? [{ kind: 'markup', phase_id: null, description: 'Service fee on reimbursables, 10% (Agreement §8.2)', pct_to_date: null, amount: exMark }] : []),
     ...items.filter((x) => x.description.trim() || num(x.amount)).map((x) => ({ kind: x.kind, phase_id: null, description: x.description.trim() || (ITEM_LABEL[x.kind] || 'Other'), pct_to_date: null, amount: round2(num(x.amount)) })),
@@ -231,23 +232,29 @@ export default function InvoiceBuilder() {
       {tab === 'build' && <>
         <section className="card stack" style={sec}>
           <div className="row between" style={{ alignItems: 'flex-end' }}>
-            <h2>Architecture services — fixed fee</h2>
+            <div className="stack" style={{ gap: 8 }}>
+              <h2>Architecture services — fixed fee</h2>
+              <div className="ib-basis" role="radiogroup" aria-label="What this invoice bills for">
+                {([['progress', 'Work done'], ['advance', 'Down payment (in advance)']] as const).map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={opts.billing_basis === k} disabled={locked}
+                  className={opts.billing_basis === k ? 'on' : ''} onClick={() => setOpts({ ...opts, billing_basis: k })}>{l}</button>)}
+              </div>
+            </div>
             <div className="row" style={{ alignItems: 'flex-end' }}>
-              <div><label className="l" htmlFor="ib-from">Services from</label><input id="ib-from" type="date" className="input" disabled={locked} value={from} onChange={(e) => setFrom(e.target.value)} /></div>
+              <div><label className="l" htmlFor="ib-from">{advance ? 'Covers work from' : 'Services from'}</label><input id="ib-from" type="date" className="input" disabled={locked} value={from} onChange={(e) => setFrom(e.target.value)} /></div>
               <div><label className="l" htmlFor="ib-to">through</label><input id="ib-to" type="date" className="input" disabled={locked} value={to} onChange={(e) => setTo(e.target.value)} /></div>
             </div>
           </div>
           {phaseRows.length === 0 ? <p className="muted" style={{ margin: 0 }}>This project has no phases yet. <Link to={`/projects/${c.p.id}`}>Add phases and fees on the project page</Link>, or bill with Other items below.</p> : (
             <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 900 }}>
               <div className="ib-cols" style={{ padding: '8px 0', borderBottom: '1px solid var(--line)', fontSize: 12, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)' }}>
-                <span>Phase</span><span style={{ textAlign: 'right' }}>Fee</span><span style={{ textAlign: 'right' }}>Billed before</span><span>Status</span><span style={{ textAlign: 'right' }}>% complete</span><span style={{ textAlign: 'right' }}>This invoice ($)</span><span style={{ textAlign: 'right' }}>Remaining</span></div>
+                <span>Phase</span><span style={{ textAlign: 'right' }}>Fee</span><span style={{ textAlign: 'right' }}>Billed before</span><span>Status</span><span style={{ textAlign: 'right' }}>{advance ? '% billed to date' : '% complete'}</span><span style={{ textAlign: 'right' }}>This invoice ($)</span><span style={{ textAlign: 'right' }}>Remaining</span></div>
               {phaseRows.map((r) => { const s = STATUS_STYLE[r.ph.status] ?? STATUS_STYLE.not_started; return (
                 <div key={r.ph.id} className="ib-cols" style={{ padding: '10px 0', borderBottom: '1px solid #efece6' }}>
                   <strong>{PHASE_NAME[r.ph.code]}</strong>
                   <span className="num" style={{ textAlign: 'right' }}>{money(r.fee)}</span>
                   <span className="num" style={{ textAlign: 'right' }}>{money(r.prev)} <span className="muted">({r.fee ? Math.round(r.prev / r.fee * 100) : 0}%)</span></span>
                   <span><span className="status" style={{ color: s[1], background: s[2] }}>{s[0]}</span></span>
-                  <PctInput label={`${PHASE_NAME[r.ph.code]} percent complete to date`} value={round2(r.pct)} disabled={locked} bad={r.over} onCommit={(v) => setPct(r.ph, r.prev, v)} />
+                  <PctInput label={`${PHASE_NAME[r.ph.code]} ${advance ? 'percent billed to date' : 'percent complete to date'}`} value={round2(r.pct)} disabled={locked} bad={r.over} onCommit={(v) => setPct(r.ph, r.prev, v)} />
                   <label style={{ position: 'relative', display: 'block' }}><span className="sr">{PHASE_NAME[r.ph.code]} amount this invoice</span>
                     <span aria-hidden="true" className="muted" style={{ position: 'absolute', left: 10, top: 12 }}>$</span>
                     <input className="input num" inputMode="decimal" disabled={locked} style={{ textAlign: 'right', paddingLeft: 22, borderColor: r.over ? '#d92d20' : undefined }} value={due[r.ph.id] ?? ''} placeholder="0" onChange={(e) => setDue({ ...due, [r.ph.id]: e.target.value })} /></label>
@@ -255,7 +262,9 @@ export default function InvoiceBuilder() {
                 </div>) })}
               <div className="ib-cols" style={{ padding: '10px 0', fontWeight: 700 }}><span>Fixed fee total</span><span /><span /><span /><span /><span className="num" style={{ textAlign: 'right' }}>{money(fixed)}</span><span /></div>
             </div></div>)}
-          <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Type the percent complete to date, or the dollar amount — the other fills in. A phase can’t be billed past 100% of its fee.</em></p>
+          {advance
+            ? <p className="ib-adv" role="note"><strong>Down payment.</strong> Bill the phases this payment covers ahead of the work (for example SD 100%, DD 100%, CD 50%). The client’s invoice says “Billed in advance,” not “Complete,” and the amounts count toward each phase, so later invoices only bill what’s left. The project overview shows how much is billed ahead of the work.</p>
+            : <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Type the percent complete to date, or the dollar amount — the other fills in. A phase can’t be billed past 100% of its fee.</em></p>}
           {warn.length > 0 && <div role="alert" className="err">{warn.map((w) => <p key={w} style={{ margin: 0 }}>{w}</p>)}</div>}
         </section>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 16 }}>
@@ -347,7 +356,7 @@ export default function InvoiceBuilder() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginTop: 20 }}>
                 <div><p className="muted" style={{ margin: '0 0 4px' }}>Project</p><p className="row" style={{ margin: 0, gap: 8 }}><span className="tag" style={{ background: SECTOR_COLOR[c.p.sector ?? ''] ?? '#6b7280' }}>{c.p.number}</span><strong>{c.p.name}</strong></p></div>
-                <div><p className="muted" style={{ margin: '0 0 4px' }}>Services through</p><p style={{ margin: 0 }}><strong>{from ? `${fmtDate(from)} – ` : ''}{fmtDate(to)}</strong></p></div>
+                <div><p className="muted" style={{ margin: '0 0 4px' }}>{advance ? 'Down payment' : 'Services through'}</p><p style={{ margin: 0 }}><strong>{advance ? `Billed in advance of work${from ? ` starting ${fmtDate(from)}` : ''}` : <>{from ? `${fmtDate(from)} – ` : ''}{fmtDate(to)}</>}</strong></p></div>
               </div>
               {note && <p style={{ margin: '16px 0 0' }}>{note}</p>}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', marginTop: 20, border: '1px solid #d0d5dd', textAlign: 'center' }}>
@@ -355,15 +364,15 @@ export default function InvoiceBuilder() {
                 <div style={{ padding: 8, fontWeight: 700 }}>{number}</div><div style={{ padding: 8 }}>{terms ? `Net ${terms}` : 'Due on receipt'}</div><div style={{ padding: 8 }}>{fmtDate(issue)}</div><div style={{ padding: 8 }}>{fmtDate(dueDate)}</div><div className="num" style={{ padding: 8, fontWeight: 700 }}>{money(total)}</div>
               </div>
               {phaseRows.length > 0 && <>
-                <h2 style={{ margin: '24px 0 6px', fontSize: 16 }}>Architecture Services</h2>
+                <h2 style={{ margin: '24px 0 6px', fontSize: 16 }}>Architecture Services{advance ? ' — Down Payment' : ''}</h2>
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) repeat(4, minmax(0,1fr))' }}>
-                  {['Phase', 'Fee', 'Billed before', 'Complete', 'This invoice'].map((h, i) => <div key={h} className="ib-th" style={{ textAlign: i ? 'right' : 'left' }}>{h}</div>)}
+                  {['Phase', 'Fee', 'Billed before', advance ? 'Billed in advance' : 'Complete', 'This invoice'].map((h, i) => <div key={h} className="ib-th" style={{ textAlign: i ? 'right' : 'left' }}>{h}</div>)}
                   {phaseRows.map((r) => [<div key={r.ph.id + 'a'} style={{ padding: '8px 10px', borderBottom: '1px solid #efefef' }}>{PHASE_NAME[r.ph.code]}</div>,
                     <div key={r.ph.id + 'b'} className="num" style={{ padding: '8px 10px', borderBottom: '1px solid #efefef', textAlign: 'right' }}>{money(r.fee)}</div>,
                     <div key={r.ph.id + 'c'} className="num" style={{ padding: '8px 10px', borderBottom: '1px solid #efefef', textAlign: 'right' }}>{money(r.prev)}</div>,
                     <div key={r.ph.id + 'd'} className="num" style={{ padding: '8px 10px', borderBottom: '1px solid #efefef', textAlign: 'right' }}>{Math.round(r.pct)}%</div>,
                     <div key={r.ph.id + 'e'} className="num" style={{ padding: '8px 10px', borderBottom: '1px solid #efefef', textAlign: 'right', fontWeight: 700 }}>{money(r.d)}</div>])}
-                  <div style={{ padding: '8px 10px', gridColumn: '1 / 5', textAlign: 'right', fontWeight: 700 }}>Architecture services</div><div className="num" style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700 }}>{money(fixed)}</div>
+                  <div style={{ padding: '8px 10px', gridColumn: '1 / 5', textAlign: 'right', fontWeight: 700 }}>{advance ? 'Down payment' : 'Architecture services'}</div><div className="num" style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700 }}>{money(fixed)}</div>
                 </div></>}
               {exSel.length > 0 && <><h2 style={{ margin: '18px 0 6px', fontSize: 16 }}>Reimbursable Expenses</h2>
                 {exSel.map((x) => <div key={x.id} className="row between" style={{ padding: '6px 10px', borderBottom: '1px solid #efefef' }}><span>{x.description}</span><span className="num">{money(x.amount)}</span></div>)}
@@ -378,6 +387,7 @@ export default function InvoiceBuilder() {
               </div>
               <div className="row between" style={{ marginTop: 22, padding: '14px 16px', borderRadius: 8, background: '#f4f6f8' }}>
                 <p style={{ margin: 0, fontSize: 13 }}>Pay online by {payWays}. Checks payable to <strong>Abaya Design Studio, LLC</strong>.</p><span className="btn" style={{ minHeight: 38 }}>Pay invoice</span></div>
+              {advance && <p className="muted" style={{ margin: '12px 0 0', fontSize: 12 }}>This is a down payment billed before the work is done. It is applied to the phases above, and later invoices bill only the remaining fee for each phase.</p>}
               {opts.hold_drawings && <p className="muted" style={{ margin: '12px 0 0', fontSize: 12 }}>Drawings for this billing period are released in your portal once payment clears (Agreement §6.3).</p>}
               {opts.agreement_mode === 'link' && <p className="muted" style={{ margin: '6px 0 0', fontSize: 12 }}>Your signed Owner–Architect Agreement is available in your client portal.</p>}
             </article>

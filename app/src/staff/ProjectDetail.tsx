@@ -70,6 +70,11 @@ export default function ProjectDetail() {
   const fromAgreement = PHASES.map(([c]) => c).filter((c) => agreementCodes.includes(c) && !phases.some((x) => x.code === c))
   const totBilled = invoices.filter((i) => i.status === 'open' || i.status === 'paid').reduce((a, i) => a + Number(i.total), 0)
   const totHrs = time.reduce((a, t) => a + t.minutes / 60, 0)
+  // billed ahead of the work (a down payment, or billing faster than the work): billed minus work done.
+  // Work done = a complete phase's whole fee; an active phase's hours at billing rates, up to its fee; nothing before it starts.
+  const earned = (ph: Phase) => ph.status === 'complete' ? Number(ph.fee) : ph.status === 'not_started' ? 0 : Math.min(Number(ph.fee), used(ph.id).cost)
+  const aheadOf = (ph: Phase) => Math.max(0, round2((billedBy[ph.id] ?? 0) - earned(ph)))
+  const totAhead = round2(phases.reduce((a, ph) => a + aheadOf(ph), 0))
   const missing = PHASES.filter(([c]) => !phases.some((x) => x.code === c))
 
   return (
@@ -92,7 +97,9 @@ export default function ProjectDetail() {
       <section className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }} aria-label="Summary">
         {([['Total fee', money(totFee), cf === null ? 'Sum of phase fees (no agreement linked)' : `From ${agreements.length === 1 ? 'the agreement' : `${agreements.length} agreements`}`],
           ['Contract split into phases', money(phaseSum), cf === null ? '' : Math.abs(phaseSum - cf) < 0.005 ? '100% of the fee' : `${cf ? Math.round(phaseSum / cf * 1000) / 10 : 0}% of the fee · ${money(Math.abs(cf - phaseSum))} ${phaseSum < cf ? 'unassigned' : 'over'}`],
-          ['Invoiced', money(totBilled), ''], ['Left to bill', money(totFee - totBilled), ''], ['Hours logged', totHrs.toFixed(1), '']] as [string, string, string][]).map(([l, v, sub]) => (
+          ['Invoiced', money(totBilled), ''], ['Left to bill', money(totFee - totBilled), ''],
+          ...(totAhead > 0 ? [['Billed ahead of work', money(totAhead), 'Collected for work not done yet. Shrinks as phases progress.']] : []),
+          ['Hours logged', totHrs.toFixed(1), '']] as [string, string, string][]).map(([l, v, sub]) => (
           <div key={l} style={{ padding: '16px 20px', borderRight: '1px solid #ece9e3' }}><div className="muted" style={{ fontSize: 14 }}>{l}</div><div className="num" style={{ fontSize: 26, fontWeight: 700 }}>{v}</div>
             {sub && <div style={{ fontSize: 12.5, marginTop: 2, color: l === 'Contract split into phases' && !sub.startsWith('100') ? 'var(--amber)' : 'var(--muted)' }}>{sub}</div>}</div>))}
       </section>
@@ -126,7 +133,7 @@ export default function ProjectDetail() {
         <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 1150 }}>
           <thead><tr><th>Phase</th><th>Status</th><th>Start</th><th>End</th><th className="r">Fee</th><th>Team</th><th className="r">Billed</th><th className="r">Hours</th><th>Fee used (labor at rates)</th><th></th></tr></thead>
           <tbody>{phases.map((ph) => <Fragment key={ph.id}>
-            <PhaseRow key={ph.id + ph.fee + (ph.fee_pct ?? '')} ph={ph} total={cf} team={teamOf(ph)} teamOpen={teamOpen === ph.id} onTeam={() => setTeamOpen(teamOpen === ph.id ? null : ph.id)} billed={billedBy[ph.id] ?? 0} used={used(ph.id)} onSaved={reload} />
+            <PhaseRow key={ph.id + ph.fee + (ph.fee_pct ?? '')} ph={ph} total={cf} team={teamOf(ph)} teamOpen={teamOpen === ph.id} onTeam={() => setTeamOpen(teamOpen === ph.id ? null : ph.id)} billed={billedBy[ph.id] ?? 0} ahead={aheadOf(ph)} used={used(ph.id)} onSaved={reload} />
             {teamOpen === ph.id && <tr className="ph-team-row"><td colSpan={10}>
               <div className="ph-team-edit">
                 <div className="row between"><strong>{ph.code} team</strong><button type="button" className="linkbtn" onClick={() => setTeamOpen(null)}>Done</button></div>
@@ -465,7 +472,7 @@ function FeeInput({ id, mode, amt, pct, total, onMode, onAmt, onPct }: { id: str
 }
 
 type TeamMember = { id: string; name: string; initials: string; hours: number; pct: number }
-function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, used, onSaved }: { ph: Phase; total: number | null; team: TeamMember[]; teamOpen: boolean; onTeam: () => void; billed: number; used: { hrs: number; cost: number }; onSaved: () => void }) {
+function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSaved }: { ph: Phase; total: number | null; team: TeamMember[]; teamOpen: boolean; onTeam: () => void; billed: number; ahead: number; used: { hrs: number; cost: number }; onSaved: () => void }) {
   const startMode = ph.fee_pct != null && total !== null ? 'pct' : 'amt'
   const [f, setF] = useState({ mode: startMode as 'amt' | 'pct', fee: String(ph.fee), pct: ph.fee_pct != null ? String(Number(ph.fee_pct)) : total ? String(Math.round(Number(ph.fee) / total * 10000) / 100) : '',
     status: ph.status, start_date: ph.start_date ?? '', end_date: ph.end_date ?? '' })
@@ -492,7 +499,7 @@ function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, used, onSaved }: 
           <span className="pb-avatar" aria-hidden="true">{m.initials}</span><span className="sr">{m.name}</span><span className="num">{Math.round(m.pct)}%</span></li>)}
           {team.length > 1 && <li className="muted num" style={{ fontSize: 12 }}>= {Math.round(team.reduce((a, m) => a + m.pct, 0))}%</li>}</ul>}
         <button type="button" className="linkbtn" style={{ fontSize: 13 }} aria-expanded={teamOpen} onClick={onTeam}>{teamOpen ? 'Close' : team.length ? 'Edit team' : '+ Assign team'}</button></td>
-      <td className="r num">{money(billed)}</td>
+      <td className="r num">{money(billed)}{ahead > 0 && <div className="pd-ahead" title="Billed ahead of the work done on this phase">{money(ahead)} ahead</div>}</td>
       <td className="r num">{used.hrs.toFixed(1)}</td>
       <td style={{ minWidth: 160 }}><div style={{ height: 8, borderRadius: 999, background: '#ece9e3', overflow: 'hidden' }}><span style={{ display: 'block', height: '100%', width: Math.min(100, pct) + '%', background: pct >= 90 ? '#d92d20' : pct >= 75 ? '#dc6803' : 'var(--navy)' }} /></div>
         <div className="muted num" style={{ fontSize: 12, marginTop: 4 }}>{money(used.cost)} · {pct.toFixed(0)}%</div></td>

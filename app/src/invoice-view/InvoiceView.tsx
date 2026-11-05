@@ -6,7 +6,7 @@ type Line = { kind: string; description: string; pct_to_date: number | null; amo
 type PublicInvoice = {
   number: string; status: string; issue_date: string | null; due_date: string | null; terms_days: number
   period_start: string | null; period_end: string | null; total: number; amount_paid: number; note: string | null
-  allow_card: boolean; allow_ach: boolean; pass_card_fee?: boolean; pass_ach_fee?: boolean; pay_online?: boolean; project: { number: string; name: string; sector: string | null }; client: string | null; lines: Line[]
+  allow_card: boolean; allow_ach: boolean; pass_card_fee?: boolean; pass_ach_fee?: boolean; pay_online?: boolean; advance?: boolean; project: { number: string; name: string; sector: string | null }; client: string | null; lines: Line[]
 }
 
 const SECTOR_COLOR: Record<string, string> = { commercial: '#2b5c8a', residential: '#a32d2d', medical: '#2e7d4f', consultation: '#6b7280', civic: '#5b4b8a', internal: '#02253d' }
@@ -111,7 +111,7 @@ export default function InvoiceView() {
         </div>
         <div className="iv-two">
           <div><p className="iv-muted iv-lab">Project</p><p className="iv-proj"><span className="iv-tag" style={{ background: SECTOR_COLOR[inv.project.sector ?? ''] ?? '#6b7280' }}>{inv.project.number}</span><strong>{inv.project.name}</strong></p></div>
-          <div><p className="iv-muted iv-lab">Services through</p><p><strong>{inv.period_start ? `${fmt(inv.period_start)} – ` : ''}{fmt(inv.period_end)}</strong></p></div>
+          <div><p className="iv-muted iv-lab">{inv.advance ? 'Down payment' : 'Services through'}</p><p><strong>{inv.advance ? `Billed in advance of work${inv.period_start ? ` starting ${fmt(inv.period_start)}` : ''}` : <>{inv.period_start ? `${fmt(inv.period_start)} – ` : ''}{fmt(inv.period_end)}</>}</strong></p></div>
         </div>
         {inv.note && <p>{inv.note}</p>}
         <dl className="iv-facts">
@@ -122,9 +122,9 @@ export default function InvoiceView() {
           <div><dt>This invoice</dt><dd><strong>{money(inv.total)}</strong></dd></div>
         </dl>
         {groups.map(([h, ls]) => <section key={h}>
-          <h2>{h}</h2>
+          <h2>{h}{inv.advance && h === 'Architecture Services' ? ' — Down Payment' : ''}</h2>
           <table className="iv-lines">
-            <thead><tr><th scope="col">Description</th>{h === 'Architecture Services' && <th scope="col" className="r">Complete</th>}<th scope="col" className="r">Amount</th></tr></thead>
+            <thead><tr><th scope="col">Description</th>{h === 'Architecture Services' && <th scope="col" className="r">{inv.advance ? 'Billed in advance' : 'Complete'}</th>}<th scope="col" className="r">Amount</th></tr></thead>
             <tbody>{ls.map((l, i) => <tr key={i}><td>{l.description}</td>{h === 'Architecture Services' && <td className="r">{l.pct_to_date === null ? '' : `${Math.round(l.pct_to_date)}%`}</td>}<td className="r">{money(l.amount)}</td></tr>)}</tbody>
           </table>
         </section>)}
@@ -133,6 +133,7 @@ export default function InvoiceView() {
           {inv.amount_paid > 0 && <div><span>Paid</span><span>−{money(inv.amount_paid)}</span></div>}
           <div className="iv-due"><strong>Balance due</strong><strong>{money(balance)}</strong></div>
         </div>
+        {inv.advance && <p className="iv-muted iv-small">This is a down payment billed before the work is done. It is applied to the phases above, and later invoices bill only the remaining fee for each phase.</p>}
         <p className="iv-muted iv-small">Your signed agreement and drawings are in your client portal.</p>
       </article>
       <div className="iv-actions"><button className="iv-btn secondary" onClick={() => window.print()}>Print or save as PDF</button><a className="iv-btn secondary" href="../portal/">Client portal</a></div>
