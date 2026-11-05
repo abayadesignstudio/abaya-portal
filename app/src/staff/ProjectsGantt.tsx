@@ -60,7 +60,13 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
   const dragRef = useRef<Drag | null>(null); dragRef.current = drag
   const [undo, setUndo] = useState<{ id: string; label: string; prev: Dates; now: Dates } | null>(null)
   const [saveErr, setSaveErr] = useState('')
-  useEffect(() => { setOver({}) }, [rows])
+  // keep each new position until the reloaded data shows it (no snap-back to the old dates while saving)
+  useEffect(() => {
+    setOver((o) => {
+      const keep = Object.entries(o).filter(([id, d]) => !rows.some((r) => r.phases.some((p) => p.id === id && p.start_date === d.start_date && p.end_date === d.end_date)))
+      return keep.length === Object.keys(o).length ? o : Object.fromEntries(keep)
+    })
+  }, [rows])
   const shift = (d: Dates, edge: Edge, n: number): Dates => {
     if (edge === 'move') return { start_date: isoOf(addDays(parse(d.start_date), n)), end_date: isoOf(addDays(parse(d.end_date), n)) }
     if (edge === 'start') { const s = addDays(parse(d.start_date), n); const e = parse(d.end_date); return { ...d, start_date: isoOf(s > e ? e : s) } }
