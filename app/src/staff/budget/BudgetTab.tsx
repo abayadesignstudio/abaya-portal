@@ -22,9 +22,9 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const nameOf = (p?: Person) => p?.full_name || p?.email || 'Someone'
 const initialsOf = (p?: Person) => p?.initials || nameOf(p).split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
 
-export default function BudgetTab({ projectId }: { projectId: string }) {
+export default function BudgetTab({ projectId, focus }: { projectId: string; focus?: string }) {
   const [sub, setSub] = useState<'firm' | 'consultants' | 'expenses'>('firm')
-  const [only, setOnly] = useState('all')
+  const [only, setOnly] = useState(focus || 'all') // opened from a phase's "Assign team" on the Overview
   const [err, setErr] = useState('')
   const { data, error, reload } = useLoad(async () => {
     const phases = sortPhases(must(await supabase.from('phases').select('id, code, fee, status, start_date, end_date').eq('project_id', projectId)) as Phase[])
@@ -114,7 +114,7 @@ function PhaseCard({ phase, people, allocs, logged, rateOf, roleOf, pById, proje
   phase: Phase; people: Person[]; allocs: Alloc[]; logged: Logged[]; rateOf: (id: string) => number; roleOf: (id: string) => string
   pById: Record<string, Person>; projectId: string; hasMember: (id: string) => boolean; run: (fn: () => Promise<unknown>) => void
 }) {
-  const [open, setOpen] = useState(phase.status === 'in_progress' || allocs.length > 0)
+  const [open, setOpen] = useState(true)
   const [pick, setPick] = useState('')
   const fee = Number(phase.fee)
   const totalBudget = allocs.reduce((a, x) => a + Number(x.hours) * rateOf(x.profile_id), 0)
