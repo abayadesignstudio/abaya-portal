@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import Avatar from '../components/Avatar'
+import GearIcon from '../components/GearIcon'
 import { useState } from 'react'
 import { useAuth } from '../lib/auth'
 import SidebarTimer from '../components/Timer'
@@ -33,7 +34,7 @@ export default function StaffLayout() {
         <div>
           <SidebarTimer me={profile!.id} />
           <NavLink to="/settings" className={({ isActive }) => 'side-settings' + (isActive ? ' active' : '')} onClick={() => setOpen(false)}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2" /></svg>Settings
+            <GearIcon size={18} />Settings
           </NavLink>
           <div className="me">
             <NavLink to="/account" onClick={() => setOpen(false)} aria-hidden="true" tabIndex={-1} title="Change your photo" style={{ color: "inherit" }}><Avatar url={profile?.avatar_url} initials={ini} size={38} ring="var(--pat)" /></NavLink>

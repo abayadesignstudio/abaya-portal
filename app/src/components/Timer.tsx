@@ -4,6 +4,7 @@ import { ACTIVITIES, OVERHEAD, ROLES, iso, announceTimeChange } from '../lib/tim
 import { supabase } from '../lib/supabase'
 import { useTimer, uniqueRecent, clockOf, EMPTY_FIELDS, type TimerApi, type TimerFields, type TodayTask } from './useTimer'
 import Combobox, { sectorColor } from './Combobox'
+import GearIcon from './GearIcon'
 
 /** The time-entry form and recent list, shared by the sidebar popover and the phone sheet. */
 export function TimerPanel({ api, idPrefix, onDone, onCancel }: { api: TimerApi; idPrefix: string; onDone: () => void; onCancel: () => void }) {
@@ -182,7 +183,7 @@ export default function SidebarTimer({ me }: { me: string }) {
               <svg width="12" height="13" viewBox="0 0 12 13" aria-hidden="true"><path d="M1.5 1L11 6.5 1.5 12z" fill="currentColor" /></svg></button>
             <span className="stimer-clock num" title={`${taskName(sel)} so far today`}>{clockOf(sel.minutes * 60000)}<small className="stimer-paused">{taskName(sel)}</small></span>
             <button type="button" className="stimer-pbtn" onClick={() => setOpen(open === 'task' ? null : 'task')} aria-expanded={open === 'task'} aria-label={`Add time or a note to ${taskName(sel)}`} title="Add time or a note">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2" /><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" /></svg></button>
+              <GearIcon size={18} /></button>
           </div>
         ) : running ? (
           // running: one green pill (amber while paused): pause / resume on the left, the time in the middle, stop on the right
@@ -200,9 +201,9 @@ export default function SidebarTimer({ me }: { me: string }) {
           <button type="button" className="stimer-go" onClick={circle} aria-label="Start a timer" title="Start a timer"><PlayIcon running={false} /></button>
           <span className="stimer-label">{flash || 'Timer'}</span>
         </>}
-        <button type="button" className="stimer-add" onClick={() => setOpen(open === 'manual' ? null : 'manual')} aria-expanded={open === 'manual'} aria-label="Add a manual time entry" title="Manual entry">
+        {!sel && <button type="button" className="stimer-add" onClick={() => setOpen(open === 'manual' ? null : 'manual')} aria-expanded={open === 'manual'} aria-label="Add a manual time entry" title="Manual entry">
           <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
-        </button>
+        </button>}
       </div>
     </div>
   )
