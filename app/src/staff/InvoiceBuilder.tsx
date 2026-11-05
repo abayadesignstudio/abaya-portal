@@ -23,7 +23,7 @@ const order = (code: string) => PHASES.findIndex(([c]) => c === code)
 
 export default function InvoiceBuilder() {
   const { id } = useParams()
-  const [sp] = useSearchParams()
+  const [sp, setSp] = useSearchParams()
   const nav = useNavigate()
   const { profile } = useAuth()
   const [projectId, setProjectId] = useState<string>(sp.get('project') ?? '')
@@ -136,10 +136,13 @@ export default function InvoiceBuilder() {
     if (!c) return null
     if (warn.length) { setErr(warn[0]); return null }
     setBusy(true); setErr('')
+    // billing_basis is only sent when it's a down payment (or was one), so ordinary invoices save on a database without that column yet
+    const { billing_basis, ...rest } = opts
+    const sendOpts = billing_basis === 'advance' || existing.data?.inv.billing_basis === 'advance' ? opts : rest
     try {
       const fields = {
         project_id: c.p.id, client_id: c.p.client_id, period_start: from || null, period_end: to || null, issue_date: issue || null, terms_days: terms, due_date: dueDate || null,
-        subtotal: total, total, note: note || null, email_subject: subject, email_message: message, ...opts,
+        subtotal: total, total, note: note || null, email_subject: subject, email_message: message, ...sendOpts,
       }
       let invId = id ?? null
       if (invId) must(await supabase.from('invoices').update(fields).eq('id', invId))
@@ -189,7 +192,7 @@ export default function InvoiceBuilder() {
       <h1>New invoice</h1>
       <div className="card pad stack" style={{ maxWidth: 520 }}>
         <label className="l" htmlFor="ib-proj">Project</label>
-        <select id="ib-proj" className="input" value="" onChange={(e) => setProjectId(e.target.value)}>
+        <select id="ib-proj" className="input" value="" onChange={(e) => { setProjectId(e.target.value); setSp({ project: e.target.value }, { replace: true }) }}>
           <option value="">Choose a project…</option>{projects.data?.filter((p) => p.status !== 'complete').map((p) => <option key={p.id} value={p.id}>{p.number} · {p.name}</option>)}
           <optgroup label="Complete">{projects.data?.filter((p) => p.status === 'complete').map((p) => <option key={p.id} value={p.id}>{p.number} · {p.name}</option>)}</optgroup>
         </select>
