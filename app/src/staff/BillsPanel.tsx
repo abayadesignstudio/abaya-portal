@@ -42,10 +42,10 @@ export default function BillsPanel() {
         </svg>
         <div style={{ minWidth: 0, flex: 1 }}>
           <p style={{ margin: '0 0 6px', fontSize: 14 }}><strong>{monthName}</strong> · <span style={{ color: 'var(--green)', fontWeight: 700 }}>{money(paid)} paid</span> · {money(total - paid)} left</p>
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 3, fontSize: 13 }}>
-            {segs.slice(0, 5).map((s) => <li key={s.c} className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
-              <span aria-hidden="true" style={{ width: 9, height: 9, borderRadius: 2, flex: 'none', background: COLOR[s.c] ?? '#98a2b3' }} />
-              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.c}</span><span className="num">{money(s.v).replace('.00', '')}</span></li>)}
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 3, fontSize: 13 }}>
+            {segs.slice(0, 5).map((s) => <li key={s.c} className="row" style={{ gap: 6, flexWrap: 'nowrap', alignItems: 'flex-start' }}>
+              <span aria-hidden="true" style={{ width: 9, height: 9, marginTop: 4, borderRadius: 2, flex: 'none', background: COLOR[s.c] ?? '#98a2b3' }} />
+              <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{s.c}</span><span className="num" style={{ whiteSpace: 'nowrap' }}>{money(s.v).replace('.00', '')}</span></li>)}
             {segs.length === 0 && data && <li className="muted"><em>No bills this month.</em></li>}
           </ul>
         </div>
