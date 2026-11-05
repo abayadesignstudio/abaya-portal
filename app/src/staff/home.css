@@ -120,16 +120,12 @@
 .td-up .td-date{color:#3b4350;line-height:1.25}
 .em-col{display:flex;flex-direction:column;gap:14px;min-width:0}
 .em-earn h3{margin:0;font-size:16px}
-.em-earn>div>p{margin:2px 0 0;font-size:12.5px}
 .em-per{padding-top:10px;border-top:1px solid #ece9e3;font-size:14px}
 .em-per-sub{margin-top:6px;font-size:13px}
-.bar>span.fill.em-fill{display:flex;overflow:hidden;background:none}
-.em-fill>span{display:block;height:100%}
-.em-fill>.k-oh{flex:1}
-.k-pay{background:var(--navy)}
-.k-oh{background:#9a8f63}
-.em-key{display:flex;gap:14px;margin:6px 0 0!important;font-size:12.5px;color:var(--muted)}
-.em-key span{display:inline-flex;align-items:center;gap:5px}
-.em-key i{display:inline-block;width:10px;height:10px;border-radius:2px}
-.em-split{margin-top:2px;font-size:13px;color:var(--muted)}
-.em-split strong{color:var(--text)}
+.em-amt{font-size:16px}
+.em-split-t{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:4px}
+.em-split-t caption{text-align:left;font-size:13px;font-weight:700;padding:10px 0 6px;border-top:1px solid #ece9e3}
+.em-split-t th,.em-split-t td{padding:5px 0;border-top:1px solid #f1eee8;text-align:right}
+.em-split-t thead th{border-top:0;font-size:12px;color:var(--muted);font-weight:700}
+.em-split-t tbody th{text-align:left;font-weight:400;color:var(--muted)}
+.em-foot{margin:0;font-size:12px}

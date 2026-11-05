@@ -109,26 +109,30 @@ function EarnedCard({ p, entries, rates, target }: { p: Person; entries: Entry[]
     const pace = weekdays(a, b) ? Math.min(1, weekdays(a, today < b ? today : b) / weekdays(a, b)) : 0
     return { label, sub, hrs, earned, quotaHrs, quota, left: Math.max(0, quotaHrs - hrs), pace }
   })
+  const pct = (x: typeof periods[number]) => x.quotaHrs > 0 ? Math.min(100, x.hrs / x.quotaHrs * 100) : 0
   return (
     <article className="card pad stack em-earn" aria-label={`${p.full_name || p.email} billable earnings`}>
-      <div><h3>Billable earned</h3><p className="muted">Billed = billable hours × billing rate, split {MULTIPLIER}× into pay (billed ÷ {MULTIPLIER}) and overhead &amp; profit (the rest). Quota = utilization target{p.bill_rate ? ` at $${p.bill_rate}/hr` : ''}.</p>
-        <p className="em-key" aria-hidden="true"><span><i className="k-pay" />Pay</span><span><i className="k-oh" />Overhead &amp; profit</span></p></div>
-      {!target ? <p className="muted" style={{ margin: 0, fontSize: 14 }}><em>Set a utilization target to see a quota.</em></p> : null}
+      <h3>Billable earned</h3>
+      {!target && <p className="muted" style={{ margin: 0, fontSize: 14 }}><em>Set a utilization target to see a goal.</em></p>}
       {periods.map((x) => {
         const met = x.quotaHrs > 0 && x.hrs >= x.quotaHrs - 0.005
         const behind = !met && x.hrs < x.quotaHrs * x.pace - 0.5
         return <div key={x.label} className="em-per">
-          <div className="row between"><span><strong>{x.label}</strong> <span className="muted">· {x.sub}</span></span>
-            <span className="num"><strong>{usd(x.earned)}</strong>{x.quota > 0 && <span className="muted"> of {usd(x.quota)}</span>}</span></div>
-          <div className="row between em-split num"><span>Pay <strong>{usd(x.earned / MULTIPLIER)}</strong></span><span>Overhead &amp; profit <strong>{usd(x.earned - x.earned / MULTIPLIER)}</strong>{x.quota > 0 && <span className="muted"> of {usd(x.quota - x.quota / MULTIPLIER)}</span>}</span></div>
-          {x.quotaHrs > 0 && <div className="bar" role="img" aria-label={`${Math.round(x.hrs / x.quotaHrs * 100)}% of quota`} style={{ marginTop: 6 }}>
-            <span className="fill em-fill" style={{ width: Math.min(100, x.hrs / x.quotaHrs * 100) + '%' }}><span className="k-pay" style={{ width: 100 / MULTIPLIER + '%' }} /><span className="k-oh" /></span>
+          <div className="row between"><span><strong>{x.label}</strong> <span className="muted">{x.sub}</span></span>
+            <span className="num em-amt"><strong>{usd(x.earned)}</strong>{x.quota > 0 && <span className="muted"> / {usd(x.quota)}</span>}</span></div>
+          {x.quotaHrs > 0 && <div className="bar" role="img" aria-label={`${Math.round(pct(x))}% of goal`} style={{ marginTop: 6 }}>
+            <span className="fill" style={{ width: pct(x) + '%', background: met ? 'var(--green)' : undefined }} />
             {x.pace < 1 && <span className="tick" style={{ left: x.pace * 100 + '%' }} />}</div>}
-          <div className="row between em-per-sub"><span className="num">{hr(x.hrs)} billable hrs</span>
-            {x.quotaHrs > 0 && <span className="num" style={{ fontWeight: 700, color: met ? 'var(--green)' : behind ? 'var(--red)' : 'var(--text)' }}>{met ? `Quota met${x.hrs - x.quotaHrs >= 0.05 ? ` · +${hr(x.hrs - x.quotaHrs)} hrs` : ''}` : `${hr(x.left)} hrs left to quota`}</span>}</div>
+          <div className="row between em-per-sub"><span className="num muted">{hr(x.hrs)} hrs billed</span>
+            {x.quotaHrs > 0 && <span className="num" style={{ fontWeight: 700, color: met ? 'var(--green)' : behind ? 'var(--red)' : 'var(--text)' }}>{met ? 'Goal met' : `${hr(x.left)} hrs to go`}</span>}</div>
         </div>
       })}
-      {target > 0 && <p className="muted" style={{ margin: 0, fontSize: 12 }}><em>Orange tick = where you should be by today.</em></p>}
+      <table className="em-split-t num">
+        <caption>Where the money goes ({MULTIPLIER}× multiplier)</caption>
+        <thead><tr><th scope="col" /><th scope="col">Pay</th><th scope="col">Overhead &amp; profit</th></tr></thead>
+        <tbody>{periods.map((x) => <tr key={x.label}><th scope="row">{x.label.replace('This ', '').replace(/^./, (c) => c.toUpperCase())}</th><td>{usd(x.earned / MULTIPLIER)}</td><td>{usd(x.earned - x.earned / MULTIPLIER)}</td></tr>)}</tbody>
+      </table>
+      <p className="muted em-foot"><em>Billed = billable hours × billing rate. Goal = utilization target at {p.bill_rate ? `$${p.bill_rate}/hr` : 'their rate'}. Orange tick = where you should be by today.</em></p>
     </article>
   )
 }
