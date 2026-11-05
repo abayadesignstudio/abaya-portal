@@ -48,3 +48,14 @@ body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 Arial,Helveti
 .iv-paybtns{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:14px 0 8px}
 .iv-paybtns .iv-btn{margin:0;min-width:200px}
 .iv-thanks{margin:12px 0 4px;padding:10px 12px;border-radius:8px;background:#ecfdf3;border:1px solid #abefc6;color:#05603a;font-weight:700}
+/* wire transfer instructions */
+.iv-wire{text-align:left;margin:14px 0 6px;padding:16px 18px;border:1px solid #d9d4c8;border-radius:10px;background:#faf9f6}
+.iv-wire h2{margin:0 0 8px;font-size:16px}
+.iv-wire dl{margin:0;display:grid;gap:0}
+.iv-wire dl>div{display:grid;grid-template-columns:170px minmax(0,1fr);gap:10px;align-items:center;padding:7px 0;border-top:1px solid #ece8df}
+.iv-wire dt{color:#5f6368;font-size:13.5px}
+.iv-wire dd{margin:0;display:flex;justify-content:space-between;gap:10px;font-weight:700;overflow-wrap:anywhere}
+.iv-copy{flex:none;min-height:30px;padding:0 10px;border:1px solid #b9b4aa;border-radius:6px;background:#fff;color:var(--navy);font:700 12.5px Arial,sans-serif;cursor:pointer}
+.iv-copy:focus-visible{outline:3px solid #9a8f63;outline-offset:2px}
+.iv-wire-warn{margin:12px 0 6px;padding:10px 12px;border-radius:8px;background:#fff4e5;border:1px solid #f5c37a;font-size:13.5px;line-height:1.45}
+@media (max-width:560px){.iv-wire dl>div{grid-template-columns:minmax(0,1fr)}}

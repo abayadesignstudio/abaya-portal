@@ -6,7 +6,8 @@ type Line = { kind: string; description: string; pct_to_date: number | null; amo
 type PublicInvoice = {
   number: string; status: string; issue_date: string | null; due_date: string | null; terms_days: number
   period_start: string | null; period_end: string | null; total: number; amount_paid: number; note: string | null
-  allow_card: boolean; allow_ach: boolean; pass_card_fee?: boolean; pass_ach_fee?: boolean; pay_online?: boolean; advance?: boolean; project: { number: string; name: string; sector: string | null }; client: string | null; lines: Line[]
+  allow_card: boolean; allow_ach: boolean; pass_card_fee?: boolean; pass_ach_fee?: boolean; pay_online?: boolean; advance?: boolean;
+  wire?: { bank_name: string | null; bank_address: string | null; account_name: string | null; routing: string; account: string; swift: string | null; notes: string | null; phone: string | null } | null; project: { number: string; name: string; sector: string | null }; client: string | null; lines: Line[]
 }
 
 const SECTOR_COLOR: Record<string, string> = { commercial: '#2b5c8a', residential: '#a32d2d', medical: '#2e7d4f', consultation: '#6b7280', civic: '#5b4b8a', internal: '#02253d' }
@@ -27,6 +28,7 @@ export default function InvoiceView() {
   const [err, setErr] = useState('')
   const [paying, setPaying] = useState<'' | 'card' | 'ach'>('')
   const [payErr, setPayErr] = useState('')
+  const [showWire, setShowWire] = useState(false)
   const returned = new URLSearchParams(location.search).get('paid') // back from Stripe: 'card' | 'ach'
   const pay = async (method: 'card' | 'ach') => {
     const q = new URLSearchParams(location.search)
@@ -89,8 +91,10 @@ export default function InvoiceView() {
         {!paid && !returned && (inv.pay_online && (inv.allow_ach || inv.allow_card) ? <>
           <div className="iv-paybtns">
             {inv.allow_ach && <button className="iv-btn" onClick={() => pay('ach')} disabled={!!paying}>{paying === 'ach' ? 'Opening…' : 'Pay by bank transfer'}</button>}
-            {inv.allow_card && <button className={'iv-btn' + (inv.allow_ach ? ' secondary' : '')} onClick={() => pay('card')} disabled={!!paying}>{paying === 'card' ? 'Opening…' : 'Pay by card'}</button>}
+            {inv.wire && <button className="iv-btn secondary" aria-expanded={showWire} onClick={() => setShowWire(!showWire)}>Pay by wire</button>}
+            {inv.allow_card && <button className={'iv-btn' + (inv.allow_ach || inv.wire ? ' secondary' : '')} onClick={() => pay('card')} disabled={!!paying}>{paying === 'card' ? 'Opening…' : 'Pay by card'}</button>}
           </div>
+          {showWire && inv.wire && <Wire w={inv.wire} number={inv.number} amount={balance} />}
           <p className="iv-muted iv-small">
             {inv.allow_ach && <>Bank transfer (ACH){inv.pass_ach_fee ? ` adds a ${money(achFee(balance))} processing fee` : ' has no added fee'}. </>}
             {inv.allow_card && <>Card{inv.pass_card_fee ? ` adds a ${money(cardFee(balance))} processing fee` : ' has no added fee'}. </>}
@@ -98,8 +102,14 @@ export default function InvoiceView() {
           </p>
           {payErr && <p className="iv-late" role="alert">{payErr}</p>}
         </> : <>
+          {inv.wire ? <>
+            <div className="iv-paybtns"><button className="iv-btn" aria-expanded={showWire} onClick={() => setShowWire(!showWire)}>Pay by wire</button></div>
+            {showWire && <Wire w={inv.wire} number={inv.number} amount={balance} />}
+            <p className="iv-muted iv-small">You can also pay by check payable to <strong>Abaya Design Studio, LLC</strong>.</p>
+          </> : <>
           <button className="iv-btn" disabled aria-describedby="pay-soon">Pay online</button>
           <p id="pay-soon" className="iv-muted iv-small">Online payment{ways ? ` by ${ways}` : ''} is coming soon. For now, please pay by check payable to <strong>Abaya Design Studio, LLC</strong>, or reply to the invoice email for bank-transfer details.</p>
+          </>}
         </>)}
       </section>
 
@@ -140,4 +150,21 @@ export default function InvoiceView() {
     </main>
     <footer className="iv-foot">Abaya Design Studio, LLC · 215 S Denton Tap Rd, Suite 215, Coppell, Texas 75019 · abayadesignstudio.com</footer>
   </>
+}
+
+// Wire instructions with copy buttons. Shown only on this page; the reference ties the wire to the invoice.
+type W = NonNullable<PublicInvoice['wire']>
+function Wire({ w, number, amount }: { w: W; number: string; amount: number }) {
+  const [copied, setCopied] = useState('')
+  const copy = (k: string, v: string) => { navigator.clipboard?.writeText(v).then(() => { setCopied(k); setTimeout(() => setCopied(''), 1500) }).catch(() => {}) }
+  const rows: [string, string | null][] = [['Amount', money(amount)], ['Beneficiary', w.account_name], ['Bank', w.bank_name], ['Bank address', w.bank_address],
+    ['Routing number (ABA)', w.routing], ['Account number', w.account], ['SWIFT (international)', w.swift], ['Reference / memo', `Invoice ${number}`]]
+  return <div className="iv-wire" role="region" aria-label="Wire transfer instructions">
+    <h2>Wire transfer instructions</h2>
+    <dl>{rows.filter(([, v]) => v).map(([k, v]) => <div key={k}><dt>{k}</dt><dd><span className="num">{v}</span>
+      {k !== 'Bank address' && <button type="button" className="iv-copy" onClick={() => copy(k, k === 'Amount' ? amount.toFixed(2) : v!)} aria-label={`Copy ${k}`}>{copied === k ? 'Copied' : 'Copy'}</button>}</dd></div>)}</dl>
+    {w.notes && <p className="iv-small">{w.notes}</p>}
+    <p className="iv-wire-warn"><strong>Protect yourself from wire fraud.</strong> Our wire instructions never change by email. If you receive different instructions, don’t send money — {w.phone ? <>call us at <a href={`tel:${w.phone.replace(/[^\d+]/g, '')}`}>{w.phone}</a></> : 'call our office'} to confirm before wiring.</p>
+    <p className="iv-muted iv-small">Wires usually arrive the same business day. We’ll mark the invoice paid once it reaches our account.</p>
+  </div>
 }
