@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { SECTOR_COLOR, PHASE_NAME, money } from '../lib/supabase'
+import { supabase, SECTOR_COLOR, PHASE_NAME, money } from '../lib/supabase'
+import { useLoad } from '../lib/useQuery'
 import './gantt.css'
 
 // Projects as a Gantt chart (like Monograph): one row per project, one bar per phase (from its start/end dates).
@@ -39,6 +40,46 @@ function Ring({ pct }: { pct: number | null }) {
 }
 
 type Dates = { start_date: string; end_date: string }
+/** A dated thing on a project's row: a milestone (deliverable), a task, or a calendar event / meeting. */
+type Mark = { key: string; project_id: string; kind: 'milestone' | 'task' | 'event'; title: string; date: string; done: boolean; phase_id?: string | null; time?: string | null; who?: string }
+const KIND_WORD = { milestone: 'Milestone', task: 'Task', event: 'Event' } as const
+
+/** Everything dated on these projects. Google meetings come from the calendar feed, which covers about a month either side of today. */
+function useMarks(ids: string[]) {
+  const key = ids.slice().sort().join(',')
+  return useLoad(async () => {
+    if (!ids.length) return [] as Mark[]
+    const [dl, tk, ev, people] = await Promise.all([
+      supabase.from('deliverables').select('id, project_id, phase_id, title, due_date, status').in('project_id', ids).not('due_date', 'is', null),
+      supabase.from('tasks').select('id, project_id, title, due_on, due_time, done_at, assignee').in('project_id', ids),
+      supabase.from('calendar_events').select('id, project_id, title, starts_on, start_time').in('project_id', ids),
+      supabase.from('profiles').select('id, full_name, email').in('role', ['admin', 'staff']),
+    ])
+    const first = (id: string | null) => { const p = (people.data ?? []).find((x) => x.id === id); return (p?.full_name || p?.email || '').split(/\s+/)[0] }
+    const out: Mark[] = [
+      ...(dl.data ?? []).map((d) => ({ key: 'd' + d.id, project_id: d.project_id, kind: 'milestone' as const, title: d.title, date: d.due_date!, done: d.status === 'done', phase_id: d.phase_id })),
+      ...(tk.data ?? []).map((t) => ({ key: 't' + t.id, project_id: t.project_id!, kind: 'task' as const, title: t.title, date: t.due_on, done: !!t.done_at, time: t.due_time, who: first(t.assignee) })),
+      ...(ev.data ?? []).map((e) => ({ key: 'e' + e.id, project_id: e.project_id!, kind: 'event' as const, title: e.title, date: e.starts_on, done: false, time: e.start_time })),
+    ]
+    // Google meetings linked to a project (by hand, or by the project number in the event)
+    const today = new Date(), from = isoOf(addDays(today, -30)), to = isoOf(addDays(today, 31))
+    try {
+      const [{ data }, links] = await Promise.all([supabase.functions.invoke('calendar-feed', { body: { from, to } }), supabase.from('calendar_event_projects').select('google_event_id, project_id')])
+      const seen = new Set<string>()
+      for (const g of (data?.events ?? []) as { id: string; uid: string; title: string; start: string; all_day: boolean; auto_project_id: string | null; busy_only?: boolean }[]) {
+        const l = (links.data ?? []).find((x) => x.google_event_id === g.id)
+        const pid = l ? l.project_id : g.auto_project_id
+        if (!pid || !ids.includes(pid) || g.busy_only || seen.has(g.uid + g.start)) continue
+        seen.add(g.uid + g.start)
+        const d = g.all_day ? g.start.slice(0, 10) : isoOf(new Date(g.start))
+        const t = g.all_day ? null : new Date(g.start).toTimeString().slice(0, 5)
+        out.push({ key: 'g' + g.uid + g.start, project_id: pid, kind: 'event', title: g.title, date: d, done: false, time: t })
+      }
+    } catch { /* Google is optional */ }
+    return out
+  }, [key])
+}
+const ICON = { milestone: '◆', task: '', event: '◷' } as const
 /** Custom-order dragging, provided by the Projects page when Sort = Custom. */
 export type Reorder = { dragId: string | null; start: (id: string) => void; over: (id: string) => void; end: () => void; step: (id: string, dir: -1 | 1) => void }
 type Edge = 'start' | 'end' | 'move' // move = the whole phase, keeping its length
@@ -174,11 +215,16 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
   useLayoutEffect(() => { if (first.current && rows.length) { first.current = false; toToday(false) } }) // eslint-disable-line react-hooks/exhaustive-deps
 
   const todayX = x(today)
+  const [showMarks, setShowMarks] = useState(() => { try { return localStorage.getItem('abaya:gantt-marks') !== '0' } catch { return true } })
+  const marks = useMarks(useMemo(() => rows.map((r) => r.id), [rows]))
+  const time12 = (t?: string | null) => { if (!t) return ''; const [h, m] = t.split(':').map(Number); return ` · ${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')}${h < 12 ? 'am' : 'pm'}` }
   return (
     <div className="gt card">
       <div className="gt-tools">
         <span className="muted" style={{ fontSize: 13, fontWeight: 700 }}>PROJECTS ({rows.length})</span>
         <div className="row" style={{ gap: 6, marginLeft: 'auto' }}>
+          <label className="row" style={{ gap: 6, fontSize: 13, marginRight: 6 }}><input type="checkbox" checked={showMarks} style={{ width: 16, height: 16 }}
+            onChange={(e) => { setShowMarks(e.target.checked); try { localStorage.setItem('abaya:gantt-marks', e.target.checked ? '1' : '0') } catch { /* private mode */ } }} />Milestones, tasks &amp; events</label>
           <button type="button" className="btn small secondary" onClick={() => toToday()}>Today</button>
           <button type="button" className="btn small secondary" aria-label="Zoom out" onClick={() => zoom(-1)} disabled={zi === 0}>−</button>
           <label className="sr" htmlFor="gt-scale">Scale</label>
@@ -255,6 +301,26 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
                             {drag.stuck === 'lo' && drag.lim.prevEnd && <> · {drag.lim.prevCode} ends {short(drag.lim.prevEnd)}</>}</span>}
                         </div>)
                     })}
+                    {showMarks && (() => {
+                      // circles on the row at their dates; same-day ones sit side by side
+                      const mine = (marks.data ?? []).filter((m) => m.project_id === r.id).sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind))
+                      let prev = -1e9
+                      return mine.map((m) => {
+                        const d = parse(m.date); const cx = Math.max(x(d) + px / 2, prev + 22); prev = cx
+                        const ph = r.phases.find((p) => (m.phase_id && p.id === m.phase_id) || (!m.phase_id && p.start_date && p.end_date && p.start_date <= m.date && p.end_date >= m.date))
+                        const late = !m.done && d < today && m.kind !== 'event'
+                        return <span key={m.key} className={`gt-mark k-${m.kind}${m.done ? ' done' : ''}${late ? ' late' : ''}`} style={{ left: cx, ['--c' as string]: color }} tabIndex={0}
+                          aria-label={`${KIND_WORD[m.kind]}: ${m.title}, ${fmt(m.date)}${m.done ? ', done' : late ? ', overdue' : ''}`}>
+                          <span aria-hidden="true">{m.done ? '✓' : ICON[m.kind]}</span>
+                          <span className="gt-mtip" role="tooltip">
+                            {ph && <span className="gt-mtip-ph" style={{ background: color }}>{ph.code}</span>}
+                            <strong>{m.title}</strong>
+                            <span className="muted">{fmt(m.date)}{time12(m.time)}{m.who ? ` · ${m.who}` : ''}</span>
+                            <span className="gt-mtip-k">{KIND_WORD[m.kind]}{m.kind !== 'event' ? (m.done ? ' · done' : late ? ' · overdue' : ' · open') : ''}</span>
+                          </span>
+                        </span>
+                      })
+                    })()}
                   </div>)
               })}
               {rows.length === 0 && <p className="muted" style={{ position: 'sticky', left: 0, padding: 20, margin: 0 }}><em>No projects match.</em></p>}

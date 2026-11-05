@@ -56,3 +56,17 @@
 .gt-bar.dragging .gt-hit.movable,.gt-hit.movable:active{cursor:grabbing}
 .gt-drag-tip.move{left:50%;transform:translateX(-50%)}
 .gt-bar.stuck .gt-drag-tip{background:#b42318}
+/* milestones, tasks and events on a project's row */
+.gt-row:hover,.gt-row:focus-within{z-index:2}
+.gt-mark{position:absolute;top:22px;width:22px;height:22px;margin-left:-11px;border-radius:50%;z-index:3;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;background:color-mix(in srgb,var(--c) 80%,#000);border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3);cursor:default;box-sizing:border-box}
+.gt-mark.k-task{border-radius:6px}
+.gt-mark.k-event{background:#fff;color:color-mix(in srgb,var(--c) 85%,#000);border-color:color-mix(in srgb,var(--c) 85%,#000)}
+.gt-mark.k-milestone:not(.done){background:#fff;color:color-mix(in srgb,var(--c) 85%,#000);border-color:color-mix(in srgb,var(--c) 85%,#000)}
+.gt-mark.late.late.late{border-color:#d92d20;color:#d92d20;background:#fff}
+.gt-mark:focus-visible{outline:2px solid var(--navy);outline-offset:2px}
+.gt-mtip{display:none;position:absolute;top:28px;left:50%;transform:translateX(-30%);min-width:220px;max-width:320px;padding:10px 12px;border-radius:8px;background:#fff;color:var(--text);box-shadow:0 8px 24px rgba(0,0,0,.18);border:1px solid var(--line);font-size:13px;font-weight:400;text-align:left;flex-direction:column;gap:3px;white-space:normal;z-index:10}
+.gt-mark:hover .gt-mtip,.gt-mark:focus-visible .gt-mtip{display:flex}
+.gt-mtip strong{font-size:14px;line-height:1.3}
+.gt-mtip-ph{align-self:flex-start;padding:1px 6px;border-radius:4px;color:#fff;font-size:11.5px;font-weight:700}
+.gt-mtip-k{font-size:12px;color:var(--muted)}
+.gt-mark.k-task:not(.done){background:#fff;border-color:color-mix(in srgb,var(--c) 85%,#000)}

@@ -35,6 +35,7 @@ export default function Employees() {
           return <div key={p.id} className="em-col">
             <PersonCard p={p} w={w} canEdit={isAdmin} onSaved={people.reload} />
             <EarnedCard p={p} entries={mine} rates={rates.data ?? []} target={w.target} />
+            <EarnedCard p={p} entries={mine} rates={rates.data ?? []} target={w.target} takeHome />
           </div>
         })}
         {people.data && people.data.length === 0 && <p className="muted"><em>No staff have signed in yet.</em></p>}
@@ -93,7 +94,9 @@ function PersonCard({ p, w, canEdit, onSaved }: { p: Person; w: ReturnType<typeo
 const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US')
 const hr = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 const weekdays = (a: Date, b: Date) => { let n = 0; const d = new Date(a); while (d <= b) { if (d.getDay() % 6) n++; d.setDate(d.getDate() + 1) } return n }
-function EarnedCard({ p, entries, rates, target }: { p: Person; entries: Entry[]; rates: { profile_id: string; project_id: string; bill_rate: number }[]; target: number }) {
+/** Billable earned (what the person billed), or with takeHome: their pay out of it (billed ÷ the multiplier). */
+function EarnedCard({ p, entries, rates, target, takeHome }: { p: Person; entries: Entry[]; rates: { profile_id: string; project_id: string; bill_rate: number }[]; target: number; takeHome?: boolean }) {
+  const k = takeHome ? 1 / MULTIPLIER : 1
   const now = new Date(); const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const rateOf = (e: Entry) => Number(rates.find((r) => r.profile_id === p.id && r.project_id === e.project_id)?.bill_rate ?? p.bill_rate ?? 0)
   const wk0 = mondayOf(today), wk1 = new Date(wk0); wk1.setDate(wk1.getDate() + 6)
@@ -114,15 +117,15 @@ function EarnedCard({ p, entries, rates, target }: { p: Person; entries: Entry[]
   })
   const pct = (x: typeof periods[number]) => x.quotaHrs > 0 ? Math.min(100, x.hrs / x.quotaHrs * 100) : 0
   return (
-    <article className="card pad stack em-earn" aria-label={`${p.full_name || p.email} billable earnings`}>
-      <h3>Billable earned</h3>
+    <article className="card pad stack em-earn" aria-label={`${p.full_name || p.email} ${takeHome ? 'take-home pay' : 'billable earnings'}`}>
+      <h3>{takeHome ? 'Take home' : 'Billable earned'}</h3>
       {!target && <p className="muted" style={{ margin: 0, fontSize: 14 }}><em>Set a utilization target to see a goal.</em></p>}
       {periods.map((x) => {
         const met = x.quotaHrs > 0 && x.hrs >= x.quotaHrs - 0.005
         const behind = !met && x.hrs < x.quotaHrs * x.pace - 0.5
         return <div key={x.label} className="em-per">
           <div className="row between"><span><strong>{x.label}</strong> <span className="muted">{x.sub}</span></span>
-            <span className="num em-amt"><strong>{usd(x.earned)}</strong>{x.quota > 0 && <span className="muted"> / {usd(x.quota)}</span>}</span></div>
+            <span className="num em-amt"><strong>{usd(x.earned * k)}</strong>{x.quota > 0 && <span className="muted"> / {usd(x.quota * k)}</span>}</span></div>
           {x.quotaHrs > 0 && <div className="bar" role="img" aria-label={`${Math.round(pct(x))}% of goal`} style={{ marginTop: 6 }}>
             <span className="fill" style={{ width: pct(x) + '%', background: met ? 'var(--green)' : undefined }} />
             {x.pace < 1 && <span className="tick" style={{ left: x.pace * 100 + '%' }} />}</div>}
@@ -130,12 +133,9 @@ function EarnedCard({ p, entries, rates, target }: { p: Person; entries: Entry[]
             {x.quotaHrs > 0 && <span className="num" style={{ fontWeight: 700, color: met ? 'var(--green)' : behind ? 'var(--red)' : 'var(--text)' }}>{met ? 'Goal met' : `${hr(x.left)} hrs to go`}</span>}</div>
         </div>
       })}
-      <table className="em-split-t num">
-        <caption>Where the money goes ({MULTIPLIER}× multiplier)</caption>
-        <thead><tr><th scope="col" /><th scope="col">Pay</th><th scope="col">Overhead &amp; profit</th></tr></thead>
-        <tbody>{periods.map((x) => <tr key={x.label}><th scope="row">{x.label.replace('This ', '').replace(/^./, (c) => c.toUpperCase())}</th><td>{usd(x.earned / MULTIPLIER)}</td><td>{usd(x.earned - x.earned / MULTIPLIER)}</td></tr>)}</tbody>
-      </table>
-      <p className="muted em-foot"><em>Billed = billable hours × billing rate. Goal = utilization target at {p.bill_rate ? `$${p.bill_rate}/hr` : 'their rate'}. Orange tick = where you should be by today.</em></p>
+      <p className="muted em-foot"><em>{takeHome
+        ? <>Pay = billed ÷ {MULTIPLIER} ({MULTIPLIER}× multiplier); the rest covers overhead &amp; profit. Goal = pay at the utilization target. Orange tick = where you should be by today.</>
+        : <>Billed = billable hours × billing rate. Goal = utilization target at {p.bill_rate ? `$${p.bill_rate}/hr` : 'their rate'}. Orange tick = where you should be by today.</>}</em></p>
     </article>
   )
 }
