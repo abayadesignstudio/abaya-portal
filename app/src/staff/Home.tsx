@@ -26,7 +26,8 @@ export default function StaffHome() {
   const [dFilter, setDFilter] = useState<'week' | 'all'>('week')
 
   const hours = useLoad(async () => {
-    const ytd = must(await supabase.from('time_entries').select('minutes, billable, work_date').eq('profile_id', me).gte('work_date', new Date().getFullYear() + '-01-01')) as { minutes: number; billable: boolean; work_date: string }[]
+    const ytd = (must(await supabase.from('time_entries').select('minutes, billable, work_date, projects(number)').eq('profile_id', me).gte('work_date', new Date().getFullYear() + '-01-01').lte('work_date', new Date().getFullYear() + '-12-31')) as unknown as { minutes: number; billable: boolean; work_date: string; projects: { number: string } | null }[])
+      .map((e) => ({ ...e, billable: e.billable && e.projects?.number !== 'OH' })) // Overhead time is never billable
     return ytd
   }, [me])
   const dls = useLoad(async () => must(await supabase.from('deliverables').select('id, title, due_date, status, created_at, projects(number, name, sector), phases(code)')
