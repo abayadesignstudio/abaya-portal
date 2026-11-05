@@ -119,3 +119,14 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .stoday ul{padding:0;display:flex;flex-direction:column;gap:2px}
 .stoday li{gap:6px;padding:0 0 0 4px;min-height:34px}
 .stoday-go{width:30px;height:30px}
+/* today rows: project number on its own line above the name; current timer's row has the stop */
+.stoday li{align-items:center;padding:5px 0 5px 6px;min-height:0}
+.stoday-txt{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.stoday-txt .stoday-chip{line-height:1.4}
+.stoday-name{max-width:100%;font-size:13px;line-height:1.25}
+.stoday-sub{color:#c8bf9f}
+.stoday li.on{background:rgba(50,213,131,.14)}
+.stoday li.on.paused{background:rgba(245,185,113,.14)}
+.stoday-go.stop{padding:0;color:#ede6d6}
+.stoday-go.stop:hover:not(:disabled){background:rgba(217,45,32,.6);color:#fff}
+.stimer-add,.stimer-end{border-radius:50%}

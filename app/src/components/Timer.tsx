@@ -191,24 +191,36 @@ const hm = (min: number) => `${Math.floor(min / 60)}:${String(min % 60).padStart
 
 /** Above the timer: what I've logged today, one line per task, with ▶ to pick it back up. */
 function TodayList({ api, onPicked }: { api: TimerApi; onPicked: (t: TodayTask) => void }) {
-  const list = api.today
-  if (!list.length) return null
-  const total = list.reduce((a, t) => a + t.minutes, 0)
   const r = api.running
-  const isRunning = (t: TodayTask) => !!r && r.project_id === t.project_id && (r.phase_id ?? null) === t.phase_id && (r.role_label ?? null) === t.role_label && (r.activity ?? null) === t.activity
+  const isCurrent = (t: TodayTask) => !!r && r.project_id === t.project_id && (r.phase_id ?? null) === t.phase_id && (r.role_label ?? null) === t.role_label && (r.activity ?? null) === t.activity
+  const list = api.today
+  // the running timer's task: its line counts the clock too, so the list and the timer below read as one timer
+  const liveMin = r ? Math.floor(api.elapsed / 60000) : 0
+  const hasCurrentRow = list.some(isCurrent)
+  if (!list.length && !r) return null
+  const proj = r ? api.projects.find((p) => p.id === r.project_id) : null
+  const rows: (TodayTask & { current?: boolean })[] = list.map((t) => (isCurrent(t) ? { ...t, minutes: t.minutes + liveMin, current: true } : t))
+  if (r && !hasCurrentRow && proj) rows.unshift({ key: 'running', project_id: r.project_id, phase_id: r.phase_id, role_label: r.role_label, activity: r.activity, minutes: liveMin, last: '', current: true,
+    projects: { number: proj.number, name: proj.name, sector: proj.sector ?? null }, phases: r.phase_id ? { code: proj.phases.find((x) => x.id === r.phase_id)?.code ?? '' } : null })
+  const total = rows.reduce((a, t) => a + t.minutes, 0)
   return (
     <section className="stoday" aria-label="Logged today">
       <div className="stoday-h"><span>Today</span><span className="num">{hm(total)}</span></div>
-      <ul>{list.map((t) => {
-        const on = isRunning(t)
-        return <li key={t.key} className={on ? 'on' : ''}>
-          <span className="stoday-chip" style={{ background: t.projects?.number === 'OH' ? '#6b7280' : sectorColor(t.projects?.sector ?? null) }}>{t.projects?.number === 'OH' ? 'OH' : t.projects?.number}</span>
-          <span className="stoday-name" title={[t.projects?.name, t.phases?.code, t.role_label, t.activity].filter(Boolean).join(' · ')}>
-            {t.projects?.number === 'OH' ? (t.activity || 'Overhead') : [t.phases?.code, t.activity].filter(Boolean).join(' · ') || t.projects?.name}</span>
+      <ul>{rows.map((t) => {
+        const oh = t.projects?.number === 'OH'
+        return <li key={t.key} className={t.current ? (api.paused ? 'on paused' : 'on') : ''}>
+          <span className="stoday-txt">
+            <span className="stoday-chip" style={{ background: oh ? '#6b7280' : sectorColor(t.projects?.sector ?? null) }}>{oh ? 'OH' : t.projects?.number}</span>
+            <span className="stoday-name" title={[t.projects?.name, t.phases?.code, t.role_label, t.activity].filter(Boolean).join(' · ')}>
+              {oh ? (t.activity || 'Overhead') : t.projects?.name}{!oh && (t.phases?.code || t.activity) ? <span className="stoday-sub"> · {[t.phases?.code, t.activity].filter(Boolean).join(' · ')}</span> : null}</span>
+          </span>
           <span className="num stoday-t">{hm(t.minutes)}</span>
-          <button type="button" className="stoday-go" disabled={api.busy || on} onClick={async () => { if (await api.pickUp(t)) onPicked(t) }}
-            aria-label={on ? `${taskName(t)} is running` : `Start a timer on ${taskName(t)}${r ? ' (logs the running timer first)' : ''}`} title={on ? 'Running' : r ? 'Log the running timer and switch to this' : 'Pick this back up'}>
-            {on ? <span aria-hidden="true" className="stoday-dot" /> : <svg width="9" height="10" viewBox="0 0 9 10" aria-hidden="true"><path d="M0.5 0.6L8.5 5 0.5 9.4z" fill="currentColor" /></svg>}</button>
+          {t.current
+            ? <button type="button" className="stoday-go stop" disabled={api.busy} onClick={() => api.stop()} aria-label={`End and log ${taskName(t)}`} title="End & log">
+                <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="1.5" fill="currentColor" /></svg></button>
+            : <button type="button" className="stoday-go" disabled={api.busy} onClick={async () => { if (await api.pickUp(t)) onPicked(t) }}
+                aria-label={`Start a timer on ${taskName(t)}${r ? ' (ends and logs the current timer first)' : ''}`} title={r ? 'End the current timer and switch to this' : 'Pick this back up'}>
+                <svg width="9" height="10" viewBox="0 0 9 10" aria-hidden="true"><path d="M0.5 0.6L8.5 5 0.5 9.4z" fill="currentColor" /></svg></button>}
         </li>
       })}</ul>
     </section>)
