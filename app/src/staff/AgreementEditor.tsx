@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { syncPctPhases } from '../lib/fees'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { STANDARD, PHN, newDoc, type DocState, type Clause } from '../lib/agreementTemplate'
@@ -124,6 +125,8 @@ export default function AgreementEditor() {
 
   // autosave: debounced while typing, flushed immediately when leaving the page or closing the tab
   const pending = useRef<{ id: string; values: Record<string, unknown> } | null>(null)
+  const rowRef = useRef(row); rowRef.current = row
+  const lastFee = useRef<number | null>(null)
   const token = useRef<string | undefined>(undefined)
   token.current = session?.access_token
   const payload = (d: DocState, current: string) => {
@@ -137,6 +140,8 @@ export default function AgreementEditor() {
     if (error) { setErr(error.message); setSaved('unsaved'); if (!pending.current) pending.current = p; return }
     if (!pending.current) setSaved('saved')
     setRow((r) => (r && r.id === p.id ? { ...r, title: p.values.title as string } : r))
+    // a linked project's percentage phases follow this agreement's fee
+    if (rowRef.current?.project_id && p.values.total_fee !== lastFee.current) { lastFee.current = p.values.total_fee as number; syncPctPhases(rowRef.current.project_id).catch(() => {}) }
   }
   // Page is going away: the request must outlive it, so use fetch keepalive (body limit ~64 KB).
   const flushOnExit = () => {

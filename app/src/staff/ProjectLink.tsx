@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { syncPctPhases } from '../lib/fees'
 import { supabase } from '../lib/supabase'
 import { must } from '../lib/useQuery'
 import Combobox, { sectorColor } from '../components/Combobox'
@@ -48,6 +49,8 @@ export default function ProjectLink({ projectId, clientId, agreementId, cover, o
   const save = async (pid: string | null, cid: string | null) => {
     const { error } = await supabase.from('agreements').update({ project_id: pid, client_id: cid, updated_at: new Date().toISOString() }).eq('id', agreementId)
     if (error) throw new Error(error.message)
+    // the old and new projects' percentage phases follow their (changed) agreement totals
+    for (const x of new Set([projectId, pid])) if (x) syncPctPhases(x).catch(() => {})
     onLinked(pid, cid)
   }
   const blanksFrom = (p: Proj) => Object.fromEntries(Object.entries(coverFrom(p)).filter(([k, v]) => v && !(cover[k] ?? '').trim()))

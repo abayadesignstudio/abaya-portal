@@ -6,10 +6,11 @@ import { useAuth } from '../lib/auth'
 import UpdateCard from '../client/UpdateCard'
 import BudgetTab from './budget/BudgetTab'
 import './budget.css'
+import { linkedAgreements, contractFee, syncPctPhases, round2 } from '../lib/fees'
 import { sortPhases, fmtDate, signedPhotoUrls, uid, extOf,
   type Update, type Drawing, type ContractItem, type Meeting, type ServiceRequest } from '../lib/projectContent'
 
-type Phase = { id: string; code: string; fee: number; status: string; start_date: string | null; end_date: string | null; meetings_included: number | null }
+type Phase = { id: string; code: string; fee: number; fee_pct: number | null; status: string; start_date: string | null; end_date: string | null; meetings_included: number | null }
 type Entry = { phase_id: string | null; minutes: number; profiles: { full_name: string | null; bill_rate: number | null } | null }
 type Project = { id: string; number: string; name: string; status: string; category: string | null; sector: string | null; address: string | null; next_milestone: string | null; client_id: string | null; clients: { name: string } | null }
 type Inv = { id: string; number: string; status: string; total: number }
@@ -26,18 +27,30 @@ export default function ProjectDetail() {
   useEffect(() => { setTab('budget') }, [id])
   const { data, error, reload } = useLoad(async () => {
     const p = must(await supabase.from('projects').select('id, number, name, status, category, sector, address, next_milestone, client_id, clients(name)').eq('id', id!).single()) as unknown as Project
-    const phases = sortPhases(must(await supabase.from('phases').select('id, code, fee, status, start_date, end_date, meetings_included').eq('project_id', id!)) as Phase[])
+    const phases = sortPhases(must(await supabase.from('phases').select('id, code, fee, fee_pct, status, start_date, end_date, meetings_included').eq('project_id', id!)) as Phase[])
     const billed = must(await supabase.from('phase_billing').select('phase_id, billed').eq('project_id', id!)) as { phase_id: string; billed: number }[]
     const time = must(await supabase.from('time_entries').select('phase_id, minutes, profiles(full_name, bill_rate)').eq('project_id', id!)) as unknown as Entry[]
     const invoices = must(await supabase.from('invoices').select('id, number, status, total').eq('project_id', id!).order('issue_date', { ascending: false })) as Inv[]
-    return { p, phases, billed, time, invoices }
+    const agreements = await linkedAgreements(id!)
+    return { p, phases, billed, time, invoices, agreements }
   }, [id])
+  // percentage phases follow the agreements' total (re-priced here if an agreement changed elsewhere)
+  useEffect(() => {
+    if (!data) return
+    const cf = contractFee(data.agreements)
+    if (cf !== null && data.phases.some((x) => x.fee_pct != null && Math.abs(round2(cf * Number(x.fee_pct) / 100) - Number(x.fee)) >= 0.005))
+      syncPctPhases(data.p.id, cf).then((n) => { if (n) reload() })
+  }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
   if (error) return <p className="err">{error}</p>
   if (!data) return <p>Loading…</p>
-  const { p, phases, billed, time, invoices } = data
+  const { p, phases, billed, time, invoices, agreements } = data
   const billedBy = Object.fromEntries(billed.map((b) => [b.phase_id, Number(b.billed)]))
   const used = (phaseId: string) => time.filter((t) => t.phase_id === phaseId).reduce((a, t) => ({ hrs: a.hrs + t.minutes / 60, cost: a.cost + (t.minutes / 60) * Number(t.profiles?.bill_rate ?? 0) }), { hrs: 0, cost: 0 })
-  const totFee = phases.reduce((a, x) => a + Number(x.fee), 0)
+  const phaseSum = round2(phases.reduce((a, x) => a + Number(x.fee), 0))
+  const cf = contractFee(agreements) // null when no agreement is linked
+  const totFee = cf ?? phaseSum
+  const agreementCodes = [...new Set(agreements.flatMap((g) => Object.entries(g.ph ?? {}).filter(([, v]) => v?.on).map(([k]) => k)))]
+  const fromAgreement = PHASES.map(([c]) => c).filter((c) => agreementCodes.includes(c) && !phases.some((x) => x.code === c))
   const totBilled = invoices.filter((i) => i.status === 'open' || i.status === 'paid').reduce((a, i) => a + Number(i.total), 0)
   const totHrs = time.reduce((a, t) => a + t.minutes / 60, 0)
   const missing = PHASES.filter(([c]) => !phases.some((x) => x.code === c))
@@ -60,17 +73,35 @@ export default function ProjectDetail() {
         <div className="stack" style={{ minWidth: 0 }}>
       {tab === 'overview' && <>
       <section className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }} aria-label="Summary">
-        {[['Total fee', money(totFee)], ['Invoiced', money(totBilled)], ['Left to bill', money(totFee - totBilled)], ['Hours logged', totHrs.toFixed(1)]].map(([l, v]) => (
-          <div key={l} style={{ padding: '16px 20px', borderRight: '1px solid #ece9e3' }}><div className="muted" style={{ fontSize: 14 }}>{l}</div><div className="num" style={{ fontSize: 26, fontWeight: 700 }}>{v}</div></div>))}
+        {([['Total fee', money(totFee), cf === null ? 'Sum of phase fees (no agreement linked)' : `From ${agreements.length === 1 ? 'the agreement' : `${agreements.length} agreements`}`],
+          ['Assigned to phases', money(phaseSum), cf === null ? '' : Math.abs(phaseSum - cf) < 0.005 ? '100% of the fee' : `${cf ? Math.round(phaseSum / cf * 1000) / 10 : 0}% of the fee · ${money(Math.abs(cf - phaseSum))} ${phaseSum < cf ? 'unassigned' : 'over'}`],
+          ['Invoiced', money(totBilled), ''], ['Left to bill', money(totFee - totBilled), ''], ['Hours logged', totHrs.toFixed(1), '']] as [string, string, string][]).map(([l, v, sub]) => (
+          <div key={l} style={{ padding: '16px 20px', borderRight: '1px solid #ece9e3' }}><div className="muted" style={{ fontSize: 14 }}>{l}</div><div className="num" style={{ fontSize: 26, fontWeight: 700 }}>{v}</div>
+            {sub && <div style={{ fontSize: 12.5, marginTop: 2, color: l === 'Assigned to phases' && !sub.startsWith('100') ? 'var(--amber)' : 'var(--muted)' }}>{sub}</div>}</div>))}
+      </section>
+      <section className="card pad stack" aria-labelledby="ag-h" style={{ gap: 8 }}>
+        <h2 id="ag-h" style={{ fontSize: 17 }}>Agreements</h2>
+        {agreements.length === 0 ? <p className="muted" style={{ margin: 0 }}>No agreement is linked to this project, so the total fee is the sum of the phase fees. Link one from the agreement itself (Proposals → open it → <em>Client &amp; project</em>).</p>
+          : <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{agreements.map((g) => (
+            <li key={g.id} className="row between" style={{ padding: '6px 0', borderTop: '1px solid #ece9e3' }}>
+              <span><Link to={`/proposals/${g.id}`} style={{ fontWeight: 700 }}>{g.title}</Link> <span className="pill" style={{ marginLeft: 6 }}>{g.status[0].toUpperCase() + g.status.slice(1)}</span></span>
+              <strong className="num">{money(Number(g.total_fee ?? 0))}</strong></li>))}
+            {agreements.length > 1 && <li className="row between" style={{ padding: '6px 0', borderTop: '1px solid #ece9e3' }}><span className="muted">Total of linked agreements (voided ones don’t count)</span><strong className="num">{money(cf ?? 0)}</strong></li>}</ul>}
       </section>
       <section className="card pad stack">
         <h2>Phases</h2>
-        <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 980 }}>
+        <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 1150 }}>
           <thead><tr><th>Phase</th><th>Status</th><th>Start</th><th>End</th><th className="r">Fee</th><th className="r">Billed</th><th className="r">Hours</th><th>Fee used (labor at rates)</th><th></th></tr></thead>
-          <tbody>{phases.map((ph) => <PhaseRow key={ph.id} ph={ph} billed={billedBy[ph.id] ?? 0} used={used(ph.id)} onSaved={reload} />)}</tbody>
+          <tbody>{phases.map((ph) => <PhaseRow key={ph.id + ph.fee + (ph.fee_pct ?? '')} ph={ph} total={cf} billed={billedBy[ph.id] ?? 0} used={used(ph.id)} onSaved={reload} />)}</tbody>
+          {phases.length > 0 && <tfoot><tr><td colSpan={4} style={{ fontWeight: 700 }}>Phases total</td>
+            <td className="r num" style={{ fontWeight: 700, color: cf !== null && Math.abs(phaseSum - cf) >= 0.005 ? 'var(--amber)' : undefined }}>{money(phaseSum)}{cf !== null && <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>of {money(cf)}</div>}</td><td colSpan={4} /></tr></tfoot>}
         </table></div>
-        {missing.length > 0 && <AddPhase projectId={p.id} codes={missing.map(([c]) => c)} onSaved={reload} />}
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Fee used = hours × each person’s billable rate. The bar turns orange at 75% and red at 90%. Phase start and end dates drive the client’s schedule. Assign the team and hours on the Budget page.</em></p>
+        {fromAgreement.length > 0 && <div className="row" style={{ gap: 8 }}>
+          <button className="btn small" onClick={async () => { await supabase.from('phases').insert(fromAgreement.map((code) => ({ project_id: p.id, code, fee: 0 }))); reload() }}>
+            + Add {fromAgreement.join(', ')} from the agreement</button>
+          <span className="muted" style={{ fontSize: 13 }}>Phases included in the linked agreement{agreements.length > 1 ? 's' : ''} but not set up here yet.</span></div>}
+        {missing.length > 0 && <AddPhase projectId={p.id} codes={missing.map(([c]) => c)} total={cf} onSaved={reload} />}
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>A phase fee is a fixed amount ($) or a percentage of the total fee (%); percentage phases update automatically when the agreement’s fee changes. Fee used = hours × each person’s billable rate. The bar turns orange at 75% and red at 90%. Phase start and end dates drive the client’s schedule. Assign the team and hours on the Budget page.</em></p>
       </section>
       </>}
       {tab === 'budget' && <BudgetTab key={p.id + phases.map((x) => x.id + x.fee + x.status).join()} projectId={p.id} />}
@@ -373,23 +404,45 @@ function StatusSelect({ id, value, onSaved }: { id: string; value: string; onSav
       <option value="active">Active</option><option value="paused">Paused</option><option value="complete">Complete</option><option value="proposal">Proposal</option></select></div>
 }
 
-function PhaseRow({ ph, billed, used, onSaved }: { ph: Phase; billed: number; used: { hrs: number; cost: number }; onSaved: () => void }) {
-  const [f, setF] = useState({ fee: String(ph.fee), status: ph.status, start_date: ph.start_date ?? '', end_date: ph.end_date ?? '' })
+/** Fee as a fixed amount or a % of the project's total fee (only when an agreement sets that total). */
+function FeeInput({ id, mode, amt, pct, total, onMode, onAmt, onPct }: { id: string; mode: 'amt' | 'pct'; amt: string; pct: string; total: number | null
+  onMode: (m: 'amt' | 'pct') => void; onAmt: (v: string) => void; onPct: (v: string) => void }) {
+  return <div>
+    <div className="row" style={{ gap: 4, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
+      <label className="sr" htmlFor={'fm' + id}>Fee type</label>
+      <select id={'fm' + id} className="input" style={{ width: 62, padding: '0 6px' }} value={mode} onChange={(e) => onMode(e.target.value as 'amt' | 'pct')}>
+        <option value="amt">$</option><option value="pct" disabled={total === null}>%</option></select>
+      <label className="sr" htmlFor={'fe' + id}>{mode === 'pct' ? 'Percent of total fee' : 'Fee'}</label>
+      <input id={'fe' + id} className="input num" style={{ width: 110, textAlign: 'right' }} inputMode="decimal" value={mode === 'pct' ? pct : amt}
+        onChange={(e) => (mode === 'pct' ? onPct : onAmt)(e.target.value)} placeholder={mode === 'pct' ? '%' : '$'} />
+    </div>
+    {mode === 'pct' && total !== null && <div className="muted num" style={{ fontSize: 12, marginTop: 2, textAlign: 'right' }}>= {money(round2(total * (Number(pct) || 0) / 100))}</div>}
+    {mode === 'amt' && total ? <div className="muted num" style={{ fontSize: 12, marginTop: 2, textAlign: 'right' }}>{Math.round((Number(amt) || 0) / total * 1000) / 10}% of fee</div> : null}
+  </div>
+}
+
+function PhaseRow({ ph, total, billed, used, onSaved }: { ph: Phase; total: number | null; billed: number; used: { hrs: number; cost: number }; onSaved: () => void }) {
+  const startMode = ph.fee_pct != null && total !== null ? 'pct' : 'amt'
+  const [f, setF] = useState({ mode: startMode as 'amt' | 'pct', fee: String(ph.fee), pct: ph.fee_pct != null ? String(Number(ph.fee_pct)) : total ? String(Math.round(Number(ph.fee) / total * 10000) / 100) : '',
+    status: ph.status, start_date: ph.start_date ?? '', end_date: ph.end_date ?? '' })
   const [msg, setMsg] = useState('')
-  const dirty = f.fee !== String(ph.fee) || f.status !== ph.status || f.start_date !== (ph.start_date ?? '') || f.end_date !== (ph.end_date ?? '')
+  const dirty = f.mode !== startMode || (f.mode === 'amt' ? f.fee !== String(ph.fee) : f.pct !== String(Number(ph.fee_pct ?? NaN))) || f.status !== ph.status || f.start_date !== (ph.start_date ?? '') || f.end_date !== (ph.end_date ?? '')
   const pct = Number(ph.fee) ? used.cost / Number(ph.fee) * 100 : 0
   const save = async () => {
-    const { error } = await supabase.from('phases').update({ fee: Number(f.fee) || 0, status: f.status, start_date: f.start_date || null, end_date: f.end_date || null }).eq('id', ph.id)
+    const p = Number(f.pct)
+    if (f.mode === 'pct' && !(p >= 0 && p <= 100)) return setMsg('Percent must be between 0 and 100.')
+    const fee = f.mode === 'pct' ? round2((total ?? 0) * p / 100) : Number(f.fee) || 0
+    const { error } = await supabase.from('phases').update({ fee, fee_pct: f.mode === 'pct' ? p : null, status: f.status, start_date: f.start_date || null, end_date: f.end_date || null }).eq('id', ph.id)
     setMsg(error ? error.message : ''); if (!error) onSaved()
   }
   return (
     <tr>
       <td><strong>{ph.code}</strong> <span className="muted">{PHASE_NAME[ph.code]}</span>{msg && <div className="err">{msg}</div>}</td>
-      <td><label className="sr" htmlFor={'st' + ph.id}>Status</label><select id={'st' + ph.id} className="input" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+      <td><label className="sr" htmlFor={'st' + ph.id}>Status</label><select id={'st' + ph.id} className="input" style={{ minWidth: 140 }} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
         <option value="not_started">Not started</option><option value="in_progress">In progress</option><option value="paused">Paused</option><option value="complete">Complete</option></select></td>
       <td><label className="sr" htmlFor={'sd' + ph.id}>Start</label><input id={'sd' + ph.id} type="date" className="input" value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} /></td>
       <td><label className="sr" htmlFor={'ed' + ph.id}>End</label><input id={'ed' + ph.id} type="date" className="input" value={f.end_date} onChange={(e) => setF({ ...f, end_date: e.target.value })} /></td>
-      <td className="r"><label className="sr" htmlFor={'fe' + ph.id}>Fee</label><input id={'fe' + ph.id} className="input num" style={{ width: 120, textAlign: 'right' }} inputMode="decimal" value={f.fee} onChange={(e) => setF({ ...f, fee: e.target.value })} /></td>
+      <td className="r"><FeeInput id={ph.id} mode={f.mode} amt={f.fee} pct={f.pct} total={total} onMode={(m) => setF({ ...f, mode: m })} onAmt={(v) => setF({ ...f, fee: v })} onPct={(v) => setF({ ...f, pct: v })} /></td>
       <td className="r num">{money(billed)}</td>
       <td className="r num">{used.hrs.toFixed(1)}</td>
       <td style={{ minWidth: 160 }}><div style={{ height: 8, borderRadius: 999, background: '#ece9e3', overflow: 'hidden' }}><span style={{ display: 'block', height: '100%', width: Math.min(100, pct) + '%', background: pct >= 90 ? '#d92d20' : pct >= 75 ? '#dc6803' : 'var(--navy)' }} /></div>
@@ -398,11 +451,18 @@ function PhaseRow({ ph, billed, used, onSaved }: { ph: Phase; billed: number; us
     </tr>)
 }
 
-function AddPhase({ projectId, codes, onSaved }: { projectId: string; codes: string[]; onSaved: () => void }) {
-  const [code, setCode] = useState(codes[0]); const [fee, setFee] = useState('')
-  return <div className="row">
+function AddPhase({ projectId, codes, total, onSaved }: { projectId: string; codes: string[]; total: number | null; onSaved: () => void }) {
+  const [code, setCode] = useState(codes[0]); const [fee, setFee] = useState(''); const [pct, setPct] = useState('')
+  const [mode, setMode] = useState<'amt' | 'pct'>(total !== null ? 'pct' : 'amt')
+  useEffect(() => { if (!codes.includes(code)) setCode(codes[0]) }, [codes.join()]) // eslint-disable-line react-hooks/exhaustive-deps
+  const add = async () => {
+    const p = Number(pct)
+    await supabase.from('phases').insert({ project_id: projectId, code, fee: mode === 'pct' ? round2((total ?? 0) * (p || 0) / 100) : Number(fee) || 0, fee_pct: mode === 'pct' ? p || 0 : null })
+    setFee(''); setPct(''); onSaved()
+  }
+  return <div className="row" style={{ alignItems: 'flex-start' }}>
     <label className="sr" htmlFor="ap-c">Phase</label><select id="ap-c" className="input" style={{ width: 260 }} value={code} onChange={(e) => setCode(e.target.value)}>{codes.map((c) => <option key={c} value={c}>{c} · {PHASE_NAME[c]}</option>)}</select>
-    <label className="sr" htmlFor="ap-f">Fee</label><input id="ap-f" className="input num" style={{ width: 140 }} placeholder="Fee $" inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} />
-    <button className="btn small secondary" onClick={async () => { await supabase.from('phases').insert({ project_id: projectId, code, fee: Number(fee) || 0 }); setFee(''); onSaved() }}>+ Add phase</button>
+    <FeeInput id="ap" mode={mode} amt={fee} pct={pct} total={total} onMode={setMode} onAmt={setFee} onPct={setPct} />
+    <button className="btn small secondary" onClick={add}>+ Add phase</button>
   </div>
 }
