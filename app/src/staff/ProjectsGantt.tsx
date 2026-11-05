@@ -42,7 +42,10 @@ type Dates = { start_date: string; end_date: string }
 /** Custom-order dragging, provided by the Projects page when Sort = Custom. */
 export type Reorder = { dragId: string | null; start: (id: string) => void; over: (id: string) => void; end: () => void; step: (id: string, dir: -1 | 1) => void }
 type Edge = 'start' | 'end' | 'move' // move = the whole phase, keeping its length
-type Drag = { id: string; edge: Edge; x0: number; orig: Dates; cur: Dates; moved: boolean }
+/** How far a phase may go: no earlier than the day after the previous phase ends, no later than the day before the next
+ *  one starts. Phases that already overlap aren't pushed apart; they just can't overlap any more. */
+type Limits = { lo: string | null; hi: string | null; prevCode?: string; nextCode?: string; nextStart?: string; prevEnd?: string }
+type Drag = { id: string; edge: Edge; x0: number; orig: Dates; cur: Dates; moved: boolean; lim: Limits; stuck: '' | 'lo' | 'hi' }
 
 /** The ⠿ drag handle for Custom order (drag it, or focus it and use ↑ / ↓). */
 export function Grip({ id, name, r }: { id: string; name: string; r: Reorder }) {
@@ -67,11 +70,32 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
       return keep.length === Object.keys(o).length ? o : Object.fromEntries(keep)
     })
   }, [rows])
-  const shift = (d: Dates, edge: Edge, n: number): Dates => {
-    if (edge === 'move') return { start_date: isoOf(addDays(parse(d.start_date), n)), end_date: isoOf(addDays(parse(d.end_date), n)) }
-    if (edge === 'start') { const s = addDays(parse(d.start_date), n); const e = parse(d.end_date); return { ...d, start_date: isoOf(s > e ? e : s) } }
-    const e = addDays(parse(d.end_date), n); const s = parse(d.start_date); return { ...d, end_date: isoOf(e < s ? s : e) }
+  const limitsFor = (id: string, orig: Dates): Limits => {
+    const row = rows.find((r) => r.phases.some((p) => p.id === id)); if (!row) return { lo: null, hi: null }
+    const list = row.phases.filter((p) => p.id && p.start_date && p.end_date).map((p) => ({ id: p.id!, code: p.code, ...(over[p.id!] ?? { start_date: p.start_date!, end_date: p.end_date! }) }))
+      .sort((a, b) => a.start_date.localeCompare(b.start_date) || a.end_date.localeCompare(b.end_date))
+    const i = list.findIndex((p) => p.id === id), prev = list[i - 1], next = list[i + 1]
+    const lo = prev ? isoOf(addDays(parse(prev.end_date), 1)) : null, hi = next ? isoOf(addDays(parse(next.start_date), -1)) : null
+    return { lo: lo && lo > orig.start_date ? orig.start_date : lo, hi: hi && hi < orig.end_date ? orig.end_date : hi,
+      prevCode: prev?.code, prevEnd: prev?.end_date, nextCode: next?.code, nextStart: next?.start_date }
   }
+  const shift = (d: Dates, edge: Edge, n: number, lim: Limits = { lo: null, hi: null }): Dates & { stuck: '' | 'lo' | 'hi' } => {
+    let stuck: '' | 'lo' | 'hi' = ''
+    if (edge === 'move') {
+      if (lim.lo) { const m = days(parse(d.start_date), parse(lim.lo)); if (n < m) { n = m; stuck = 'lo' } }
+      if (lim.hi) { const m = days(parse(d.end_date), parse(lim.hi)); if (n > m) { n = m; stuck = 'hi' } }
+      return { start_date: isoOf(addDays(parse(d.start_date), n)), end_date: isoOf(addDays(parse(d.end_date), n)), stuck }
+    }
+    if (edge === 'start') {
+      let st = addDays(parse(d.start_date), n); const e = parse(d.end_date)
+      if (lim.lo && st < parse(lim.lo)) { st = parse(lim.lo); stuck = 'lo' }
+      return { ...d, start_date: isoOf(st > e ? e : st), stuck }
+    }
+    let e = addDays(parse(d.end_date), n); const st = parse(d.start_date)
+    if (lim.hi && e > parse(lim.hi)) { e = parse(lim.hi); stuck = 'hi' }
+    return { ...d, end_date: isoOf(e < st ? st : e), stuck }
+  }
+  const nudge = (id: string, edge: Edge, live: Dates, n: number): Dates => { const r = shift(live, edge, n, limitsFor(id, live)); return { start_date: r.start_date, end_date: r.end_date } }
   const save = async (id: string, label: string, prev: Dates, now: Dates) => {
     if (!onDates || (prev.start_date === now.start_date && prev.end_date === now.end_date)) return
     setOver((o) => ({ ...o, [id]: now })); setSaveErr('')
@@ -82,13 +106,13 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
     if (!onDates || e.button !== 0) return
     e.preventDefault(); e.stopPropagation()
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-    setDrag({ id, edge, x0: e.clientX, orig, cur: orig, moved: false })
+    setDrag({ id, edge, x0: e.clientX, orig, cur: orig, moved: false, lim: limitsFor(id, orig), stuck: '' })
   }
   const moveDrag = (e: React.PointerEvent) => {
     const d = dragRef.current; if (!d) return
     const n = Math.round((e.clientX - d.x0) / px)
-    const cur = shift(d.orig, d.edge, n)
-    if (cur.start_date !== d.cur.start_date || cur.end_date !== d.cur.end_date || (!d.moved && n !== 0)) setDrag({ ...d, cur, moved: d.moved || n !== 0 })
+    const { stuck, ...cur } = shift(d.orig, d.edge, n, d.lim)
+    if (cur.start_date !== d.cur.start_date || cur.end_date !== d.cur.end_date || stuck !== d.stuck || (!d.moved && n !== 0)) setDrag({ ...d, cur, stuck, moved: d.moved || n !== 0 })
   }
   const endDrag = (label: string) => {
     const d = dragRef.current; if (!d) return
@@ -214,19 +238,21 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
                           aria-valuenow={days(start, parse(edge === 'start' ? live.start_date : live.end_date))}
                           onPointerDown={(ev) => startDrag(ev, p.id!, edge, live)} onPointerMove={moveDrag} onPointerUp={() => endDrag(label)} onPointerCancel={() => setDrag(null)}
                           onClick={(ev) => ev.stopPropagation()}
-                          onKeyDown={(ev) => { if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') { ev.preventDefault(); ev.stopPropagation(); save(p.id!, label, live, shift(live, edge, ev.key === 'ArrowLeft' ? -1 : 1)) } }} />
+                          onKeyDown={(ev) => { if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') { ev.preventDefault(); ev.stopPropagation(); save(p.id!, label, live, nudge(p.id!, edge, live, ev.key === 'ArrowLeft' ? -1 : 1)) } }} />
                       ) : null
                       return (
-                        <div key={p.code} className={'gt-bar st-' + p.status + (dragging ? ' dragging' : '')} style={{ left, width: w, ['--c' as string]: color }}>
+                        <div key={p.code} className={'gt-bar st-' + p.status + (dragging ? ' dragging' : '') + (dragging && drag?.stuck ? ' stuck' : '')} style={{ left, width: w, ['--c' as string]: color }}>
                           {p.id && onDates
                             ? <span className="gt-hit movable" title={tip.replace('Drag either end to change the dates', 'Drag to move the phase; drag either end to change its length')} role="slider" tabIndex={0}
                                 aria-label={`${label}: move the whole phase`} aria-valuetext={`${fmt(live.start_date)} to ${fmt(live.end_date)}`} aria-valuenow={days(start, parse(live.start_date))}
                                 onPointerDown={(ev) => startDrag(ev, p.id!, 'move', live)} onPointerMove={moveDrag} onPointerUp={() => endDrag(label)} onPointerCancel={() => setDrag(null)}
-                                onKeyDown={(ev) => { if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') { ev.preventDefault(); save(p.id!, label, live, shift(live, 'move', ev.key === 'ArrowLeft' ? -1 : 1)) } }} />
+                                onKeyDown={(ev) => { if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') { ev.preventDefault(); save(p.id!, label, live, nudge(p.id!, 'move', live, ev.key === 'ArrowLeft' ? -1 : 1)) } }} />
                             : <span className="gt-hit" title={tip} role="img" aria-label={tip.replace(/\n/g, ', ')} />}
                           <span className="gt-chip">{p.code}</span>
                           {handle('start')}{handle('end')}
-                          {dragging && drag && <span className={'gt-drag-tip ' + drag.edge}>{drag.edge === 'start' ? short(live.start_date) : drag.edge === 'end' ? short(live.end_date) : `${short(live.start_date)} – ${short(live.end_date)}`}</span>}
+                          {dragging && drag && <span className={'gt-drag-tip ' + drag.edge}>{drag.edge === 'start' ? short(live.start_date) : drag.edge === 'end' ? short(live.end_date) : `${short(live.start_date)} – ${short(live.end_date)}`}
+                            {drag.stuck === 'hi' && drag.lim.nextStart && <> · {drag.lim.nextCode} starts {short(drag.lim.nextStart)}</>}
+                            {drag.stuck === 'lo' && drag.lim.prevEnd && <> · {drag.lim.prevCode} ends {short(drag.lim.prevEnd)}</>}</span>}
                         </div>)
                     })}
                   </div>)

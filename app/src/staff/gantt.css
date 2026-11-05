@@ -55,3 +55,4 @@
 .gt-hit.movable{cursor:grab;touch-action:none}
 .gt-bar.dragging .gt-hit.movable,.gt-hit.movable:active{cursor:grabbing}
 .gt-drag-tip.move{left:50%;transform:translateX(-50%)}
+.gt-bar.stuck .gt-drag-tip{background:#b42318}
