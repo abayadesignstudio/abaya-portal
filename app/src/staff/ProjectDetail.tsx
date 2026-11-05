@@ -4,14 +4,14 @@ import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASES, PHASE_NAME } from
 import { useLoad, must } from '../lib/useQuery'
 import { useAuth } from '../lib/auth'
 import UpdateCard from '../client/UpdateCard'
-import BudgetTab from './budget/BudgetTab'
+import BudgetTab, { TeamTable, type Person as TeamPerson } from './budget/BudgetTab'
 import './budget.css'
 import { linkedAgreements, contractFee, syncPctPhases, round2 } from '../lib/fees'
 import { sortPhases, fmtDate, signedPhotoUrls, uid, extOf,
   type Update, type Drawing, type ContractItem, type Meeting, type ServiceRequest } from '../lib/projectContent'
 
 type Phase = { id: string; code: string; fee: number; fee_pct: number | null; status: string; start_date: string | null; end_date: string | null; meetings_included: number | null }
-type Entry = { phase_id: string | null; minutes: number; profiles: { full_name: string | null; bill_rate: number | null } | null }
+type Entry = { phase_id: string | null; profile_id: string; minutes: number; profiles: { full_name: string | null; bill_rate: number | null } | null }
 type Project = { id: string; number: string; name: string; status: string; category: string | null; sector: string | null; address: string | null; next_milestone: string | null; client_id: string | null; clients: { name: string } | null }
 type Inv = { id: string; number: string; status: string; total: number; amount_paid: number | null; issue_date: string | null; due_date: string | null }
 
@@ -24,19 +24,20 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 export default function ProjectDetail() {
   const { id } = useParams()
   const [tab, setTab] = useState<Tab>('budget')
+  const [teamErr, setTeamErr] = useState('')
   const [teamOpen, setTeamOpen] = useState<string | null>(null) // phase whose team editor is open, right in the table
   useEffect(() => { setTab('budget') }, [id])
   const { data, error, reload } = useLoad(async () => {
     const p = must(await supabase.from('projects').select('id, number, name, status, category, sector, address, next_milestone, client_id, clients(name)').eq('id', id!).single()) as unknown as Project
     const phases = sortPhases(must(await supabase.from('phases').select('id, code, fee, fee_pct, status, start_date, end_date, meetings_included').eq('project_id', id!)) as Phase[])
     const billed = must(await supabase.from('phase_billing').select('phase_id, billed').eq('project_id', id!)) as { phase_id: string; billed: number }[]
-    const time = must(await supabase.from('time_entries').select('phase_id, minutes, profiles(full_name, bill_rate)').eq('project_id', id!)) as unknown as Entry[]
+    const time = must(await supabase.from('time_entries').select('phase_id, profile_id, minutes, profiles(full_name, bill_rate)').eq('project_id', id!)) as unknown as Entry[]
     const invoices = must(await supabase.from('invoices').select('id, number, status, total, amount_paid, issue_date, due_date').eq('project_id', id!).order('issue_date', { ascending: false, nullsFirst: true })) as Inv[]
     const agreements = await linkedAgreements(id!)
     // who's on each phase (set on the Budget tab): hours × rate as a share of the phase fee
     const allocs = phases.length ? must(await supabase.from('phase_allocations').select('phase_id, profile_id, hours').in('phase_id', phases.map((x) => x.id))) as { phase_id: string; profile_id: string; hours: number }[] : []
-    const people = must(await supabase.from('profiles').select('id, full_name, email, initials, bill_rate').in('role', ['admin', 'staff'])) as { id: string; full_name: string | null; email: string; initials: string | null; bill_rate: number | null }[]
-    const members = must(await supabase.from('project_members').select('profile_id, bill_rate').eq('project_id', id!)) as { profile_id: string; bill_rate: number | null }[]
+    const people = must(await supabase.from('profiles').select('id, full_name, email, initials, title, bill_rate').in('role', ['admin', 'staff']).order('full_name')) as TeamPerson[]
+    const members = must(await supabase.from('project_members').select('profile_id, role_label, bill_rate').eq('project_id', id!)) as { profile_id: string; role_label: string | null; bill_rate: number | null }[]
     return { p, phases, billed, time, invoices, agreements, allocs, people, members }
   }, [id])
   // coming back to the Overview after changing things on another tab (team, budget): show the latest
@@ -52,6 +53,8 @@ export default function ProjectDetail() {
   if (error) return <p className="err">{error}</p>
   if (!data) return <p>Loading…</p>
   const { p, phases, billed, time, invoices, agreements, allocs, people, members } = data
+  const roleOf = (pid: string) => members.find((m) => m.profile_id === pid)?.role_label ?? people.find((x) => x.id === pid)?.title ?? ''
+  const runTeam = async (fn: () => Promise<unknown>) => { try { await fn(); setTeamErr(''); reload() } catch (e) { setTeamErr(errText(e)) } }
   const rateOf = (pid: string) => Number(members.find((m) => m.profile_id === pid)?.bill_rate ?? people.find((x) => x.id === pid)?.bill_rate ?? 0)
   const teamOf = (ph: Phase) => allocs.filter((a) => a.phase_id === ph.id).map((a) => {
     const who = people.find((x) => x.id === a.profile_id)
@@ -123,7 +126,12 @@ export default function ProjectDetail() {
           <tbody>{phases.map((ph) => <Fragment key={ph.id}>
             <PhaseRow key={ph.id + ph.fee + (ph.fee_pct ?? '')} ph={ph} total={cf} team={teamOf(ph)} teamOpen={teamOpen === ph.id} onTeam={() => setTeamOpen(teamOpen === ph.id ? null : ph.id)} billed={billedBy[ph.id] ?? 0} used={used(ph.id)} onSaved={reload} />
             {teamOpen === ph.id && <tr className="ph-team-row"><td colSpan={10}>
-              <TeamEditor phase={ph} projectId={p.id} team={teamOf(ph)} people={people} hasMember={(pid) => members.some((m) => m.profile_id === pid)} rateOf={rateOf} onChanged={reload} onClose={() => setTeamOpen(null)} />
+              <div className="ph-team-edit">
+                <div className="row between"><strong>{ph.code} team</strong><button type="button" className="linkbtn" onClick={() => setTeamOpen(null)}>Done</button></div>
+                {teamErr && <p className="err" role="alert" style={{ margin: 0 }}>{teamErr}</p>}
+                <TeamTable phase={ph} projectId={p.id} people={people} allocs={allocs.filter((a) => a.phase_id === ph.id)} logged={time.filter((t) => t.phase_id === ph.id).map((t) => ({ phase_id: t.phase_id, profile_id: t.profile_id, minutes: t.minutes }))}
+                  rateOf={rateOf} roleOf={roleOf} hasMember={(pid) => members.some((m) => m.profile_id === pid)} run={runTeam} />
+              </div>
             </td></tr>}
           </Fragment>)}</tbody>
           {phases.length > 0 && <tfoot><tr><td colSpan={4} style={{ fontWeight: 700 }}>Phases total</td>
@@ -455,59 +463,6 @@ function FeeInput({ id, mode, amt, pct, total, onMode, onAmt, onPct }: { id: str
 }
 
 type TeamMember = { id: string; name: string; initials: string; hours: number; pct: number }
-/** Assign people to a phase and set each one's share, right under the phase's row. Share = hours × rate ÷ phase fee. */
-function TeamEditor({ phase, projectId, team, people, hasMember, rateOf, onChanged, onClose }: { phase: Phase; projectId: string; team: TeamMember[]
-  people: { id: string; full_name: string | null; email: string; bill_rate: number | null }[]; hasMember: (pid: string) => boolean; rateOf: (pid: string) => number; onChanged: () => void; onClose: () => void }) {
-  const [pick, setPick] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false)
-  const fee = Number(phase.fee)
-  const run = async (fn: () => Promise<unknown>) => { setBusy(true); try { await fn(); setErr(''); onChanged() } catch (e) { setErr(errText(e)) } setBusy(false) }
-  const ensureMember = async (pid: string) => {
-    if (hasMember(pid)) return
-    const who = people.find((x) => x.id === pid)
-    must(await supabase.from('project_members').insert({ project_id: projectId, profile_id: pid, bill_rate: who?.bill_rate ?? null }))
-  }
-  const setHours = (pid: string, hours: number) => run(async () => { must(await supabase.from('phase_allocations').upsert({ phase_id: phase.id, profile_id: pid, hours: Math.max(0, round2(hours)) })) })
-  const add = () => { if (!pick) return; const pid = pick; setPick(''); run(async () => { await ensureMember(pid); must(await supabase.from('phase_allocations').upsert({ phase_id: phase.id, profile_id: pid, hours: 0 })) }) }
-  const remove = (pid: string) => run(async () => { must(await supabase.from('phase_allocations').delete().eq('phase_id', phase.id).eq('profile_id', pid)) })
-  const free = people.filter((x) => !team.some((m) => m.id === x.id))
-  const totalPct = team.reduce((a, m) => a + m.pct, 0)
-  return (
-    <div className="ph-team-edit" aria-label={`${phase.code} team`}>
-      <div className="row between"><strong>{phase.code} team</strong><button type="button" className="linkbtn" onClick={onClose}>Done</button></div>
-      {!fee && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Set this phase’s fee first to split it by percent; you can still enter hours.</p>}
-      {team.length === 0 && <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>No one on this phase yet.</em></p>}
-      {team.length > 0 && <table className="ph-team-tbl"><thead><tr><th>Person</th><th className="r">Share of phase</th><th className="r">Hours</th><th className="r">Rate</th><th className="r">Budget</th><th /></tr></thead>
-        <tbody>{team.map((m) => { const rate = rateOf(m.id)
-          return <tr key={m.id}>
-            <td><span className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><span className="pb-avatar" aria-hidden="true">{m.initials}</span>{m.name}</span></td>
-            <td className="r"><TeamNum label={`${m.name}'s share of ${phase.code}`} suffix="%" value={Math.round(m.pct * 10) / 10} disabled={!rate || !fee || busy} onCommit={(v) => setHours(m.id, v / 100 * fee / rate)} /></td>
-            <td className="r"><TeamNum label={`${m.name}'s hours on ${phase.code}`} value={round2(m.hours)} disabled={busy} onCommit={(v) => setHours(m.id, v)} /></td>
-            <td className="r num muted">{rate ? `${money(rate).replace('.00', '')}/hr` : 'no rate'}</td>
-            <td className="r num">{money(m.hours * rate)}</td>
-            <td className="r"><button type="button" className="linkbtn" style={{ color: 'var(--muted)', fontSize: 18 }} aria-label={`Remove ${m.name} from ${phase.code}`} disabled={busy} onClick={() => remove(m.id)}>×</button></td>
-          </tr> })}</tbody>
-        <tfoot><tr><td>Total</td><td className="r num" style={{ color: totalPct > 100.5 ? 'var(--red)' : totalPct < 99.5 ? 'var(--amber)' : 'var(--green)', fontWeight: 700 }}>{Math.round(totalPct * 10) / 10}%</td>
-          <td className="r num">{round2(team.reduce((a, m) => a + m.hours, 0))}</td><td /><td className="r num">{money(team.reduce((a, m) => a + m.hours * rateOf(m.id), 0))}</td><td /></tr></tfoot></table>}
-      <div className="row" style={{ gap: 8 }}>
-        <label className="sr" htmlFor={'tp-' + phase.id}>Add a person to {phase.code}</label>
-        <select id={'tp-' + phase.id} className="input" style={{ width: 240 }} value={pick} onChange={(e) => setPick(e.target.value)} disabled={busy || free.length === 0}>
-          <option value="">{free.length ? 'Add a person…' : 'Everyone is on this phase'}</option>{free.map((x) => <option key={x.id} value={x.id}>{x.full_name || x.email}</option>)}</select>
-        <button type="button" className="btn small" disabled={!pick || busy} onClick={add}>+ Add</button>
-        <span className="muted" style={{ fontSize: 12.5 }}><em>Type a share or hours; the other updates. Budget = hours × rate.{totalPct > 100.5 ? ' Shares add up to more than the phase fee.' : ''}</em></span>
-      </div>
-      {err && <p className="err" role="alert" style={{ margin: 0 }}>{err}</p>}
-    </div>
-  )
-}
-/** Number box that saves on Enter or leaving the field. */
-function TeamNum({ value, onCommit, label, suffix, disabled }: { value: number; onCommit: (v: number) => void; label: string; suffix?: string; disabled?: boolean }) {
-  const [v, setV] = useState(String(value)); useEffect(() => setV(String(value)), [value])
-  const commit = () => { const n = parseFloat(v.replace(/[,%\s]/g, '')); if (isFinite(n) && n !== value) onCommit(Math.max(0, n)); else setV(String(value)) }
-  return <span className="row" style={{ gap: 3, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
-    <input className="input num" aria-label={label} style={{ width: 80, textAlign: 'right', minHeight: 34 }} inputMode="decimal" value={v} disabled={disabled}
-      onChange={(e) => setV(e.target.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />{suffix && <span className="muted">{suffix}</span>}</span>
-}
-
 function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, used, onSaved }: { ph: Phase; total: number | null; team: TeamMember[]; teamOpen: boolean; onTeam: () => void; billed: number; used: { hrs: number; cost: number }; onSaved: () => void }) {
   const startMode = ph.fee_pct != null && total !== null ? 'pct' : 'amt'
   const [f, setF] = useState({ mode: startMode as 'amt' | 'pct', fee: String(ph.fee), pct: ph.fee_pct != null ? String(Number(ph.fee_pct)) : total ? String(Math.round(Number(ph.fee) / total * 10000) / 100) : '',

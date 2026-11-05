@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase, money, PHASE_NAME } from '../../lib/supabase'
 import { useLoad, must } from '../../lib/useQuery'
 import { sortPhases, fmtDate } from '../../lib/projectContent'
+import RowMenu from '../../components/RowMenu'
 
 type Phase = { id: string; code: string; fee: number; status: string; start_date: string | null; end_date: string | null }
-type Person = { id: string; full_name: string | null; email: string; initials: string | null; title: string | null; bill_rate: number | null }
-type Member = { profile_id: string; role_label: string | null; bill_rate: number | null }
-type Alloc = { phase_id: string; profile_id: string; hours: number }
-type Logged = { phase_id: string | null; profile_id: string; minutes: number }
+export type Person = { id: string; full_name: string | null; email: string; initials: string | null; title: string | null; bill_rate: number | null }
+export type Member = { profile_id: string; role_label: string | null; bill_rate: number | null }
+export type Alloc = { phase_id: string; profile_id: string; hours: number }
+export type Logged = { phase_id: string | null; profile_id: string; minutes: number }
 type Consultant = { id: string; phase_id: string | null; name: string; discipline: string | null; fee: number; billed: number; markup_pct: number }
 type Expense = { id: string; phase_id: string | null; description: string; amount: number; spent_on: string; reimbursable: boolean; planned: boolean; invoice_id: string | null }
 
@@ -110,34 +111,15 @@ export default function BudgetTab({ projectId, focus }: { projectId: string; foc
 }
 
 /* ---------- one phase card with its assigned team ---------- */
-function PhaseCard({ phase, people, allocs, logged, rateOf, roleOf, pById, projectId, hasMember, run }: {
+function PhaseCard({ phase, people, allocs, logged, rateOf, roleOf, projectId, hasMember, run }: {
   phase: Phase; people: Person[]; allocs: Alloc[]; logged: Logged[]; rateOf: (id: string) => number; roleOf: (id: string) => string
-  pById: Record<string, Person>; projectId: string; hasMember: (id: string) => boolean; run: (fn: () => Promise<unknown>) => void
+  pById?: Record<string, Person>; projectId: string; hasMember: (id: string) => boolean; run: (fn: () => Promise<unknown>) => void
 }) {
   const [open, setOpen] = useState(true)
-  const [pick, setPick] = useState('')
   const fee = Number(phase.fee)
   const totalBudget = allocs.reduce((a, x) => a + Number(x.hours) * rateOf(x.profile_id), 0)
-  const totalHours = allocs.reduce((a, x) => a + Number(x.hours), 0)
   const diff = fee - totalBudget
   const dot = STATUS_DOT[phase.status] ?? STATUS_DOT.not_started
-  const available = people.filter((p) => !allocs.some((a) => a.profile_id === p.id))
-  const loggedHrs = (pid: string) => round2(logged.filter((l) => l.profile_id === pid).reduce((a, l) => a + l.minutes / 60, 0))
-
-  const ensureMember = async (pid: string) => {
-    if (hasMember(pid)) return
-    const p = pById[pid]
-    must(await supabase.from('project_members').insert({ project_id: projectId, profile_id: pid, role_label: p?.title ?? null, bill_rate: p?.bill_rate ?? null }))
-  }
-  const setHours = (pid: string, hours: number) => run(async () => {
-    must(await supabase.from('phase_allocations').upsert({ phase_id: phase.id, profile_id: pid, hours: Math.max(0, round2(hours)) }))
-  })
-  const assign = () => { if (!pick) return; const pid = pick; setPick(''); run(async () => { await ensureMember(pid); must(await supabase.from('phase_allocations').upsert({ phase_id: phase.id, profile_id: pid, hours: 0 })) }) }
-  const remove = (pid: string) => run(async () => { must(await supabase.from('phase_allocations').delete().eq('phase_id', phase.id).eq('profile_id', pid)) })
-  const setMember = (pid: string, patch: Partial<Member>) => run(async () => {
-    await ensureMember(pid)
-    must(await supabase.from('project_members').update(patch).eq('project_id', projectId).eq('profile_id', pid))
-  })
 
   return (
     <section className="card pad stack" aria-label={`${phase.code} ${PHASE_NAME[phase.code]}`}>
@@ -155,44 +137,80 @@ function PhaseCard({ phase, people, allocs, logged, rateOf, roleOf, pById, proje
           <div className="muted num" style={{ fontSize: 13 }}>{fee ? Math.round(totalBudget / fee * 100) : 0}% of fee</div>
         </div>
       </div>
-      <div><button type="button" className="btn small secondary" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'} assigned team ({allocs.length})</button></div>
-      {open && <>
-        <div style={{ border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden' }}>
-          <div className="pb-row head"><span>Team member</span><span className="pb-role">Role &amp; billable rate</span><span style={{ textAlign: 'right' }}>Hours</span><span style={{ textAlign: 'right' }}>Percent</span><span style={{ textAlign: 'right' }}>Budget</span><span className="pb-logged" style={{ textAlign: 'right' }}>Logged</span><span /></div>
-          {allocs.length === 0 && <div className="pb-row"><span className="muted" style={{ gridColumn: '1 / -1' }}><em>No one assigned yet.</em></span></div>}
-          {allocs.map((a) => {
-            const rate = rateOf(a.profile_id); const hrs = Number(a.hours); const budget = hrs * rate
-            const p = pById[a.profile_id]; const lg = loggedHrs(a.profile_id)
-            return (
-              <div key={a.profile_id} className="pb-row">
-                <span className="row" style={{ gap: 10, fontWeight: 700, flexWrap: 'nowrap' }}><span className="pb-avatar" aria-hidden="true">{initialsOf(p)}</span>{nameOf(p)}</span>
-                <span className="pb-role row" style={{ gap: 6, flexWrap: 'nowrap' }}>
-                  <label className="sr" htmlFor={`role-${phase.id}-${a.profile_id}`}>Role for {nameOf(p)}</label>
-                  <select id={`role-${phase.id}-${a.profile_id}`} className="input" style={{ minHeight: 40, padding: '6px 8px' }} value={roleOf(a.profile_id)} onChange={(e) => setMember(a.profile_id, { role_label: e.target.value || null })}>
-                    <option value="">Role…</option>{Array.from(new Set([...ROLE_OPTIONS, roleOf(a.profile_id)].filter(Boolean))).map((r) => <option key={r}>{r}</option>)}</select>
-                  <NumIn label={`Billable rate for ${nameOf(p)}`} prefix="$" value={rate} width={90} onCommit={(v) => setMember(a.profile_id, { bill_rate: v })} />
-                </span>
+      <div><button type="button" className="linkbtn pb-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>{allocs.length === 0 && <span className="pb-warn" aria-hidden="true">!</span>}{open ? 'Hide' : 'Show'} assigned team ({allocs.length}) <span aria-hidden="true">{open ? '⌃' : '⌄'}</span></button></div>
+      {open && <TeamTable phase={phase} projectId={projectId} people={people} allocs={allocs} logged={logged} rateOf={rateOf} roleOf={roleOf} hasMember={hasMember} run={run} />}
+    </section>
+  )
+}
+
+/* ---------- a phase's team (shared by the Budget tab and the project Overview) ---------- */
+const shortName = (p?: Person) => { const n = (p?.full_name || p?.email || 'Someone').trim().split(/\s+/); return n.length > 1 ? `${n[0]} ${n[n.length - 1][0]}.` : n[0] }
+export function TeamTable({ phase, projectId, people, allocs, logged = [], rateOf, roleOf, hasMember, run }: {
+  phase: { id: string; code: string; fee: number }; projectId: string; people: Person[]; allocs: Alloc[]; logged?: Logged[]
+  rateOf: (id: string) => number; roleOf: (id: string) => string; hasMember: (id: string) => boolean; run: (fn: () => Promise<unknown>) => void
+}) {
+  const [editing, setEditing] = useState<string | null>(null) // whose role & rate is being edited
+  const fee = Number(phase.fee)
+  const pById = Object.fromEntries(people.map((p) => [p.id, p]))
+  const totalBudget = allocs.reduce((a, x) => a + Number(x.hours) * rateOf(x.profile_id), 0)
+  const totalHours = allocs.reduce((a, x) => a + Number(x.hours), 0)
+  const available = people.filter((p) => !allocs.some((a) => a.profile_id === p.id))
+  const loggedHrs = (pid: string) => round2(logged.filter((l) => l.profile_id === pid).reduce((a, l) => a + l.minutes / 60, 0))
+  const ensureMember = async (pid: string) => {
+    if (hasMember(pid)) return
+    const p = pById[pid]
+    must(await supabase.from('project_members').insert({ project_id: projectId, profile_id: pid, role_label: p?.title ?? null, bill_rate: p?.bill_rate ?? null }))
+  }
+  const setHours = (pid: string, hours: number) => run(async () => { must(await supabase.from('phase_allocations').upsert({ phase_id: phase.id, profile_id: pid, hours: Math.max(0, round2(hours)) })) })
+  const assign = (pid: string) => { if (pid) run(async () => { await ensureMember(pid); must(await supabase.from('phase_allocations').upsert({ phase_id: phase.id, profile_id: pid, hours: 0 })) }) }
+  const remove = (pid: string) => run(async () => { must(await supabase.from('phase_allocations').delete().eq('phase_id', phase.id).eq('profile_id', pid)) })
+  const setMember = (pid: string, patch: Partial<Member>) => run(async () => {
+    await ensureMember(pid)
+    must(await supabase.from('project_members').update(patch).eq('project_id', projectId).eq('profile_id', pid))
+  })
+  return (
+    <div className="stack" style={{ gap: 12 }}>
+      <div className="tt">
+        <div className="tt-row head"><span>Team member</span><span>Role &amp; billable rate</span><span className="tt-pair plain"><span className="tt-r">Hours</span><span className="tt-r">Percent</span></span><span className="tt-r">Budget</span><span /></div>
+        {allocs.length === 0 && <div className="tt-row"><span className="muted" style={{ gridColumn: '1 / -1' }}><em>No one assigned yet. Choose a team member below.</em></span></div>}
+        {allocs.map((a) => {
+          const rate = rateOf(a.profile_id); const hrs = Number(a.hours); const budget = hrs * rate
+          const p = pById[a.profile_id]; const lg = loggedHrs(a.profile_id); const role = roleOf(a.profile_id)
+          return (
+            <div key={a.profile_id} className="tt-row">
+              <span className="tt-who"><span className="pb-avatar tt-av" aria-hidden="true">{initialsOf(p)}</span>
+                <span><span className="tt-name" title={nameOf(p)}>{shortName(p)}</span>{lg > 0 && <span className="tt-logged" style={{ color: hrs && lg > hrs ? 'var(--red)' : undefined }}>{lg} hrs logged</span>}</span></span>
+              {editing === a.profile_id
+                ? <span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                    <label className="sr" htmlFor={`role-${phase.id}-${a.profile_id}`}>Role for {nameOf(p)}</label>
+                    <select id={`role-${phase.id}-${a.profile_id}`} className="input" style={{ minHeight: 36, padding: '4px 8px' }} value={role} onChange={(e) => setMember(a.profile_id, { role_label: e.target.value || null })}>
+                      <option value="">Role…</option>{Array.from(new Set([...ROLE_OPTIONS, role].filter(Boolean))).map((r) => <option key={r}>{r}</option>)}</select>
+                    <NumIn label={`Billable rate for ${nameOf(p)}`} prefix="$" value={rate} width={92} onCommit={(v) => setMember(a.profile_id, { bill_rate: v })} />
+                    <button type="button" className="linkbtn" onClick={() => setEditing(null)}>Done</button></span>
+                : <span className="tt-role"><span className="tt-coin" aria-hidden="true">$</span>{role || 'No role'} – {money(rate)}
+                    <button type="button" className="tt-edit" aria-label={`Edit role and rate for ${nameOf(p)}`} onClick={() => setEditing(a.profile_id)}>✎</button></span>}
+              <span className="tt-pair">
                 <NumIn label={`Hours for ${nameOf(p)} on ${phase.code}`} value={round2(hrs)} onCommit={(v) => setHours(a.profile_id, v)} />
                 <NumIn label={`Percent of ${phase.code} fee for ${nameOf(p)}`} suffix="%" value={fee ? Math.round(budget / fee * 1000) / 10 : 0} disabled={!rate || !fee}
                   onCommit={(v) => { if (rate && fee) setHours(a.profile_id, v / 100 * fee / rate) }} />
-                <span className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{money(budget)}</span>
-                <span className="pb-logged num" style={{ textAlign: 'right', color: hrs && lg > hrs ? 'var(--red)' : 'var(--muted)' }} title="Hours logged on this phase">{lg}</span>
-                <button type="button" className="linkbtn" style={{ color: 'var(--muted)', fontSize: 20 }} aria-label={`Remove ${nameOf(p)} from ${phase.code}`} onClick={() => remove(a.profile_id)}>×</button>
-              </div>)
-          })}
-          <div className="pb-row total"><span>Total</span><span className="pb-role" /><span className="num" style={{ textAlign: 'right' }}>{round2(totalHours)}</span>
-            <span className="num" style={{ textAlign: 'right' }}>{fee ? Math.round(totalBudget / fee * 100) : 0}%</span><span className="num" style={{ textAlign: 'right' }}>{money(totalBudget)}</span>
-            <span className="pb-logged num" style={{ textAlign: 'right' }}>{round2(logged.reduce((s, l) => s + l.minutes / 60, 0))}</span><span /></div>
-        </div>
-        <div className="row">
-          <label className="sr" htmlFor={`assign-${phase.id}`}>Assign team member to {phase.code}</label>
-          <select id={`assign-${phase.id}`} className="input" style={{ width: 260 }} value={pick} onChange={(e) => setPick(e.target.value)}>
-            <option value="">Assign team member…</option>{available.map((p) => <option key={p.id} value={p.id}>{nameOf(p)}</option>)}</select>
-          <button type="button" className="btn small" disabled={!pick} onClick={assign}>+ Assign</button>
-          <span className="muted" style={{ fontSize: 13 }}><em>Type hours or a percent — the other, the budget and the totals update. Budget = hours × billable rate.</em></span>
-        </div>
-      </>}
-    </section>
+              </span>
+              <span className="num tt-r" style={{ fontWeight: 700 }}>{money(budget)}</span>
+              <RowMenu label={`Options for ${nameOf(p)} on ${phase.code}`} items={[
+                { label: 'Edit role & rate', onSelect: () => setEditing(a.profile_id) },
+                'divider',
+                { label: `Remove from ${phase.code}`, danger: true, onSelect: () => remove(a.profile_id) },
+              ]} />
+            </div>)
+        })}
+        <div className="tt-row total"><span>Total</span><span /><span className="tt-pair plain"><span className="num tt-r">{round2(totalHours)}</span><span className="num tt-r">{fee ? Math.round(totalBudget / fee * 100) : 0}%</span></span>
+          <span className="num tt-r">{money(totalBudget)}</span><span /></div>
+      </div>
+      <div>
+        <label className="sr" htmlFor={`assign-${phase.id}`}>Assign team member to {phase.code}</label>
+        <select id={`assign-${phase.id}`} className="input" style={{ width: 260 }} value="" onChange={(e) => assign(e.target.value)} disabled={available.length === 0}>
+          <option value="">{available.length ? 'Assign team member' : 'Everyone is assigned'}</option>{available.map((p) => <option key={p.id} value={p.id}>{nameOf(p)}</option>)}</select>
+      </div>
+    </div>
   )
 }
 

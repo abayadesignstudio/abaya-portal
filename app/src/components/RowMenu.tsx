@@ -24,7 +24,7 @@ export default function RowMenu({ label, items }: { label: string; items: RowMen
   useEffect(() => {
     if (!open) return
     const first = menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')
-    first?.focus()
+    first?.focus({ preventScroll: true }) // moving focus mustn't scroll a container (that would close the menu)
     const close = (e: Event) => {
       if (menu.current?.contains(e.target as Node) || btn.current?.contains(e.target as Node)) return
       setOpen(false)
@@ -37,7 +37,9 @@ export default function RowMenu({ label, items }: { label: string; items: RowMen
       const i = list.indexOf(document.activeElement as HTMLButtonElement)
       list[(i + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length]?.focus()
     }
-    const shut = () => setOpen(false)
+    // close on scroll/resize only if the button actually moved (a late scroll event right after opening shouldn't close it)
+    const at = btn.current?.getBoundingClientRect()
+    const shut = () => { const r = btn.current?.getBoundingClientRect(); if (!r || !at || Math.abs(r.top - at.top) > 2 || Math.abs(r.left - at.left) > 2) setOpen(false) }
     document.addEventListener('mousedown', close)
     document.addEventListener('keydown', key)
     window.addEventListener('scroll', shut, true)
