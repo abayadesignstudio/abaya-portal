@@ -6,6 +6,7 @@ import './gantt.css'
 // Projects as a Gantt chart (like Monograph): one row per project, one bar per phase (from its start/end dates).
 // Left: project number (building-type color), name, client and fee used. Right: a scrollable week/month timeline with
 // today marked. Zoom with − / + or the scale menu; "Today" scrolls back to now. Click a bar or a name to open the project.
+// Drag either end of a bar to change that phase's start or end date (or focus an end and use ← / →); Undo puts it back.
 
 export type GPhase = { id?: string; code: string; status: string; fee: number; start_date: string | null; end_date: string | null }
 export type GRow = { id: string; number: string; name: string; status: string; sector: string | null; clients: { name: string } | null; phases: GPhase[] }
@@ -17,6 +18,8 @@ const parse = (s: string) => { const [y, m, d] = s.split('-').map(Number); retur
 const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
 const mondayOf = (d: Date) => addDays(d, -((d.getDay() + 6) % 7))
 const days = (a: Date, b: Date) => Math.round((b.getTime() - a.getTime()) / DAY)
+const isoOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const short = (s: string) => parse(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 const fmt = (s: string) => parse(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 const STATUS_WORD: Record<string, string> = { complete: 'Complete', in_progress: 'In progress', paused: 'Paused', not_started: 'Not started' }
 
@@ -34,8 +37,47 @@ function Ring({ pct }: { pct: number | null }) {
   )
 }
 
-export default function ProjectsGantt({ rows, feeUsed }: { rows: GRow[]; feeUsed: Record<string, number | null> }) {
+type Dates = { start_date: string; end_date: string }
+type Drag = { id: string; edge: 'start' | 'end'; x0: number; orig: Dates; cur: Dates; moved: boolean }
+
+export default function ProjectsGantt({ rows, feeUsed, onDates }: { rows: GRow[]; feeUsed: Record<string, number | null>
+  onDates?: (phaseId: string, d: Dates) => Promise<string | null> }) {
   const nav = useNavigate()
+  // date changes: live preview while dragging, kept until the saved data comes back
+  const [over, setOver] = useState<Record<string, Dates>>({})
+  const [drag, setDrag] = useState<Drag | null>(null)
+  const dragRef = useRef<Drag | null>(null); dragRef.current = drag
+  const justDragged = useRef(false)
+  const [undo, setUndo] = useState<{ id: string; label: string; prev: Dates; now: Dates } | null>(null)
+  const [saveErr, setSaveErr] = useState('')
+  useEffect(() => { setOver({}) }, [rows])
+  const shift = (d: Dates, edge: 'start' | 'end', n: number): Dates => {
+    if (edge === 'start') { const s = addDays(parse(d.start_date), n); const e = parse(d.end_date); return { ...d, start_date: isoOf(s > e ? e : s) } }
+    const e = addDays(parse(d.end_date), n); const s = parse(d.start_date); return { ...d, end_date: isoOf(e < s ? s : e) }
+  }
+  const save = async (id: string, label: string, prev: Dates, now: Dates) => {
+    if (!onDates || (prev.start_date === now.start_date && prev.end_date === now.end_date)) return
+    setOver((o) => ({ ...o, [id]: now })); setSaveErr('')
+    const err = await onDates(id, now)
+    if (err) { setSaveErr(err); setOver((o) => { const n = { ...o }; delete n[id]; return n }) } else setUndo({ id, label, prev, now })
+  }
+  const startDrag = (e: React.PointerEvent, id: string, edge: 'start' | 'end', orig: Dates) => {
+    if (!onDates || e.button !== 0) return
+    e.preventDefault(); e.stopPropagation()
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    setDrag({ id, edge, x0: e.clientX, orig, cur: orig, moved: false })
+  }
+  const moveDrag = (e: React.PointerEvent) => {
+    const d = dragRef.current; if (!d) return
+    const n = Math.round((e.clientX - d.x0) / px)
+    const cur = shift(d.orig, d.edge, n)
+    if (cur.start_date !== d.cur.start_date || cur.end_date !== d.cur.end_date || (!d.moved && n !== 0)) setDrag({ ...d, cur, moved: d.moved || n !== 0 })
+  }
+  const endDrag = (label: string) => {
+    const d = dragRef.current; if (!d) return
+    setDrag(null)
+    if (d.moved) { justDragged.current = true; setTimeout(() => { justDragged.current = false }, 0); save(d.id, label, d.orig, d.cur) }
+  }
   const scroller = useRef<HTMLDivElement>(null)
   const [zi, setZi] = useState(() => { try { const r = localStorage.getItem('abaya.gantt.zoom'); const v = r === null ? NaN : Number(r); return v >= 0 && v < ZOOMS.length ? v : 5 } catch { return 5 } })
   useEffect(() => { try { localStorage.setItem('abaya.gantt.zoom', String(zi)) } catch { /* private mode */ } }, [zi])
@@ -141,14 +183,27 @@ export default function ProjectsGantt({ rows, feeUsed }: { rows: GRow[]; feeUsed
                 return (
                   <div key={r.id} className="gt-row" style={{ top: i * 66 }}>
                     {phases.map((p) => {
-                      const s = parse(p.start_date!), e = addDays(parse(p.end_date!), 1)
+                      const saved: Dates = { start_date: p.start_date!, end_date: p.end_date! }
+                      const live = p.id && drag?.id === p.id ? drag.cur : (p.id && over[p.id]) || saved
+                      const s = parse(live.start_date), e = addDays(parse(live.end_date), 1)
                       const left = x(s), w = Math.max(px * 2, x(e) - left)
-                      const tip = `${r.number} · ${PHASE_NAME[p.code] ?? p.code} (${p.code})\n${fmt(p.start_date!)} – ${fmt(p.end_date!)}\n${STATUS_WORD[p.status] ?? p.status}${Number(p.fee) ? ` · ${money(p.fee)}` : ''}`
+                      const label = `${r.number} ${p.code}`
+                      const tip = `${r.number} · ${PHASE_NAME[p.code] ?? p.code} (${p.code})\n${fmt(live.start_date)} – ${fmt(live.end_date)}\n${STATUS_WORD[p.status] ?? p.status}${Number(p.fee) ? ` · ${money(p.fee)}` : ''}${onDates && p.id ? '\nDrag either end to change the dates' : ''}`
+                      const dragging = !!drag && drag.id === p.id && drag.moved
+                      const handle = (edge: 'start' | 'end') => p.id && onDates ? (
+                        <span role="slider" tabIndex={0} className={'gt-h ' + edge} aria-label={`${label} ${edge} date`} aria-valuetext={fmt(edge === 'start' ? live.start_date : live.end_date)}
+                          aria-valuenow={days(start, parse(edge === 'start' ? live.start_date : live.end_date))}
+                          onPointerDown={(ev) => startDrag(ev, p.id!, edge, live)} onPointerMove={moveDrag} onPointerUp={() => endDrag(label)} onPointerCancel={() => setDrag(null)}
+                          onClick={(ev) => ev.stopPropagation()}
+                          onKeyDown={(ev) => { if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') { ev.preventDefault(); ev.stopPropagation(); save(p.id!, label, live, shift(live, edge, ev.key === 'ArrowLeft' ? -1 : 1)) } }} />
+                      ) : null
                       return (
-                        <button key={p.code} type="button" className={'gt-bar st-' + p.status} title={tip} aria-label={tip.replace(/\n/g, ', ')}
-                          style={{ left, width: w, ['--c' as string]: color }} onClick={() => nav(`/projects/${r.id}`)}>
+                        <div key={p.code} className={'gt-bar st-' + p.status + (dragging ? ' dragging' : '')} style={{ left, width: w, ['--c' as string]: color }}>
+                          <button type="button" className="gt-hit" title={tip} aria-label={tip.replace(/\n/g, ', ')} onClick={() => { if (!justDragged.current) nav(`/projects/${r.id}`) }} />
                           <span className="gt-chip">{p.code}</span>
-                        </button>)
+                          {handle('start')}{handle('end')}
+                          {dragging && <span className={'gt-drag-tip ' + drag!.edge}>{drag!.edge === 'start' ? short(live.start_date) : short(live.end_date)}</span>}
+                        </div>)
                     })}
                   </div>)
               })}
@@ -157,7 +212,13 @@ export default function ProjectsGantt({ rows, feeUsed }: { rows: GRow[]; feeUsed
           </div>
         </div>
       </div>
-      <p className="muted gt-key"><em>Bars are phase dates. Solid = in progress, light = not started, faded = complete, striped = paused. Ring = fee used (hours × rates); orange at 75%, red at 90%. Hover a bar for dates and fee; click to open the project.</em></p>
+      {(undo || saveErr) && <div className="gt-status" role="status">
+        {saveErr ? <span className="err">Couldn’t save the new dates: {saveErr}</span>
+          : undo && <>{undo.label} now {short(undo.now.start_date)} – {fmt(undo.now.end_date)}.
+            <button type="button" className="linkbtn" onClick={() => { const u = undo; setUndo(null); save(u.id, u.label, u.now, u.prev).then(() => setUndo(null)) }}>Undo</button></>}
+        <button type="button" className="linkbtn" aria-label="Dismiss" onClick={() => { setUndo(null); setSaveErr('') }}>×</button>
+      </div>}
+      <p className="muted gt-key"><em>Bars are phase dates. Solid = in progress, light = not started, faded = complete, striped = paused. Ring = fee used (hours × rates); orange at 75%, red at 90%. Hover a bar for dates and fee; drag either end to change its dates; click it to open the project.</em></p>
     </div>
   )
 }

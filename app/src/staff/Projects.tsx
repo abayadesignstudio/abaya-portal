@@ -6,7 +6,7 @@ import ProjectsGantt from './ProjectsGantt'
 import './admin.css'
 
 type Row = { id: string; number: string; name: string; status: string; category: string | null; sector: string | null; next_milestone: string | null
-  clients: { name: string } | null; phases: { code: string; status: string; fee: number; start_date: string | null; end_date: string | null }[] }
+  clients: { name: string } | null; phases: { id: string; code: string; status: string; fee: number; start_date: string | null; end_date: string | null }[] }
 type TimeRow = { project_id: string; minutes: number; profiles: { bill_rate: number | null } | null }
 type OpenInv = { project_id: string; total: number; amount_paid: number; due_date: string | null }
 
@@ -46,7 +46,7 @@ export default function Projects() {
   const [err, setErr] = useState('')
   const { data, error, reload } = useLoad(async () => {
     const projects = must(await supabase.from('projects')
-      .select('id, number, name, status, category, sector, next_milestone, clients(name), phases(code, status, fee, start_date, end_date)').order('number', { ascending: false })) as unknown as Row[]
+      .select('id, number, name, status, category, sector, next_milestone, clients(name), phases(id, code, status, fee, start_date, end_date)').order('number', { ascending: false })) as unknown as Row[]
     const time = must(await supabase.from('time_entries').select('project_id, minutes, profiles(bill_rate)')) as unknown as TimeRow[]
     const open = must(await supabase.from('invoices').select('project_id, total, amount_paid, due_date').eq('status', 'open')) as OpenInv[]
     return { projects, time, open }
@@ -104,7 +104,11 @@ export default function Projects() {
       </div>
       {unset > 0 && <p className="muted" style={{ margin: 0, fontSize: 14 }}><strong>{unset} project{unset === 1 ? '' : 's'}</strong> have no building type yet; pick one in the row to set its color.</p>}
       {(error || err) && <p className="err" role="alert">{error || err}</p>}
-      {view === 'timeline' && data && <ProjectsGantt rows={rows} feeUsed={feeUsed} />}
+      {view === 'timeline' && data && <ProjectsGantt rows={rows} feeUsed={feeUsed} onDates={async (id, d) => {
+        const { error } = await supabase.from('phases').update(d).eq('id', id)
+        if (!error) reload()
+        return error?.message ?? null
+      }} />}
       {view === 'table' && <><div className="card tablewrap">
         <table className="table" style={{ minWidth: 1100 }}>
           <thead><tr><th>Project</th><th>Phases</th><th>Fee used</th><th className="r">Outstanding</th><th>Status</th></tr></thead>
