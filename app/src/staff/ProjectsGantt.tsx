@@ -6,7 +6,8 @@ import './gantt.css'
 // Projects as a Gantt chart (like Monograph): one row per project, one bar per phase (from its start/end dates).
 // Left: project number (building-type color), name, client and fee used. Right: a scrollable week/month timeline with
 // today marked. Zoom with − / + or the scale menu; "Today" scrolls back to now. Click a project's name to open it.
-// Drag either end of a bar to change that phase's start or end date (or focus an end and use ← / →); Undo puts it back.
+// Drag a bar to move the whole phase (same length), or drag either end to change its start or end date. Focused bars and
+// ends also move with ← / →. Undo puts it back.
 
 export type GPhase = { id?: string; code: string; status: string; fee: number; start_date: string | null; end_date: string | null }
 export type GRow = { id: string; number: string; name: string; status: string; sector: string | null; clients: { name: string } | null; phases: GPhase[] }
@@ -40,7 +41,8 @@ function Ring({ pct }: { pct: number | null }) {
 type Dates = { start_date: string; end_date: string }
 /** Custom-order dragging, provided by the Projects page when Sort = Custom. */
 export type Reorder = { dragId: string | null; start: (id: string) => void; over: (id: string) => void; end: () => void; step: (id: string, dir: -1 | 1) => void }
-type Drag = { id: string; edge: 'start' | 'end'; x0: number; orig: Dates; cur: Dates; moved: boolean }
+type Edge = 'start' | 'end' | 'move' // move = the whole phase, keeping its length
+type Drag = { id: string; edge: Edge; x0: number; orig: Dates; cur: Dates; moved: boolean }
 
 /** The ⠿ drag handle for Custom order (drag it, or focus it and use ↑ / ↓). */
 export function Grip({ id, name, r }: { id: string; name: string; r: Reorder }) {
@@ -59,7 +61,8 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
   const [undo, setUndo] = useState<{ id: string; label: string; prev: Dates; now: Dates } | null>(null)
   const [saveErr, setSaveErr] = useState('')
   useEffect(() => { setOver({}) }, [rows])
-  const shift = (d: Dates, edge: 'start' | 'end', n: number): Dates => {
+  const shift = (d: Dates, edge: Edge, n: number): Dates => {
+    if (edge === 'move') return { start_date: isoOf(addDays(parse(d.start_date), n)), end_date: isoOf(addDays(parse(d.end_date), n)) }
     if (edge === 'start') { const s = addDays(parse(d.start_date), n); const e = parse(d.end_date); return { ...d, start_date: isoOf(s > e ? e : s) } }
     const e = addDays(parse(d.end_date), n); const s = parse(d.start_date); return { ...d, end_date: isoOf(e < s ? s : e) }
   }
@@ -69,7 +72,7 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
     const err = await onDates(id, now)
     if (err) { setSaveErr(err); setOver((o) => { const n = { ...o }; delete n[id]; return n }) } else setUndo({ id, label, prev, now })
   }
-  const startDrag = (e: React.PointerEvent, id: string, edge: 'start' | 'end', orig: Dates) => {
+  const startDrag = (e: React.PointerEvent, id: string, edge: Edge, orig: Dates) => {
     if (!onDates || e.button !== 0) return
     e.preventDefault(); e.stopPropagation()
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
@@ -209,10 +212,15 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
                       ) : null
                       return (
                         <div key={p.code} className={'gt-bar st-' + p.status + (dragging ? ' dragging' : '')} style={{ left, width: w, ['--c' as string]: color }}>
-                          <span className="gt-hit" title={tip} role="img" aria-label={tip.replace(/\n/g, ', ')} />
+                          {p.id && onDates
+                            ? <span className="gt-hit movable" title={tip.replace('Drag either end to change the dates', 'Drag to move the phase; drag either end to change its length')} role="slider" tabIndex={0}
+                                aria-label={`${label}: move the whole phase`} aria-valuetext={`${fmt(live.start_date)} to ${fmt(live.end_date)}`} aria-valuenow={days(start, parse(live.start_date))}
+                                onPointerDown={(ev) => startDrag(ev, p.id!, 'move', live)} onPointerMove={moveDrag} onPointerUp={() => endDrag(label)} onPointerCancel={() => setDrag(null)}
+                                onKeyDown={(ev) => { if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') { ev.preventDefault(); save(p.id!, label, live, shift(live, 'move', ev.key === 'ArrowLeft' ? -1 : 1)) } }} />
+                            : <span className="gt-hit" title={tip} role="img" aria-label={tip.replace(/\n/g, ', ')} />}
                           <span className="gt-chip">{p.code}</span>
                           {handle('start')}{handle('end')}
-                          {dragging && <span className={'gt-drag-tip ' + drag!.edge}>{drag!.edge === 'start' ? short(live.start_date) : short(live.end_date)}</span>}
+                          {dragging && drag && <span className={'gt-drag-tip ' + drag.edge}>{drag.edge === 'start' ? short(live.start_date) : drag.edge === 'end' ? short(live.end_date) : `${short(live.start_date)} – ${short(live.end_date)}`}</span>}
                         </div>)
                     })}
                   </div>)
@@ -228,7 +236,7 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
             <button type="button" className="linkbtn" onClick={() => { const u = undo; setUndo(null); save(u.id, u.label, u.now, u.prev).then(() => setUndo(null)) }}>Undo</button></>}
         <button type="button" className="linkbtn" aria-label="Dismiss" onClick={() => { setUndo(null); setSaveErr('') }}>×</button>
       </div>}
-      <p className="muted gt-key"><em>Bars are phase dates. Solid = in progress, light = not started, faded = complete, striped = paused. Ring = fee used (hours × rates); orange at 75%, red at 90%. Hover a bar for dates and fee; drag either end to change its dates. Click a project’s name to open it.</em></p>
+      <p className="muted gt-key"><em>Bars are phase dates. Solid = in progress, light = not started, faded = complete, striped = paused. Ring = fee used (hours × rates); orange at 75%, red at 90%. Hover a bar for dates and fee. Drag a bar to move the whole phase; drag either end to change its length. Click a project’s name to open it.</em></p>
     </div>
   )
 }

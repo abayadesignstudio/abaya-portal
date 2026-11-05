@@ -52,3 +52,6 @@
 .gt-grip:active{cursor:grabbing}
 .gt-grip:focus-visible{outline:2px solid var(--navy);outline-offset:1px}
 .gt-dragrow{background:#eef3f8 !important;opacity:.85}
+.gt-hit.movable{cursor:grab;touch-action:none}
+.gt-bar.dragging .gt-hit.movable,.gt-hit.movable:active{cursor:grabbing}
+.gt-drag-tip.move{left:50%;transform:translateX(-50%)}
