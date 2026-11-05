@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import Avatar from '../components/Avatar'
 import { Link } from 'react-router-dom'
 import { supabase, SECTOR_COLOR } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -83,7 +84,7 @@ export default function StaffHome() {
           <TodayCard me={me} admin={admin} people={staff.data ?? []} projects={projects.data ?? []} />
           <section className="card pad stack" aria-labelledby="hm-me">
             <div className="row" style={{ gap: 12 }}>
-              <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--navy)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>{(profile?.full_name || profile?.email || '?').split(/\s+/).map((x) => x[0]).join('').slice(0, 2).toUpperCase()}</span>
+              <Avatar url={profile?.avatar_url} name={profile?.full_name || profile?.email} initials={profile?.initials} size={40} />
               <div style={{ flex: 1 }}><h2 id="hm-me">My hours</h2><p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>{profile?.title || (profile?.role === 'admin' ? 'Admin' : 'Staff')}</p></div>
               <div style={{ textAlign: 'right' }}><p className="num" style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>{w.util ? w.util + '%' : '—'}</p><p className="muted" style={{ margin: 0, fontSize: 12 }}>utilization target</p></div>
             </div>

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
+import Avatar from '../components/Avatar'
 import { Link, useParams } from 'react-router-dom'
 import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASES, PHASE_NAME } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
@@ -36,7 +37,7 @@ export default function ProjectDetail() {
     const agreements = await linkedAgreements(id!)
     // who's on each phase (set on the Budget tab): hours × rate as a share of the phase fee
     const allocs = phases.length ? must(await supabase.from('phase_allocations').select('phase_id, profile_id, hours').in('phase_id', phases.map((x) => x.id))) as { phase_id: string; profile_id: string; hours: number }[] : []
-    const people = must(await supabase.from('profiles').select('id, full_name, email, initials, title, bill_rate').in('role', ['admin', 'staff']).order('full_name')) as TeamPerson[]
+    const people = must(await supabase.from('profiles').select('id, full_name, email, initials, title, bill_rate, avatar_url').in('role', ['admin', 'staff']).order('full_name')) as TeamPerson[]
     const members = must(await supabase.from('project_members').select('profile_id, role_label, bill_rate').eq('project_id', id!)) as { profile_id: string; role_label: string | null; bill_rate: number | null }[]
     return { p, phases, billed, time, invoices, agreements, allocs, people, members }
   }, [id])
@@ -58,7 +59,7 @@ export default function ProjectDetail() {
   const rateOf = (pid: string) => Number(members.find((m) => m.profile_id === pid)?.bill_rate ?? people.find((x) => x.id === pid)?.bill_rate ?? 0)
   const teamOf = (ph: Phase) => allocs.filter((a) => a.phase_id === ph.id).map((a) => {
     const who = people.find((x) => x.id === a.profile_id)
-    return { id: a.profile_id, name: who?.full_name || who?.email || 'Someone', initials: who?.initials || (who?.full_name || who?.email || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase(),
+    return { id: a.profile_id, name: who?.full_name || who?.email || 'Someone', avatar: who?.avatar_url ?? null, initials: who?.initials || (who?.full_name || who?.email || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase(),
       hours: Number(a.hours), pct: Number(ph.fee) ? Number(a.hours) * rateOf(a.profile_id) / Number(ph.fee) * 100 : 0 }
   })
   const billedBy = Object.fromEntries(billed.map((b) => [b.phase_id, Number(b.billed)]))
@@ -471,7 +472,7 @@ function FeeInput({ id, mode, amt, pct, total, onMode, onAmt, onPct }: { id: str
   </div>
 }
 
-type TeamMember = { id: string; name: string; initials: string; hours: number; pct: number }
+type TeamMember = { id: string; name: string; initials: string; avatar: string | null; hours: number; pct: number }
 function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSaved }: { ph: Phase; total: number | null; team: TeamMember[]; teamOpen: boolean; onTeam: () => void; billed: number; ahead: number; used: { hrs: number; cost: number }; onSaved: () => void }) {
   const startMode = ph.fee_pct != null && total !== null ? 'pct' : 'amt'
   const [f, setF] = useState({ mode: startMode as 'amt' | 'pct', fee: String(ph.fee), pct: ph.fee_pct != null ? String(Number(ph.fee_pct)) : total ? String(Math.round(Number(ph.fee) / total * 10000) / 100) : '',
@@ -496,7 +497,7 @@ function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSa
       <td className="r"><FeeInput id={ph.id} mode={f.mode} amt={f.fee} pct={f.pct} total={total} onMode={(m) => setF({ ...f, mode: m })} onAmt={(v) => setF({ ...f, fee: v })} onPct={(v) => setF({ ...f, pct: v })} /></td>
       <td style={{ minWidth: 150 }}>
         {team.length > 0 && <ul className="ph-team">{team.map((m) => <li key={m.id} title={`${m.name}: ${Math.round(m.hours * 10) / 10} hrs`}>
-          <span className="pb-avatar" aria-hidden="true">{m.initials}</span><span className="sr">{m.name}</span><span className="num">{Math.round(m.pct)}%</span></li>)}
+          <Avatar className="pb-avatar" url={m.avatar} initials={m.initials} /><span className="sr">{m.name}</span><span className="num">{Math.round(m.pct)}%</span></li>)}
           {team.length > 1 && <li className="muted num" style={{ fontSize: 12 }}>= {Math.round(team.reduce((a, m) => a + m.pct, 0))}%</li>}</ul>}
         <button type="button" className="linkbtn" style={{ fontSize: 13 }} aria-expanded={teamOpen} onClick={onTeam}>{teamOpen ? 'Close' : team.length ? 'Edit team' : '+ Assign team'}</button></td>
       <td className="r num">{money(billed)}{ahead > 0 && <div className="pd-ahead" title="Billed ahead of the work done on this phase">{money(ahead)} ahead</div>}</td>

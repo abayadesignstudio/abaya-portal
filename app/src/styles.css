@@ -83,3 +83,4 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .tp-tbl tfoot td{font-weight:700}
 .pd-inv th,.pd-inv td{padding-left:8px;padding-right:8px;white-space:nowrap}
 .pd-ahead{font-size:12px;font-weight:700;color:var(--amber);margin-top:2px}
+.av-img{object-fit:cover;display:block;padding:0}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import Avatar from '../../components/Avatar'
 import { supabase, money } from '../../lib/supabase'
 import { useLoad, must } from '../../lib/useQuery'
 import { sortPhases, fmtDate } from '../../lib/projectContent'
@@ -6,7 +7,7 @@ import RowMenu from '../../components/RowMenu'
 import { linkedAgreements, contractFee, MULTIPLIER } from '../../lib/fees'
 
 type Phase = { id: string; code: string; fee: number; status: string; start_date: string | null; end_date: string | null }
-export type Person = { id: string; full_name: string | null; email: string; initials: string | null; title: string | null; bill_rate: number | null }
+export type Person = { id: string; full_name: string | null; email: string; initials: string | null; title: string | null; bill_rate: number | null; avatar_url?: string | null }
 export type Member = { profile_id: string; role_label: string | null; bill_rate: number | null; rate_id?: string | null }
 export type Rate = { id: string; role: string; level: string; rate: number; sort: number }
 /** The firm's rate table (Settings → Billable rates), roles in their set order. */
@@ -63,7 +64,7 @@ export default function BudgetTab({ projectId }: { projectId: string }) {
   const { data, error, reload } = useLoad(async () => {
     const phases = sortPhases(must(await supabase.from('phases').select('id, code, fee, status, start_date, end_date').eq('project_id', projectId)) as Phase[])
     const ids = phases.map((p) => p.id)
-    const people = must(await supabase.from('profiles').select('id, full_name, email, initials, title, bill_rate').in('role', ['admin', 'staff']).order('full_name')) as Person[]
+    const people = must(await supabase.from('profiles').select('id, full_name, email, initials, title, bill_rate, avatar_url').in('role', ['admin', 'staff']).order('full_name')) as Person[]
     const members = must(await supabase.from('project_members').select('profile_id, role_label, bill_rate').eq('project_id', projectId)) as Member[]
     const allocs = ids.length ? must(await supabase.from('phase_allocations').select('phase_id, profile_id, hours').in('phase_id', ids)) as Alloc[] : []
     const logged = must(await supabase.from('time_entries').select('phase_id, profile_id, minutes').eq('project_id', projectId)) as Logged[]
@@ -201,7 +202,7 @@ export function TeamTable({ phase, projectId, people, allocs, logged = [], rateO
           const p = pById[a.profile_id]; const lg = loggedHrs(a.profile_id); const role = roleOf(a.profile_id)
           return (
             <div key={a.profile_id} className="tt-row">
-              <span className="tt-who"><span className="pb-avatar tt-av" aria-hidden="true">{initialsOf(p)}</span>
+              <span className="tt-who"><Avatar className="pb-avatar tt-av" url={p?.avatar_url} initials={initialsOf(p)} />
                 <span><span className="tt-name" title={nameOf(p)}>{shortName(p)}</span>{lg > 0 && <span className="tt-logged" style={{ color: hrs && lg > hrs ? 'var(--red)' : undefined }}>{lg} hrs logged</span>}</span></span>
               <span className="tt-role"><span className="tt-coin" aria-hidden="true">$</span>{role || 'No role'} – {money(rate)}
                 <button type="button" className="tt-edit" aria-label={`Edit role and rate for ${nameOf(p)}`} onClick={() => setEditing(a.profile_id)}>✎</button></span>
