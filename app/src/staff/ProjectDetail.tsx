@@ -96,6 +96,7 @@ export default function ProjectDetail() {
           <div key={l} style={{ padding: '16px 20px', borderRight: '1px solid #ece9e3' }}><div className="muted" style={{ fontSize: 14 }}>{l}</div><div className="num" style={{ fontSize: 26, fontWeight: 700 }}>{v}</div>
             {sub && <div style={{ fontSize: 12.5, marginTop: 2, color: l === 'Assigned to phases' && !sub.startsWith('100') ? 'var(--amber)' : 'var(--muted)' }}>{sub}</div>}</div>))}
       </section>
+      <div className="pd-two">
       <section className="card pad stack" aria-labelledby="ag-h" style={{ gap: 8 }}>
         <h2 id="ag-h" style={{ fontSize: 17 }}>Agreements</h2>
         {agreements.length === 0 ? <p className="muted" style={{ margin: 0 }}>No agreement is linked to this project, so the total fee is the sum of the phase fees. Link one from the agreement itself (Proposals → open it → <em>Client &amp; project</em>).</p>
@@ -109,7 +110,7 @@ export default function ProjectDetail() {
         <div className="row between"><h2 id="pi-h" style={{ fontSize: 17 }}>Invoices <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {invoices.length}</span></h2>
           <Link className="btn small secondary" to={`/invoices/new?project=${p.id}`}>+ New invoice</Link></div>
         {invoices.length === 0 ? <p className="muted" style={{ margin: 0 }}>No invoices on this project yet.</p>
-          : <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 640 }}>
+          : <div style={{ overflowX: 'auto' }}><table className="table pd-inv" style={{ minWidth: 0 }}>
             <thead><tr><th>Invoice</th><th>Status</th><th>Issued</th><th>Due</th><th className="r">Total</th><th className="r">Balance</th></tr></thead>
             <tbody>{invoices.map((i) => { const bal = Number(i.total) - Number(i.amount_paid ?? 0); const late = i.status === 'open' && i.due_date && i.due_date < new Date().toISOString().slice(0, 10)
               return <tr key={i.id}>
@@ -119,6 +120,8 @@ export default function ProjectDetail() {
                 <td className="r num">{money(i.total)}</td><td className="r num" style={{ fontWeight: bal > 0.005 && i.status !== 'void' ? 700 : 400 }}>{i.status === 'void' ? '—' : money(Math.max(0, bal))}</td></tr> })}</tbody>
           </table></div>}
       </section>
+      </div>
+      <TeamPay people={people} allocs={allocs} time={time} rateOf={rateOf} roleOf={roleOf} />
       <section className="card pad stack">
         <h2>Phases</h2>
         <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 1150 }}>
@@ -460,6 +463,48 @@ function FeeInput({ id, mode, amt, pct, total, onMode, onAmt, onPct }: { id: str
     {mode === 'pct' && total !== null && <div className="muted num" style={{ fontSize: 12, marginTop: 2, textAlign: 'right' }}>= {money(round2(total * (Number(pct) || 0) / 100))}</div>}
     {mode === 'amt' && total ? <div className="muted num" style={{ fontSize: 12, marginTop: 2, textAlign: 'right' }}>{Math.round((Number(amt) || 0) / total * 1000) / 10}% of fee</div> : null}
   </div>
+}
+
+// Billable rates are set at this multiple of what people are paid, so pay = billable ÷ multiplier and the rest covers
+// overhead and profit. (Firm-wide; change here if the multiplier changes.)
+const MULTIPLIER = 2
+
+/** Per person on this project: hours budgeted and logged, what those hours bill, their pay at the multiplier, and the
+ *  overhead/profit left over. */
+function TeamPay({ people, allocs, time, rateOf, roleOf }: { people: TeamPerson[]; allocs: { phase_id: string; profile_id: string; hours: number }[]
+  time: Entry[]; rateOf: (pid: string) => number; roleOf: (pid: string) => string }) {
+  const ids = [...new Set([...allocs.map((a) => a.profile_id), ...time.map((t) => t.profile_id)])]
+  const rows = ids.map((id) => {
+    const who = people.find((x) => x.id === id); const rate = rateOf(id)
+    const hrs = allocs.filter((a) => a.profile_id === id).reduce((n, a) => n + Number(a.hours), 0)
+    const logged = time.filter((t) => t.profile_id === id).reduce((n, t) => n + t.minutes / 60, 0)
+    return { id, name: who?.full_name || who?.email || 'Former staff', role: roleOf(id), rate, hrs, billable: hrs * rate, logged, earned: logged * rate }
+  }).sort((a, b) => b.billable - a.billable || b.earned - a.earned)
+  const sum = (k: 'hrs' | 'billable' | 'logged' | 'earned') => rows.reduce((n, r) => n + r[k], 0)
+  const pay = (n: number) => n / MULTIPLIER
+  if (rows.length === 0) return (
+    <section className="card pad stack" aria-labelledby="tp-h" style={{ gap: 6 }}><h2 id="tp-h" style={{ fontSize: 17 }}>Team pay &amp; overhead</h2>
+      <p className="muted" style={{ margin: 0 }}>No one is assigned to a phase or has logged time yet. Assign the team on each phase below.</p></section>)
+  return (
+    <section className="card pad stack" aria-labelledby="tp-h" style={{ gap: 8 }}>
+      <div className="row between"><h2 id="tp-h" style={{ fontSize: 17 }}>Team pay &amp; overhead</h2><span className="muted" style={{ fontSize: 13 }}>{MULTIPLIER}× multiplier: pay = billable ÷ {MULTIPLIER}</span></div>
+      <div style={{ overflowX: 'auto' }}><table className="table tp-tbl" style={{ minWidth: 860 }}>
+        <thead>
+          <tr><th rowSpan={2}>Team member</th><th rowSpan={2} className="r">Rate</th><th colSpan={4} className="tp-grp">Budgeted (assigned hours)</th><th colSpan={4} className="tp-grp">So far (logged hours)</th></tr>
+          <tr><th className="r">Hours</th><th className="r">Billable</th><th className="r">Pay</th><th className="r">Overhead</th><th className="r">Hours</th><th className="r">Billable</th><th className="r">Pay</th><th className="r">Overhead</th></tr>
+        </thead>
+        <tbody>{rows.map((r) => <tr key={r.id}>
+          <td><strong>{r.name}</strong>{r.role && <div className="muted" style={{ fontSize: 12.5 }}>{r.role}</div>}</td>
+          <td className="r num">{money(r.rate).replace('.00', '')}/hr</td>
+          <td className="r num">{r.hrs.toFixed(1)}</td><td className="r num">{money(r.billable)}</td><td className="r num" style={{ fontWeight: 700 }}>{money(pay(r.billable))}</td><td className="r num tp-oh">{money(r.billable - pay(r.billable))}</td>
+          <td className="r num">{r.logged.toFixed(1)}</td><td className="r num">{money(r.earned)}</td><td className="r num" style={{ fontWeight: 700 }}>{money(pay(r.earned))}</td><td className="r num tp-oh">{money(r.earned - pay(r.earned))}</td>
+        </tr>)}</tbody>
+        <tfoot><tr><td>Total</td><td />
+          <td className="r num">{sum('hrs').toFixed(1)}</td><td className="r num">{money(sum('billable'))}</td><td className="r num">{money(pay(sum('billable')))}</td><td className="r num tp-oh">{money(sum('billable') - pay(sum('billable')))}</td>
+          <td className="r num">{sum('logged').toFixed(1)}</td><td className="r num">{money(sum('earned'))}</td><td className="r num">{money(pay(sum('earned')))}</td><td className="r num tp-oh">{money(sum('earned') - pay(sum('earned')))}</td></tr></tfoot>
+      </table></div>
+      <p className="muted" style={{ margin: 0, fontSize: 12.5 }}><em>Billable = hours × the person’s billable rate on this project. Pay = billable ÷ {MULTIPLIER}. Overhead = the rest, which covers overhead and profit. Budgeted uses the hours assigned on each phase; So far uses hours logged on the timesheet.</em></p>
+    </section>)
 }
 
 type TeamMember = { id: string; name: string; initials: string; hours: number; pct: number }
