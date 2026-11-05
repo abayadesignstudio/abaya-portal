@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { supabase, money, PHASE_NAME } from '../../lib/supabase'
+import { supabase, money } from '../../lib/supabase'
 import { useLoad, must } from '../../lib/useQuery'
 import { sortPhases, fmtDate } from '../../lib/projectContent'
 import RowMenu from '../../components/RowMenu'
+import { linkedAgreements, contractFee } from '../../lib/fees'
 
 type Phase = { id: string; code: string; fee: number; status: string; start_date: string | null; end_date: string | null }
 export type Person = { id: string; full_name: string | null; email: string; initials: string | null; title: string | null; bill_rate: number | null }
@@ -50,19 +51,14 @@ type Consultant = { id: string; phase_id: string | null; name: string; disciplin
 type Expense = { id: string; phase_id: string | null; description: string; amount: number; spent_on: string; reimbursable: boolean; planned: boolean; invoice_id: string | null }
 
 export const ROLE_OPTIONS = ['Principal', 'Project Architect', 'Designer', 'Drafter', 'Intern']
-const STATUS_DOT: Record<string, [string, string, string]> = {
-  complete: ['#d0d5dd', '#d0d5dd', 'Complete'], in_progress: ['#039855', '#039855', 'In progress'],
-  paused: ['#d92d20', '#d92d20', 'Paused'], not_started: ['#ffffff', '#98a2b3', 'Not started'],
-}
 const num = (v: string) => { const n = parseFloat(v.replace(/[$,%\s]/g, '')); return isFinite(n) ? n : 0 }
 const round2 = (n: number) => Math.round(n * 100) / 100
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const nameOf = (p?: Person) => p?.full_name || p?.email || 'Someone'
 const initialsOf = (p?: Person) => p?.initials || nameOf(p).split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
 
-export default function BudgetTab({ projectId, focus }: { projectId: string; focus?: string }) {
-  const [sub, setSub] = useState<'firm' | 'consultants' | 'expenses'>('firm')
-  const [only, setOnly] = useState(focus || 'all') // opened from a phase's "Assign team" on the Overview
+export default function BudgetTab({ projectId }: { projectId: string }) {
+  const [sub, setSub] = useState<'pay' | 'consultants' | 'expenses'>('pay')
   const [err, setErr] = useState('')
   const { data, error, reload } = useLoad(async () => {
     const phases = sortPhases(must(await supabase.from('phases').select('id, code, fee, status, start_date, end_date').eq('project_id', projectId)) as Phase[])
@@ -73,22 +69,25 @@ export default function BudgetTab({ projectId, focus }: { projectId: string; foc
     const logged = must(await supabase.from('time_entries').select('phase_id, profile_id, minutes').eq('project_id', projectId)) as Logged[]
     const consultants = must(await supabase.from('project_consultants').select('id, phase_id, name, discipline, fee, billed, markup_pct').eq('project_id', projectId).order('created_at')) as Consultant[]
     const expenses = must(await supabase.from('expenses').select('id, phase_id, description, amount, spent_on, reimbursable, planned, invoice_id').eq('project_id', projectId).order('spent_on', { ascending: false })) as Expense[]
-    return { phases, people, members, allocs, logged, consultants, expenses }
+    const fee = contractFee(await linkedAgreements(projectId))
+    return { phases, people, members, allocs, logged, consultants, expenses, fee }
   }, [projectId])
 
   if (error) return <p className="err">{error}</p>
   if (!data) return <p>Loading budget…</p>
-  const { phases, people, members, allocs, logged, consultants, expenses } = data
+  const { phases, people, members, allocs, logged, consultants, expenses, fee } = data
   const pById = Object.fromEntries(people.map((p) => [p.id, p]))
   const mById = Object.fromEntries(members.map((m) => [m.profile_id, m]))
   const rateOf = (pid: string) => Number(mById[pid]?.bill_rate ?? pById[pid]?.bill_rate ?? 0)
   const roleOf = (pid: string) => mById[pid]?.role_label ?? pById[pid]?.title ?? ''
 
   const serviceFees = phases.reduce((a, p) => a + Number(p.fee), 0)
-  const consultantFees = consultants.reduce((a, c) => a + Number(c.fee) * (1 + Number(c.markup_pct) / 100), 0)
-  const expenseTotal = expenses.filter((e) => e.reimbursable).reduce((a, e) => a + Number(e.amount), 0)
+  const projectFee = fee ?? serviceFees
   const allocated = allocs.reduce((a, x) => a + Number(x.hours) * rateOf(x.profile_id), 0)
-  const hoursBudgeted = allocs.reduce((a, x) => a + Number(x.hours), 0)
+  const teamPay = allocated / MULTIPLIER
+  const consultantCost = consultants.reduce((a, c) => a + Number(c.fee), 0)
+  const expenseCost = expenses.filter((e) => !e.reimbursable).reduce((a, e) => a + Number(e.amount), 0)
+  const remaining = projectFee - teamPay - consultantCost - expenseCost
   const diff = serviceFees - allocated
   const pct = serviceFees ? Math.round(allocated / serviceFees * 100) : 0
   const overPhases = phases.filter((ph) => allocs.filter((a) => a.phase_id === ph.id).reduce((s, a) => s + Number(a.hours) * rateOf(a.profile_id), 0) > Number(ph.fee) + 0.5)
@@ -98,48 +97,26 @@ export default function BudgetTab({ projectId, focus }: { projectId: string; foc
   return (
     <div className="stack">
       <section className="card pb-stats" aria-label="Budget summary">
-        <div><div className="muted" style={{ fontSize: 14 }}>Total project fees</div><div className="v num">{money(serviceFees + consultantFees + expenseTotal)}</div><div className="muted" style={{ fontSize: 12 }}><em>Services + consultants + expenses</em></div></div>
-        <div><div className="muted" style={{ fontSize: 14 }}>Service fees</div><div className="v num">{money(serviceFees)}</div></div>
-        <div><div className="muted" style={{ fontSize: 14 }}>{diff < -0.5 ? 'Over allocated' : diff > 0.5 ? 'Unallocated' : 'Fully allocated'}</div>
-          <div className="v num" style={{ color: diff < -0.5 ? 'var(--red)' : diff > 0.5 ? 'var(--amber)' : 'var(--green)' }}>{money(Math.abs(diff))}</div></div>
-        <div><div className="muted" style={{ fontSize: 14 }}>Allocated</div><div className="v num">{pct}%</div></div>
-        <div><div className="muted" style={{ fontSize: 14 }}>Hours budgeted</div><div className="v num">{round2(hoursBudgeted)}</div>
-          <div className="muted" style={{ fontSize: 12 }}><em>{round2(logged.reduce((a, l) => a + l.minutes / 60, 0))} logged so far</em></div></div>
+        <div><div className="muted" style={{ fontSize: 14 }}>Fee (brings in)</div><div className="v num">{money(projectFee)}</div><div className="muted" style={{ fontSize: 12 }}><em>{fee === null ? 'Sum of phase fees' : 'From the linked agreements'}</em></div></div>
+        <div><div className="muted" style={{ fontSize: 14 }}>Team pay</div><div className="v num">{money(teamPay)}</div><div className="muted" style={{ fontSize: 12 }}><em>Budgeted hours × rate ÷ {MULTIPLIER}</em></div></div>
+        <div><div className="muted" style={{ fontSize: 14 }}>Consultants &amp; expenses</div><div className="v num">{money(consultantCost + expenseCost)}</div><div className="muted" style={{ fontSize: 12 }}><em>Consultant fees + non-reimbursable costs</em></div></div>
+        <div><div className="muted" style={{ fontSize: 14 }}>Left for overhead &amp; profit</div><div className="v num" style={{ color: remaining < 0 ? 'var(--red)' : 'var(--green)' }}>{money(remaining)}</div>
+          <div className="muted" style={{ fontSize: 12 }}><em>{projectFee ? Math.round(remaining / projectFee * 100) : 0}% of the fee</em></div></div>
+        <div><div className="muted" style={{ fontSize: 14 }}>Phases staffed</div><div className="v num" style={{ color: diff < -0.5 ? 'var(--red)' : diff > 0.5 ? 'var(--amber)' : 'var(--green)' }}>{pct}%</div>
+          <div className="muted" style={{ fontSize: 12 }}><em>{diff < -0.5 ? `${money(-diff)} over the phase fees` : diff > 0.5 ? `${money(diff)} of phase fees not yet staffed` : 'Team budgets match the phase fees'}</em></div></div>
       </section>
+      {overPhases.length > 0 && <div className="err" role="alert"><strong>Over budget.</strong> {overPhases.map((p) => p.code).join(', ')} {overPhases.length === 1 ? 'is' : 'are'} staffed beyond the phase fee. Lower hours on the Overview’s phase team, or raise the fee.</div>}
 
       <div className="pb-subtabs" role="tablist" aria-label="Budget sections">
-        {([['firm', 'Firm services'], ['consultants', 'Consultant fees'], ['expenses', 'Direct expenses']] as const).map(([k, l]) =>
+        {([['pay', 'Team pay & overhead'], ['consultants', 'Consultant fees'], ['expenses', 'Direct expenses']] as const).map(([k, l]) =>
           <button key={k} role="tab" type="button" aria-selected={sub === k} onClick={() => setSub(k)}>{l}</button>)}
       </div>
       {err && <p className="err" role="alert">{err}</p>}
 
-      {sub === 'firm' && (phases.length === 0 ? (
-        <p className="card pad muted" style={{ textAlign: 'center' }}><em>No phases yet. Add phases and fees on the Overview tab, then assign the team here.</em></p>
-      ) : (
-        <div className="pb-body">
-          <div className="stack" style={{ gap: 12 }}>
-            <div><label className="l" htmlFor="pb-only">Show phase</label>
-              <select id="pb-only" className="input" value={only} onChange={(e) => setOnly(e.target.value)}>
-                <option value="all">All phases</option>{phases.map((p) => <option key={p.id} value={p.id}>{p.code} · {PHASE_NAME[p.code]}</option>)}</select></div>
-            <nav className="pb-phases" aria-label="Phases">
-              <p style={{ margin: '4px 0 6px', fontWeight: 700 }}>Phases</p>
-              <ul style={{ listStyle: 'none', margin: '0 0 0 7px', padding: 0, borderLeft: '2px dotted #c9c4b8' }}>
-                {[{ id: 'all', code: '', name: 'All phases', dot: ['#02253d', '#02253d', ''] as [string, string, string] },
-                  ...phases.map((p) => ({ id: p.id, code: p.code, name: PHASE_NAME[p.code], dot: STATUS_DOT[p.status] ?? STATUS_DOT.not_started }))].map((x) => (
-                  <li key={x.id}><button type="button" aria-pressed={only === x.id} onClick={() => setOnly(x.id)} style={{ marginLeft: -8 }}>
-                    <span className="pb-dot" aria-hidden="true" style={{ background: x.dot[0], border: `2px solid ${x.dot[1]}` }} />{x.name}
-                    {x.dot[2] && <span className="sr"> ({x.dot[2]})</span>}</button></li>))}
-              </ul>
-              <p className="muted" style={{ margin: '10px 0 0', fontSize: 12 }}><em>Gray = complete · green = in progress · red = paused · open = not started</em></p>
-            </nav>
-          </div>
-          <div className="stack" style={{ minWidth: 0 }}>
-            {overPhases.length > 0 && <div className="err" role="alert"><strong>Over budget.</strong> {overPhases.map((p) => p.code).join(', ')} {overPhases.length === 1 ? 'is' : 'are'} assigned more than the phase fee. Lower hours, move them to another phase, or raise the fee.</div>}
-            {phases.filter((p) => only === 'all' || only === p.id).map((ph) => (
-              <PhaseCard key={ph.id} phase={ph} people={people} allocs={allocs.filter((a) => a.phase_id === ph.id)} logged={logged.filter((l) => l.phase_id === ph.id)}
-                rateOf={rateOf} roleOf={roleOf} pById={pById} projectId={projectId} hasMember={(pid) => !!mById[pid]} run={run} />))}
-          </div>
-        </div>))}
+      {sub === 'pay' && <>
+        <TeamPay people={people} allocs={allocs} time={logged} rateOf={rateOf} roleOf={roleOf} />
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Who’s on each phase and their share are set on the Overview (Team column).</em></p>
+      </>}
 
       {sub === 'consultants' && <ConsultantsPanel projectId={projectId} phases={phases} rows={consultants} run={run} />}
       {sub === 'expenses' && <ExpensesPanel projectId={projectId} phases={phases} rows={expenses} run={run} />}
@@ -147,37 +124,46 @@ export default function BudgetTab({ projectId, focus }: { projectId: string; foc
   )
 }
 
-/* ---------- one phase card with its assigned team ---------- */
-function PhaseCard({ phase, people, allocs, logged, rateOf, roleOf, projectId, hasMember, run }: {
-  phase: Phase; people: Person[]; allocs: Alloc[]; logged: Logged[]; rateOf: (id: string) => number; roleOf: (id: string) => string
-  pById?: Record<string, Person>; projectId: string; hasMember: (id: string) => boolean; run: (fn: () => Promise<unknown>) => void
-}) {
-  const [open, setOpen] = useState(true)
-  const fee = Number(phase.fee)
-  const totalBudget = allocs.reduce((a, x) => a + Number(x.hours) * rateOf(x.profile_id), 0)
-  const diff = fee - totalBudget
-  const dot = STATUS_DOT[phase.status] ?? STATUS_DOT.not_started
+// Billable rates are set at this multiple of what people are paid, so pay = billable ÷ multiplier and the rest covers
+// overhead and profit. (Firm-wide; change here if the multiplier changes.)
+const MULTIPLIER = 2
 
+/** Per person on this project: hours budgeted and logged, what those hours bill, their pay at the multiplier, and the
+ *  overhead/profit left over. */
+function TeamPay({ people, allocs, time, rateOf, roleOf }: { people: Person[]; allocs: { phase_id: string; profile_id: string; hours: number }[]
+  time: Logged[]; rateOf: (pid: string) => number; roleOf: (pid: string) => string }) {
+  const ids = [...new Set([...allocs.map((a) => a.profile_id), ...time.map((t) => t.profile_id)])]
+  const rows = ids.map((id) => {
+    const who = people.find((x) => x.id === id); const rate = rateOf(id)
+    const hrs = allocs.filter((a) => a.profile_id === id).reduce((n, a) => n + Number(a.hours), 0)
+    const logged = time.filter((t) => t.profile_id === id).reduce((n, t) => n + t.minutes / 60, 0)
+    return { id, name: who?.full_name || who?.email || 'Former staff', role: roleOf(id), rate, hrs, billable: hrs * rate, logged, earned: logged * rate }
+  }).sort((a, b) => b.billable - a.billable || b.earned - a.earned)
+  const sum = (k: 'hrs' | 'billable' | 'logged' | 'earned') => rows.reduce((n, r) => n + r[k], 0)
+  const pay = (n: number) => n / MULTIPLIER
+  if (rows.length === 0) return (
+    <section className="card pad stack" aria-labelledby="tp-h" style={{ gap: 6 }}><h2 id="tp-h" style={{ fontSize: 17 }}>Team pay &amp; overhead</h2>
+      <p className="muted" style={{ margin: 0 }}>No one is assigned to a phase or has logged time yet. Assign the team on each phase below.</p></section>)
   return (
-    <section className="card pad stack" aria-label={`${phase.code} ${PHASE_NAME[phase.code]}`}>
-      <div className="row between" style={{ alignItems: 'flex-start' }}>
-        <div>
-          <h3 className="row" style={{ margin: 0, gap: 10, fontSize: 19 }}>
-            <span className="tag" style={{ background: dot[0] === '#ffffff' ? '#fff' : dot[0], color: phase.status === 'in_progress' || phase.status === 'paused' ? '#fff' : '#344054', border: `1px solid ${dot[1]}` }}>{phase.code}</span>
-            {PHASE_NAME[phase.code]}</h3>
-          <p className="muted" style={{ margin: '6px 0 0', fontSize: 14 }}>{phase.start_date ? fmtDate(phase.start_date) : 'No start date'} — {phase.end_date ? fmtDate(phase.end_date) : 'no end date'} · Fixed fee · <em>{dot[2]}</em></p>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div className="num" style={{ fontSize: 19, fontWeight: 700 }}>{money(fee)}</div>
-          <div className="num" style={{ fontSize: 14, fontWeight: 700, color: diff < -0.5 ? 'var(--red)' : diff > 0.5 ? 'var(--amber)' : 'var(--green)' }}>
-            {diff < -0.5 ? `Over by ${money(-diff)}` : diff > 0.5 ? `${money(diff)} unassigned` : 'Fully assigned'}</div>
-          <div className="muted num" style={{ fontSize: 13 }}>{fee ? Math.round(totalBudget / fee * 100) : 0}% of fee</div>
-        </div>
-      </div>
-      <div><button type="button" className="linkbtn pb-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>{allocs.length === 0 && <span className="pb-warn" aria-hidden="true">!</span>}{open ? 'Hide' : 'Show'} assigned team ({allocs.length}) <span aria-hidden="true">{open ? '⌃' : '⌄'}</span></button></div>
-      {open && <TeamTable phase={phase} projectId={projectId} people={people} allocs={allocs} logged={logged} rateOf={rateOf} roleOf={roleOf} hasMember={hasMember} run={run} />}
-    </section>
-  )
+    <section className="card pad stack" aria-labelledby="tp-h" style={{ gap: 8 }}>
+      <div className="row between"><h2 id="tp-h" style={{ fontSize: 17 }}>Team pay &amp; overhead</h2><span className="muted" style={{ fontSize: 13 }}>{MULTIPLIER}× multiplier: pay = billable ÷ {MULTIPLIER}</span></div>
+      <div style={{ overflowX: 'auto' }}><table className="table tp-tbl" style={{ minWidth: 860 }}>
+        <thead>
+          <tr><th rowSpan={2}>Team member</th><th rowSpan={2} className="r">Rate</th><th colSpan={4} className="tp-grp">Budgeted (assigned hours)</th><th colSpan={4} className="tp-grp">So far (logged hours)</th></tr>
+          <tr><th className="r">Hours</th><th className="r">Billable</th><th className="r">Pay</th><th className="r">Overhead</th><th className="r">Hours</th><th className="r">Billable</th><th className="r">Pay</th><th className="r">Overhead</th></tr>
+        </thead>
+        <tbody>{rows.map((r) => <tr key={r.id}>
+          <td><strong>{r.name}</strong>{r.role && <div className="muted" style={{ fontSize: 12.5 }}>{r.role}</div>}</td>
+          <td className="r num">{money(r.rate).replace('.00', '')}/hr</td>
+          <td className="r num">{r.hrs.toFixed(1)}</td><td className="r num">{money(r.billable)}</td><td className="r num" style={{ fontWeight: 700 }}>{money(pay(r.billable))}</td><td className="r num tp-oh">{money(r.billable - pay(r.billable))}</td>
+          <td className="r num">{r.logged.toFixed(1)}</td><td className="r num">{money(r.earned)}</td><td className="r num" style={{ fontWeight: 700 }}>{money(pay(r.earned))}</td><td className="r num tp-oh">{money(r.earned - pay(r.earned))}</td>
+        </tr>)}</tbody>
+        <tfoot><tr><td>Total</td><td />
+          <td className="r num">{sum('hrs').toFixed(1)}</td><td className="r num">{money(sum('billable'))}</td><td className="r num">{money(pay(sum('billable')))}</td><td className="r num tp-oh">{money(sum('billable') - pay(sum('billable')))}</td>
+          <td className="r num">{sum('logged').toFixed(1)}</td><td className="r num">{money(sum('earned'))}</td><td className="r num">{money(pay(sum('earned')))}</td><td className="r num tp-oh">{money(sum('earned') - pay(sum('earned')))}</td></tr></tfoot>
+      </table></div>
+      <p className="muted" style={{ margin: 0, fontSize: 12.5 }}><em>Billable = hours × the person’s billable rate on this project. Pay = billable ÷ {MULTIPLIER}. Overhead = the rest, which covers overhead and profit. Budgeted uses the hours assigned on each phase; So far uses hours logged on the timesheet.</em></p>
+    </section>)
 }
 
 /* ---------- a phase's team (shared by the Budget tab and the project Overview) ---------- */
