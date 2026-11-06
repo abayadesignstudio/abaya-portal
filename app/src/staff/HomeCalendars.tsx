@@ -436,6 +436,16 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   const [view, setViewRaw] = useState<View>(() => { try { const v = localStorage.getItem('abaya:cal-view'); return (VIEWS.some(([k]) => k === v) ? v : 'month') as View } catch { return 'month' } })
   const setView = (v: View) => { setViewRaw(v); try { localStorage.setItem('abaya:cal-view', v) } catch { /* private mode */ } }
   const expanded = view === 'month'
+  // Week shows 1, 2 or 3 weeks (remembered); 1 = hourly timeline, 2–3 = tall day boxes
+  const [weeks, setWeeksRaw] = useState<number>(() => { try { const n = Number(localStorage.getItem('abaya:cal-weeks')); return n >= 1 && n <= 3 ? n : 1 } catch { return 1 } })
+  const setWeeks = (n: number) => { setWeeksRaw(n); try { localStorage.setItem('abaya:cal-weeks', String(n)) } catch { /* private mode */ } }
+  const [weekMenu, setWeekMenu] = useState(false)
+  const multiWeek = view === 'week' && weeks > 1
+  useEffect(() => {
+    if (!weekMenu) return
+    const close = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest?.('.cv-wk')) setWeekMenu(false) }
+    window.addEventListener('mousedown', close); return () => window.removeEventListener('mousedown', close)
+  }, [weekMenu])
   const [cursor, setCursor] = useState(() => new Date()) // a day in the period on screen
   const month = new Date(cursor.getFullYear(), cursor.getMonth(), 1)
   const [who, setWho] = useState<string>('all')
@@ -444,7 +454,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   const pop = (o: Open, el: HTMLElement) => { setOpen({ ...o, anchor: el.getBoundingClientRect() }); setMsg('') }
   const day0 = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate())
   const start = view === 'month' ? addDays(month, -month.getDay()) : view === 'week' ? addDays(day0, -day0.getDay()) : day0 // Sunday-first weeks
-  const span = view === 'month' ? 42 : view === 'week' ? 7 : view === 'day' ? 1 : SCHEDULE_DAYS
+  const span = view === 'month' ? 42 : view === 'week' ? 7 * weeks : view === 'day' ? 1 : SCHEDULE_DAYS
   const cells = useMemo(() => Array.from({ length: span }, (_, i) => addDays(start, i)), [start.getTime(), span]) // eslint-disable-line react-hooks/exhaustive-deps
   const from = isoDate(cells[0]), to = isoDate(cells[span - 1])
   const tasks = useTasks(from, to)
@@ -473,9 +483,9 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   useCalendarChanges((kind) => { if (kind === 'tasks') { tasks.reload(); evs.reload() } else { feed.reload(); links.reload() } })
   const reload = () => calendarChanged('tasks')
   const today = isoDate(new Date())
-  const shift = (n: number) => setCursor(view === 'month' ? new Date(month.getFullYear(), month.getMonth() + n, 1) : addDays(day0, n * (view === 'week' ? 7 : view === 'day' ? 1 : SCHEDULE_DAYS)))
+  const shift = (n: number) => setCursor(view === 'month' ? new Date(month.getFullYear(), month.getMonth() + n, 1) : addDays(day0, n * (view === 'week' ? 7 * weeks : view === 'day' ? 1 : SCHEDULE_DAYS)))
   const last = new Date(month.getFullYear(), month.getMonth() + 1, 0)
-  const rows = expanded ? Math.ceil((Math.round((last.getTime() - start.getTime()) / 86400000) + 1) / 7) : 1 // weeks this month touches
+  const rows = expanded ? Math.ceil((Math.round((last.getTime() - start.getTime()) / 86400000) + 1) / 7) : multiWeek ? weeks : 1 // weeks on screen
   const weekEnd = addDays(start, span - 1)
   const heading = view === 'month' ? month.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
     : view === 'day' ? day0.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
@@ -518,7 +528,15 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
       <div className="row between">
         <h2 id="mc-h">{heading}</h2>
         <div className="row">
-          <div className="cv-seg" role="group" aria-label="Calendar view">{VIEWS.map(([k, l]) => <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)}>{l}</button>)}</div>
+          <div className="cv-seg" role="group" aria-label="Calendar view">{VIEWS.map(([k, l]) => k === 'week'
+            ? <span key={k} className="cv-wk">
+                <button type="button" aria-pressed={view === 'week'} aria-haspopup="menu" aria-expanded={weekMenu} onClick={() => setWeekMenu(!weekMenu)}>{view === 'week' && weeks > 1 ? `${weeks} weeks` : 'Week'} <span aria-hidden="true">▾</span></button>
+                {weekMenu && <span className="cv-wk-menu" role="menu" onKeyDown={(e) => { if (e.key === 'Escape') setWeekMenu(false) }}>
+                  {[1, 2, 3].map((n) => <button key={n} type="button" role="menuitemradio" aria-checked={view === 'week' && weeks === n} onClick={() => { setWeeks(n); setView('week'); setWeekMenu(false) }}>{n === 1 ? '1 week' : `${n} weeks`}</button>)}
+                  <button type="button" role="menuitemradio" aria-checked={view === 'month'} onClick={() => { setView('month'); setWeekMenu(false) }}>All weeks (month)</button>
+                </span>}
+              </span>
+            : <button key={k} type="button" aria-pressed={view === k} onClick={() => { setView(k); setWeekMenu(false) }}>{l}</button>)}</div>
           <button className="btn small secondary" aria-label={`Previous ${view === 'schedule' ? 'period' : view}`} onClick={() => shift(-1)}>‹</button>
           <button className="btn small secondary" onClick={() => setCursor(new Date())}>Today</button>
           <button className="btn small secondary" aria-label={`Next ${view === 'schedule' ? 'period' : view}`} onClick={() => shift(1)}>›</button>
@@ -533,9 +551,9 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
       {feed.data && !connected && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Your Google Calendar meetings can show here, and events you add go to your Google Calendar: <a href="#/account">connect Google on My account</a>.</p>}
       {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
       {(tasks.error || evs.error) && <p className="err">{tasks.error || evs.error}</p>}
-      {(view === 'week' || view === 'day') && <TimeGrid days={cells} today={today} items={itemsFor} renderAllDay={renderAllDay} renderTimed={renderTimed} onEmpty={(k, el) => pop({ kind: 'new', day: k }, el)} />}
+      {((view === 'week' && weeks === 1) || view === 'day') && <TimeGrid days={cells} today={today} items={itemsFor} renderAllDay={renderAllDay} renderTimed={renderTimed} onEmpty={(k, el) => pop({ kind: 'new', day: k }, el)} />}
       {view === 'schedule' && <ScheduleList days={cells} today={today} items={itemsFor} renderAll={(k) => renderAllDay(k, true)} onAdd={(k, el) => pop({ kind: 'new', day: k }, el)} />}
-      {view === 'month' && <div style={{ overflowX: 'auto' }}><div className="mc" id="mc-grid" style={{ minWidth: 760 }}>
+      {(view === 'month' || multiWeek) && <div style={{ overflowX: 'auto' }}><div className={'mc' + (multiWeek ? ` mc-w${weeks}` : '')} id="mc-grid" style={{ minWidth: 760 }}>
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => <div key={d} className="mc-h">{d}</div>)}
         {cells.slice(0, rows * 7).map((d) => {
           const k = isoDate(d); const out = expanded && d.getMonth() !== month.getMonth()

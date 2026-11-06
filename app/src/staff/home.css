@@ -167,3 +167,16 @@
 .cv-ev .tk-proj{font-size:10px;padding:0 4px;margin-right:3px}
 .cv-ev .tk-text{min-width:0;overflow-wrap:anywhere}
 .cv-ev input[type=checkbox]{width:13px;height:13px;margin:1px 0 0}
+/* Week ▾ menu: 1, 2, 3 weeks or all (month); 2–3 weeks get tall day boxes so nothing needs scrolling */
+.cv-wk{position:relative;display:inline-flex}
+.cv-wk>button{border-left:1px solid #d0d5dd}
+.cv-seg>.cv-wk:first-child>button{border-left:0}
+.cv-wk-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:40;display:flex;flex-direction:column;min-width:170px;padding:4px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(2,37,61,.18)}
+.cv-wk-menu button{border:0!important;text-align:left;border-radius:6px;padding:0 12px;min-height:36px;background:#fff;font:700 13.5px Arial;color:var(--text);cursor:pointer}
+.cv-wk-menu button:hover{background:#f3f1ec}
+.cv-wk-menu button[aria-checked=true]{background:var(--navy);color:#fff}
+.mc.mc-w2 .mc-cell{height:340px}
+.mc.mc-w3 .mc-cell{height:230px}
+.cv-seg{overflow:visible}
+.cv-seg>button:first-child{border-radius:7px 0 0 7px}
+.cv-seg>button:last-child{border-radius:0 7px 7px 0}
