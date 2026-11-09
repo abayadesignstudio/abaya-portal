@@ -37,8 +37,11 @@ const remember = (k: string, d: string) => { try { return localStorage.getItem(k
 const keep = (k: string, v: string) => { try { localStorage.setItem(k, v) } catch { /* private mode */ } }
 
 export default function Projects() {
-  const [status, setStatus] = useState('active')
-  const [cats, setCats] = useState<string[]>([]) // project types to show; none picked = all types
+  // status and type filters are remembered on this device, so they're still set when you come back to Projects
+  const [status, setStatusRaw] = useState(() => remember('abaya.projects.status', 'active'))
+  const setStatus = (v: string) => { setStatusRaw(v); keep('abaya.projects.status', v) }
+  const [cats, setCatsRaw] = useState<string[]>(() => remember('abaya.projects.types', '').split(',').filter(Boolean)) // project types to show; none picked = all types
+  const setCats = (v: string[]) => { setCatsRaw(v); keep('abaya.projects.types', v.join(',')) }
   const typeOk = (c: string | null) => cats.length === 0 || (!!c && cats.includes(c))
   const toggleType = (id: string) => setCats(id === 'all' ? [] : cats.includes(id) ? cats.filter((x) => x !== id) : [...cats, id])
   const [q, setQ] = useState('')
