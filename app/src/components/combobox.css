@@ -13,3 +13,6 @@
 .cbx-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cbx-empty{padding:10px;color:var(--muted,#5f6368);font-style:italic}
 @media (max-width:900px){.cbx-opt{min-height:52px;font-size:17px}}
+.cbx-group{position:sticky;top:-4px;z-index:1;padding:8px 12px 4px;background:#f6f5f2;font:700 11.5px Arial,sans-serif;letter-spacing:.05em;text-transform:uppercase;color:var(--muted,#5f6368);border-top:1px solid var(--line,#e4e0d8)}
+.cbx-group:first-child{border-top:0}
+.cbx-now{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:#e7f6ec;color:#067647;font-size:11px;font-weight:700}

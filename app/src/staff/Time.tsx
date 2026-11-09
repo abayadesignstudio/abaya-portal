@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { supabase, PHASE_NAME, SECTOR_COLOR } from '../lib/supabase'
+import { supabase, PHASE_NAME, PHASES, SECTOR_COLOR } from '../lib/supabase'
 import './time-mobile.css'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
@@ -98,9 +98,20 @@ export default function Time() {
   }
 
   const overhead = (projects.data ?? []).find((p) => p.number === 'OH')
-  const phaseOptions: ComboOption[] = (projects.data ?? []).filter((p) => p.number !== 'OH').flatMap((p): ComboOption[] => (p.phases.length
-    ? p.phases.map((ph) => ({ value: `${p.id}|${ph.id}`, chip: p.number, color: sectorColor(p.sector), label: `${p.name} — ${ph.code} · ${PHASE_NAME[ph.code] ?? ''}`, search: ph.code }))
-    : [{ value: `${p.id}|`, chip: p.number, color: sectorColor(p.sector), label: p.name, hint: '— no phases yet' }]))
+  // grouped by phase, in phase order (CE → CA); within a phase, projects working in it now come first
+  const STATUS_RANK: Record<string, number> = { in_progress: 0, paused: 1, not_started: 2, complete: 3 }
+  const phaseOptions: ComboOption[] = (() => {
+    const list = (projects.data ?? []).filter((p) => p.number !== 'OH')
+    const out: ComboOption[] = []
+    for (const [code, name] of PHASES) {
+      const rows = list.flatMap((p) => p.phases.filter((ph) => ph.code === code).map((ph) => ({ p, ph })))
+        .sort((a, b) => (STATUS_RANK[a.ph.status ?? ''] ?? 2) - (STATUS_RANK[b.ph.status ?? ''] ?? 2) || b.p.number.localeCompare(a.p.number))
+      for (const { p, ph } of rows) out.push({ value: `${p.id}|${ph.id}`, chip: p.number, color: sectorColor(p.sector), label: p.name, group: `${code} · ${name}`,
+        hint: ph.status === 'in_progress' ? '· in progress' : ph.status === 'complete' ? '· complete' : ph.status === 'paused' ? '· paused' : undefined, search: `${code} ${name}` })
+    }
+    for (const p of list.filter((p) => p.phases.length === 0)) out.push({ value: `${p.id}|`, chip: p.number, color: sectorColor(p.sector), label: p.name, group: 'No phases yet' })
+    return out
+  })()
   const phone = useIsPhone()
   const [dayIdx, setDayIdx] = useState(() => { const i = (new Date().getDay() + 6) % 7; return i })
   const day = days[dayIdx]

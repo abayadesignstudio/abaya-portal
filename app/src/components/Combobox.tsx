@@ -2,7 +2,8 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { SECTOR_COLOR } from '../lib/supabase'
 import './combobox.css'
 
-export type ComboOption = { value: string; label: string; chip?: string; color?: string; search?: string; hint?: string }
+/** group: options with the same group are listed under a heading (keep them next to each other). */
+export type ComboOption = { value: string; label: string; chip?: string; color?: string; search?: string; hint?: string; group?: string }
 
 export const sectorColor = (sector: string | null | undefined) => SECTOR_COLOR[sector ?? 'internal'] ?? '#6b7280'
 
@@ -63,12 +64,14 @@ export default function Combobox({ id, label, placeholder, options, value, onCha
       {open && (
         <ul ref={list} id={listId} role="listbox" aria-label={label} className="cbx-list">
           {shown.length === 0 && <li className="cbx-empty" role="presentation">{emptyText}</li>}
-          {shown.map((o, i) => (
+          {shown.map((o, i) => [
+            o.group && o.group !== shown[i - 1]?.group ? <li key={'g:' + o.group} className="cbx-group" role="presentation">{o.group}</li> : null,
             <li key={o.value} id={`${listId}-${i}`} data-i={i} role="option" aria-selected={o.value === value && !clearOnSelect}
               className={'cbx-opt' + (i === active ? ' is-active' : '')} onMouseDown={(e) => { e.preventDefault(); choose(o) }} onMouseMove={() => setActive(i)}>
+              {o.group && <span className="sr">{o.group}: </span>}
               {o.chip && <span className="tag cbx-chip" style={{ background: o.color ?? '#6b7280' }}>{o.chip}</span>}
               <span className="cbx-label">{o.label}{o.hint && <span className="muted"> {o.hint}</span>}</span>
-            </li>))}
+            </li>])}
         </ul>
       )}
     </div>
