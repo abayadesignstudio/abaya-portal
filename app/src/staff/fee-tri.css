@@ -1,5 +1,5 @@
 /* Fee triangulator: hourly at the top corner, price/SF bottom-left, % of construction bottom-right, median in the middle */
-.ft-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,400px) minmax(0,1fr);grid-template-areas:"top top top" "bl tri br";gap:6px 20px;margin-top:14px}
+.ft-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,400px) minmax(0,1fr);grid-template-areas:"top top top" "bl tri br";gap:6px 20px;margin-top:14px}
 .ft-top{grid-area:top;justify-self:center;width:min(100%,640px)}
 .ft-bl{grid-area:bl;align-self:end;justify-self:end;width:min(100%,420px)}
 .ft-br{grid-area:br;align-self:end;justify-self:start;width:min(100%,420px)}
@@ -32,7 +32,7 @@
   .ft-amt{display:none}
 }
 /* two columns: triangulator | saved fees list */
-.ft-layout{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:20px}
+.ft-layout{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:20px}
 .ft-main{min-width:0;container-type:inline-size}
 .ft-save{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
 .ft-save .input{flex:1 1 280px;max-width:520px}
@@ -49,6 +49,10 @@
 .ft-item-m{display:flex;justify-content:space-between;gap:8px;font-size:13px;color:var(--muted)}
 .ft-item-m .num{color:var(--navy);font-weight:700}
 @container (max-width:900px){
+  .ft-pair,.ft-trio{grid-template-columns:minmax(0,1fr)}
+  .ft-center strong{font-size:22px}
+}
+@container (max-width:560px){
   .ft-grid{grid-template-columns:minmax(0,1fr);grid-template-areas:"top" "tri" "bl" "br"}
   .ft-tri{justify-self:center;width:min(100%,380px)}
   .ft-bl,.ft-br{justify-self:stretch;width:auto}
