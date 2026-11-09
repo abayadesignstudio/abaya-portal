@@ -180,16 +180,15 @@ export default function FeeTriangulator() {
         {/* bottom-right corner: percent of construction cost */}
         <fieldset className="ft-corner ft-br">
           <legend><span className="ft-dot" aria-hidden="true">3</span>Percent of construction cost</legend>
-          <div className="ft-trio">
-            <div><label className="l" htmlFor="ft-sf3">Area (SF)</label>
-              <input id="ft-sf3" className="input num" inputMode="decimal" placeholder="0" value={s.sf} onChange={(e) => set({ sf: e.target.value })} aria-describedby="ft-sf3-h" /></div>
-            <div><label className="l" htmlFor="ft-cpsf">Cost per SF ($)</label>
-              <input id="ft-cpsf" className="input num" inputMode="decimal" placeholder="0.00" value={s.costPerSf} onChange={(e) => set({ costPerSf: e.target.value })} /></div>
+          <div className="ft-pair">
+            <div><label className="l" htmlFor="ft-cpsf">Construction cost per SF ($)</label>
+              <input id="ft-cpsf" aria-describedby="ft-sf3-h" className="input num" inputMode="decimal" placeholder="0.00" value={s.costPerSf} onChange={(e) => set({ costPerSf: e.target.value })} /></div>
             <div><label className="l" htmlFor="ft-pct">Fee (%)</label>
               <input id="ft-pct" className="input num" inputMode="decimal" placeholder="0.0" value={s.pct} onChange={(e) => set({ pct: e.target.value })} /></div>
           </div>
           <p id="ft-sf3-h" className="muted" style={{ margin: '6px 0 0', fontSize: 13 }}>
-            {cost > 0 ? <>Construction cost: <span className="num">{num(s.sf).toLocaleString()} SF × {money(num(s.costPerSf))}/SF = <strong>{money(cost)}</strong></span></> : 'Same area as corner 2; changing it here changes it there.'}</p>
+            {cost > 0 ? <>Construction cost: <span className="num">{num(s.sf).toLocaleString()} SF × {money(num(s.costPerSf))}/SF = <strong>{money(cost)}</strong></span></>
+              : num(s.sf) > 0 ? <>Uses the area from corner 2: <span className="num">{num(s.sf).toLocaleString()} SF</span>.</> : 'Uses the area from corner 2. Enter it there.'}</p>
           <p className="ft-fee"><span className="num">{byPct ? money(byPct) : '—'}</span><small>{vsMedian(byPct, med)}</small></p>
         </fieldset>
       </div>
