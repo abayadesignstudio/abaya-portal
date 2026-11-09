@@ -8,3 +8,4 @@
 .ts-mrow{display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border-bottom:1px solid #efece6}
 .ts-mrow:last-child{border-bottom:0}
 .ts-mrow .ts-in{width:84px;min-height:52px;font-size:20px}
+.ts-other{margin:0;padding:10px 14px;border-radius:8px;background:#fef6e7;border-left:3px solid #b54708;color:#7a4b06;font-size:14px}

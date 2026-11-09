@@ -21,7 +21,12 @@ const keyOf = (r: { project_id: string; phase_id: string | null; activity: strin
 
 export default function Time() {
   const { profile } = useAuth()
-  const me = profile!.id
+  const admin = profile?.role === 'admin'
+  // whose timesheet this is: yours, or (admins) anyone's — `me` is the person whose hours are shown and saved
+  const [me, setMe] = useState(profile!.id)
+  const self = me === profile!.id
+  const people = useLoad(async () => admin ? must(await supabase.from('profiles').select('id, full_name, email').in('role', ['admin', 'staff']).order('full_name')) as { id: string; full_name: string | null; email: string }[] : [], [admin])
+  const whoName = (people.data ?? []).find((p) => p.id === me)?.full_name ?? 'this person'
   const [week, setWeek] = useState(() => mondayOf(new Date()))
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => { const d = new Date(week); d.setDate(d.getDate() + i); return d }), [week])
   const projects = useLoad(loadProjects)
@@ -104,7 +109,19 @@ export default function Time() {
 
   return (
     <div className="stack">
-      <div className="row between"><h1>Timesheet</h1><span className="muted" style={{ fontSize: 14 }}>Use the <strong>Timer</strong> {phone ? 'bar at the bottom of the screen' : 'at the bottom of the sidebar'} to track time live.</span></div>
+      <div className="row between">
+        <div className="row" style={{ gap: 14 }}>
+          <h1>Timesheet</h1>
+          {admin && (people.data ?? []).length > 1 && <div className="row" style={{ gap: 6 }}>
+            <label htmlFor="ts-who" className="muted" style={{ fontSize: 14 }}>Hours for</label>
+            <select id="ts-who" className="input" style={{ width: 'auto', minHeight: 38, fontWeight: 700 }} value={me} onChange={(e) => setMe(e.target.value)}>
+              {(people.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.id === profile!.id ? `Me (${p.full_name ?? p.email})` : p.full_name ?? p.email}</option>)}
+            </select>
+          </div>}
+        </div>
+        <span className="muted" style={{ fontSize: 14 }}>Use the <strong>Timer</strong> {phone ? 'bar at the bottom of the screen' : 'at the bottom of the sidebar'} to track time live.</span>
+      </div>
+      {!self && <p className="ts-other" role="status">You’re entering hours for <strong>{whoName}</strong>. Rows and hours you add here go on their timesheet. <button type="button" className="linkbtn" onClick={() => setMe(profile!.id)}>Back to mine</button></p>}
       <div className="row between">
         <div className="row" style={phone ? { width: '100%' } : undefined}>
           <Combobox id="ts-add" label="Add project and phase" placeholder="Search for project and add phase" style={{ width: phone ? '100%' : 380 }} clearOnSelect value=""
