@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import RowMenu from '../components/RowMenu'
-import { supabase, money } from '../lib/supabase'
+import { supabase, money, PHASES } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import './fee-tri.css'
 
@@ -11,12 +11,14 @@ import './fee-tri.css'
 type Person = { id: string; full_name: string | null; bill_rate: number | null }
 type HourRow = { key: string; profile_id: string; hours: string; rate: string }
 type Saved = { id: string; name: string; inputs: State; median_fee: number | null; hourly_fee: number | null; sf_fee: number | null; pct_fee: number | null; created_at: string; updated_at: string }
-type State = { rows: HourRow[]; sf: string; perSf: string; costPerSf: string; pct: string }
+type State = { rows: HourRow[]; sf: string; perSf: string; costPerSf: string; pct: string; split: Record<string, string> }
 
 const KEY = 'abaya.feeTriangulator'
 const newRow = (): HourRow => ({ key: Math.random().toString(36).slice(2), profile_id: '', hours: '', rate: '' })
-const EMPTY: State = { rows: [newRow()], sf: '', perSf: '', costPerSf: '', pct: '' }
-const load = (): State => { try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); return s && Array.isArray(s.rows) ? { ...EMPTY, ...s } : EMPTY } catch { return EMPTY } }
+/** Starting split of the fee across phases (AIA-style); 0 leaves a phase out. */
+const DEFAULT_SPLIT: Record<string, string> = { CE: '0', SD: '15', DD: '20', CD: '40', BN: '5', PM: '0', CA: '20' }
+const EMPTY: State = { rows: [newRow()], sf: '', perSf: '', costPerSf: '', pct: '', split: DEFAULT_SPLIT }
+const load = (): State => { try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); return s && Array.isArray(s.rows) ? { ...EMPTY, ...s, split: { ...DEFAULT_SPLIT, ...(s.split ?? {}) } } : EMPTY } catch { return EMPTY } }
 const num = (s: string) => { const n = parseFloat(String(s).replace(/[$,%\s]/g, '')); return Number.isFinite(n) ? n : 0 }
 const median = (xs: number[]) => { const a = [...xs].sort((x, y) => x - y); const m = Math.floor(a.length / 2); return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2 }
 const mean = (xs: number[]) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0
@@ -63,6 +65,10 @@ export default function FeeTriangulator() {
   const V = useMemo(() => [{ x: 150, y: 18 }, { x: 22, y: 242 }, { x: 278, y: 242 }], [])
   const C = { x: 150, y: (18 + 242 + 242) / 3 }
 
+  // phase split of the average fee
+  const splitPct = PHASES.map(([c]) => [c, num(s.split[c] ?? '0')] as const)
+  const splitTotal = splitPct.reduce((a, [, v]) => a + v, 0)
+  const setSplit = (c: string, v: string) => setS((o) => ({ ...o, split: { ...o.split, [c]: v } }))
   const payload = () => ({ name: name.trim(), inputs: s, hourly_fee: hourly || null, sf_fee: bySf || null, pct_fee: byPct || null, median_fee: med || null, updated_at: new Date().toISOString() })
   const saveNew = async () => {
     if (!name.trim()) return setErr('Give this fee a name first.')
@@ -81,8 +87,8 @@ export default function FeeTriangulator() {
     if (error) return setErr(error.message)
     setCur({ id: cur.id, name: name.trim() }); setMsg('Saved.'); saved.reload()
   }
-  const open = (x: Saved) => { setS({ ...EMPTY, ...x.inputs, rows: (x.inputs.rows?.length ? x.inputs.rows : [newRow()]).map((r) => ({ ...r, key: r.key || newRow().key })) }); setCur({ id: x.id, name: x.name }); setName(x.name); setErr(''); setMsg('') }
-  const startNew = () => { setS({ ...EMPTY, rows: [newRow()] }); setCur(null); setName(''); setErr(''); setMsg('') }
+  const open = (x: Saved) => { setS({ ...EMPTY, ...x.inputs, split: { ...DEFAULT_SPLIT, ...(x.inputs.split ?? {}) }, rows: (x.inputs.rows?.length ? x.inputs.rows : [newRow()]).map((r) => ({ ...r, key: r.key || newRow().key })) }); setCur({ id: x.id, name: x.name }); setName(x.name); setErr(''); setMsg('') }
+  const startNew = () => { setS((o) => ({ ...EMPTY, rows: [newRow()], split: o.split })); setCur(null); setName(''); setErr(''); setMsg('') }
   const rename = async (x: Saved) => {
     const n = window.prompt('Rename this fee', x.name)?.trim(); if (!n || n === x.name) return
     const { error } = await supabase.from('fee_estimates').update({ name: n }).eq('id', x.id)
@@ -197,6 +203,31 @@ export default function FeeTriangulator() {
         </fieldset>
       </div>
       </div>
+
+      <aside className="ft-split" aria-labelledby="ft-split-h">
+        <h3 id="ft-split-h">Fee by phase</h3>
+        <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>Spreads the average fee{avg ? <> of <strong className="num">{money(avg)}</strong></> : ''} across phases. Set a phase to 0% to leave it out.</p>
+        <table className="ft-split-t">
+          <thead><tr><th scope="col">Phase</th><th scope="col">%</th><th scope="col">Fee</th></tr></thead>
+          <tbody>
+            {PHASES.map(([c, n]) => {
+              const v = num(s.split[c] ?? '0')
+              return (
+                <tr key={c} className={v > 0 ? '' : 'off'}>
+                  <th scope="row" title={n}><span className="ft-ph">{c}</span><span className="ft-ph-n">{n}</span></th>
+                  <td><label className="sr" htmlFor={`ft-sp-${c}`}>{n} percent</label>
+                    <input id={`ft-sp-${c}`} className="input num" inputMode="decimal" value={s.split[c] ?? ''} placeholder="0" onChange={(e) => setSplit(c, e.target.value)} /></td>
+                  <td className="num">{avg && v ? money(Math.round(avg * v / 100)) : '—'}</td>
+                </tr>)
+            })}
+          </tbody>
+          <tfoot><tr className={Math.abs(splitTotal - 100) < 0.01 ? '' : 'warn'}>
+            <th scope="row">Total</th><td className="num">{splitTotal.toLocaleString()}%</td><td className="num">{avg ? money(Math.round(avg * splitTotal / 100)) : '—'}</td>
+          </tr></tfoot>
+        </table>
+        {Math.abs(splitTotal - 100) >= 0.01 && <p className="ft-split-w" role="status">{splitTotal < 100 ? `${(100 - splitTotal).toLocaleString()}% (${money(avg * (100 - splitTotal) / 100)}) isn’t assigned to a phase.` : `Over by ${(splitTotal - 100).toLocaleString()}%. The phases add up to more than the fee.`}</p>}
+        <button type="button" className="linkbtn" style={{ marginTop: 8 }} onClick={() => set({ split: DEFAULT_SPLIT })}>Reset to 15 / 20 / 40 / 5 / 20</button>
+      </aside>
 
       <aside className="ft-list" aria-labelledby="ft-list-h">
         <h3 id="ft-list-h">Saved fees</h3>

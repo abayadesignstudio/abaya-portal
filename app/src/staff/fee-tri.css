@@ -32,7 +32,7 @@
   .ft-amt{display:none}
 }
 /* two columns: triangulator | saved fees list */
-.ft-layout{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:20px}
+.ft-layout{display:grid;grid-template-columns:minmax(0,1fr) 270px 240px;gap:20px}
 .ft-main{min-width:0;container-type:inline-size}
 .ft-save{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
 .ft-save .input{flex:1 1 280px;max-width:520px}
@@ -57,4 +57,22 @@
   .ft-tri{justify-self:center;width:min(100%,380px)}
   .ft-bl,.ft-br{justify-self:stretch;width:auto}
 }
-@media (max-width:1100px){.ft-layout{grid-template-columns:minmax(0,1fr)}.ft-list{border-left:0;border-top:1px solid var(--line);padding:14px 0 0}}
+@media (max-width:1280px){.ft-layout{grid-template-columns:minmax(0,1fr) 270px}.ft-list{grid-column:1 / -1;border-left:0;border-top:1px solid var(--line);padding:14px 0 0}}
+@media (max-width:1000px){.ft-layout{grid-template-columns:minmax(0,1fr)}.ft-split{border-left:0;border-top:1px solid var(--line);padding:14px 0 0}}
+/* fee by phase */
+.ft-split{border-left:1px solid var(--line);padding-left:18px;min-width:0}
+.ft-split h3{margin:0;font-size:16px}
+.ft-split-t{width:100%;border-collapse:collapse;margin-top:10px;font-size:14px}
+.ft-split-t thead th{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);text-align:left;padding:0 4px 6px}
+.ft-split-t thead th:last-child,.ft-split-t td:last-child,.ft-split-t tfoot td:last-child{text-align:right}
+.ft-split-t tbody th{text-align:left;font-weight:400;padding:3px 4px;min-width:0}
+.ft-split-t td{padding:3px 4px}
+.ft-split-t td .input{width:58px;min-height:32px;padding:4px 6px;font-size:14px;text-align:right}
+.ft-ph{display:inline-block;min-width:30px;padding:1px 5px;margin-right:6px;border-radius:4px;background:var(--navy);color:#fff;font-weight:700;font-size:12px;text-align:center}
+.ft-ph-n{font-size:12px;color:var(--muted)}
+.ft-split-t tr.off .ft-ph{background:#c9c4b9}
+.ft-split-t tr.off td:last-child{color:var(--muted)}
+.ft-split-t tfoot th,.ft-split-t tfoot td{border-top:1px solid var(--line);padding-top:8px;font-weight:700}
+.ft-split-t tfoot th{text-align:left}
+.ft-split-t tfoot tr.warn td:nth-child(2){color:var(--amber)}
+.ft-split-w{margin:8px 0 0;padding:8px 10px;border-radius:8px;background:#fef6e7;color:#7a4b06;font-size:13px}
