@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import RowMenu, { type RowMenuItem } from '../components/RowMenu'
+import YearlyNeed from './YearlyNeed'
 import { supabase, money } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
@@ -104,7 +105,8 @@ export default function Bills() {
   const diff = spent - budget
 
   return (
-    <div className="stack" style={{ maxWidth: 1100 }}>
+    <div className="bills-page">
+    <div className="stack bills-main">
       <div className="row between" style={{ alignItems: 'flex-end' }}>
         <div><h1>Company bills</h1><p className="muted" style={{ margin: '6px 0 0' }}>Salaries, rent, utilities and subscriptions, against this month’s budget.</p></div>
         <div className="row">
@@ -187,6 +189,8 @@ export default function Bills() {
           {data && bills.length === 0 && <tbody><tr><td colSpan={5} className="muted" style={{ textAlign: 'center', padding: 24 }}><em>No bills in {monthLabel(month)}.</em></td></tr></tbody>}
         </table></div>
       </section>
+    </div>
+    <YearlyNeed month={month} monthBills={bills} order={cats} colors={COLOR} />
     </div>
   )
 }
