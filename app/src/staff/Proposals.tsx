@@ -5,6 +5,7 @@ import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import { newDoc } from '../lib/agreementTemplate'
 import RowMenu, { type RowMenuItem } from '../components/RowMenu'
+import FeeTriangulator from './FeeTriangulator'
 
 type Row = { id: string; title: string; status: string; total_fee: number | null; updated_at: string
   clients: { name: string } | null; projects: { number: string; name: string; sector: string | null } | null }
@@ -149,6 +150,7 @@ export default function Proposals() {
         </div>}
         <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Every proposal belongs to a project. For a new job, pick “+ New project…”: it’s created with status Proposal and moves to Active when you set it on the project page. Starting from a project fills in the owner, project name and address, and turns on the phases that have fees.</em></p>
       </section>
+      <FeeTriangulator />
       {err && <p className="err" role="alert">{err}</p>}
       {note && <p className="ok" role="status">{note}</p>}
 
