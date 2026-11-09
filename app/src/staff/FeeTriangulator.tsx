@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import RowMenu from '../components/RowMenu'
+import { useAuth } from '../lib/auth'
+import { newDoc } from '../lib/agreementTemplate'
 import { supabase, money, PHASES } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import './fee-tri.css'
@@ -69,6 +72,27 @@ export default function FeeTriangulator() {
   const splitPct = PHASES.map(([c]) => [c, num(s.split[c] ?? '0')] as const)
   const splitTotal = splitPct.reduce((a, [, v]) => a + v, 0)
   const setSplit = (c: string, v: string) => setS((o) => ({ ...o, split: { ...o.split, [c]: v } }))
+  // Create agreement: the average fee, the phases in the split, and a payment per phase go into a new draft agreement;
+  // the project, owner and the rest are filled in there.
+  const nav = useNavigate()
+  const { profile } = useAuth()
+  const [agBusy, setAgBusy] = useState(false)
+  const splitOk = Math.abs(splitTotal - 100) < 0.01
+  const createAgreement = async () => {
+    if (!avg) return setErr('Fill in at least one fee method first.')
+    if (!splitOk) return setErr('The phase percentages need to add up to 100% before creating an agreement.')
+    setAgBusy(true); setErr('')
+    const used = splitPct.filter(([, v]) => v > 0)
+    const doc = newDoc(num(s.sf) > 0 ? { projSize: `${num(s.sf).toLocaleString()} SF` } : {})
+    const fee = Math.round(avg)
+    doc.v.fee = String(fee)
+    Object.keys(doc.ph).forEach((c) => { doc.ph[c].on = used.some(([u]) => u === c) })
+    doc.pay = used.map(([c, v], i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${PHASES.find(([x]) => x === c)?.[1] ?? c}`, phase: PHASES.find(([x]) => x === c)?.[1] ?? c, pct: String(v) }))
+    const { data, error } = await supabase.from('agreements').insert({ title: 'Untitled proposal', project_id: null, client_id: null, doc, total_fee: fee, created_by: profile?.id }).select('id').single()
+    setAgBusy(false)
+    if (error) return setErr(error.message)
+    nav('/proposals/' + (data as { id: string }).id)
+  }
   const payload = () => ({ name: name.trim(), inputs: s, hourly_fee: hourly || null, sf_fee: bySf || null, pct_fee: byPct || null, median_fee: med || null, updated_at: new Date().toISOString() })
   const saveNew = async () => {
     if (!name.trim()) return setErr('Give this fee a name first.')
@@ -227,6 +251,10 @@ export default function FeeTriangulator() {
         </table>
         {Math.abs(splitTotal - 100) >= 0.01 && <p className="ft-split-w" role="status">{splitTotal < 100 ? `${(100 - splitTotal).toLocaleString()}% (${money(avg * (100 - splitTotal) / 100)}) isn’t assigned to a phase.` : `Over by ${(splitTotal - 100).toLocaleString()}%. The phases add up to more than the fee.`}</p>}
         <button type="button" className="linkbtn" style={{ marginTop: 8 }} onClick={() => set({ split: DEFAULT_SPLIT })}>Reset to 15 / 20 / 40 / 5 / 20</button>
+        <button type="button" className="btn ft-create" disabled={agBusy || !avg || !splitOk} onClick={createAgreement}
+          title={!avg ? 'Fill in at least one fee method first' : !splitOk ? 'Phase percentages must add up to 100%' : 'Start a draft agreement with this fee and phase split'}>
+          {agBusy ? 'Creating…' : 'Create agreement'}</button>
+        <p className="muted" style={{ margin: '6px 0 0', fontSize: 12 }}>Starts a draft with the {avg ? money(Math.round(avg)) : 'average'} fee, these phases and one payment per phase. You add the project and owner there.</p>
       </aside>
 
       <aside className="ft-list" aria-labelledby="ft-list-h">
