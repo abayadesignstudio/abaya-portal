@@ -8,7 +8,7 @@ import Avatar from '../components/Avatar'
  *  (utilization target × 40 h) and the firm's weekly revenue need (billable hours × billing rate). */
 
 type Person = { id: string; full_name: string | null; initials: string | null; avatar_url: string | null; util_target: number | null; bill_rate: number | null }
-type Entry = { profile_id: string; minutes: number; billable: boolean }
+type Entry = { profile_id: string; minutes: number }
 const WEEK_HOURS = 40
 const h1 = (n: number) => (Math.round(n * 10) / 10).toLocaleString()
 
@@ -20,16 +20,15 @@ export default function WeeklyTime({ weeklyNeed }: { weeklyNeed: number }) {
 
   const data = useLoad(async () => {
     const people = must(await supabase.from('profiles').select('id, full_name, initials, avatar_url, util_target, bill_rate').in('role', ['admin', 'staff']).order('full_name')) as Person[]
-    const entries = must(await supabase.from('time_entries').select('profile_id, minutes, billable').gte('work_date', iso(start)).lte('work_date', iso(end))) as Entry[]
+    const entries = must(await supabase.from('time_entries').select('profile_id, minutes').eq('billable', true).gte('work_date', iso(start)).lte('work_date', iso(end))) as Entry[]
     return { people, entries }
   }, [iso(start)])
 
   const rows = (data.data?.people ?? []).map((p) => {
-    const mine = (data.data?.entries ?? []).filter((e) => e.profile_id === p.id)
-    const total = mine.reduce((a, e) => a + e.minutes, 0) / 60
-    const billable = mine.filter((e) => e.billable).reduce((a, e) => a + e.minutes, 0) / 60
+    // billable time only — overhead and other non-billable time doesn't count toward the target
+    const billable = (data.data?.entries ?? []).filter((e) => e.profile_id === p.id).reduce((a, e) => a + e.minutes, 0) / 60
     const target = WEEK_HOURS * (Number(p.util_target) || 0) / 100
-    return { p, total, billable, target, value: billable * (Number(p.bill_rate) || 0) }
+    return { p, billable, target, value: billable * (Number(p.bill_rate) || 0) }
   })
   const value = rows.reduce((a, r) => a + r.value, 0)
   const billable = rows.reduce((a, r) => a + r.billable, 0)
@@ -45,7 +44,7 @@ export default function WeeklyTime({ weeklyNeed }: { weeklyNeed: number }) {
       <div className="row between" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}>
         <div>
           <h2 id="wt-h" style={{ margin: 0 }}>Time this week</h2>
-          <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>Logged hours against each person’s billable target ({WEEK_HOURS} h × utilization).</p>
+          <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>Billable hours against each person’s target ({WEEK_HOURS} h × utilization).</p>
         </div>
         <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
           <button type="button" className="btn small secondary" style={{ minHeight: 30, padding: '0 9px' }} onClick={() => shift(-1)} aria-label="Previous week">‹</button>
@@ -64,7 +63,7 @@ export default function WeeklyTime({ weeklyNeed }: { weeklyNeed: number }) {
       </div>
 
       <ul className="wt-list">
-        {rows.map(({ p, total, billable: b, target: t }) => {
+        {rows.map(({ p, billable: b, target: t }) => {
           const ok = b >= t * pace
           return (
             <li key={p.id}>
@@ -73,10 +72,7 @@ export default function WeeklyTime({ weeklyNeed }: { weeklyNeed: number }) {
                 <span className="num" style={{ fontSize: 14, whiteSpace: 'nowrap' }}><strong>{h1(b)}</strong> / {h1(t)} h</span>
               </div>
               <div className="bar wt-bar" aria-hidden="true"><span style={{ width: `${t ? Math.min(100, b / t * 100) : 0}%`, background: ok ? 'var(--navy)' : '#b54708' }} />{thisWeek && pace < 1 && <i style={{ left: `${pace * 100}%` }} />}</div>
-              <div className="row between muted" style={{ fontSize: 12, marginTop: 3 }}>
-                <span>{h1(total)} h logged · {h1(total - b)} h non-billable</span>
-                <span>{t ? `${Math.round(b / t * 100)}%` : '—'}</span>
-              </div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 3, textAlign: 'right' }}>{t ? `${Math.round(b / t * 100)}% of target` : 'No target set'}</div>
             </li>)
         })}
       </ul>
