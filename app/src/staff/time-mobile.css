@@ -9,3 +9,24 @@
 .ts-mrow:last-child{border-bottom:0}
 .ts-mrow .ts-in{width:84px;min-height:52px;font-size:20px}
 .ts-other{margin:0;padding:10px 14px;border-radius:8px;background:#fef6e7;border-left:3px solid #b54708;color:#7a4b06;font-size:14px}
+/* desktop timesheet: one line per activity (project/phase · activity · 7 days · total) */
+.ts-sheet{min-width:1180px}
+.ts-row{display:grid;grid-template-columns:minmax(300px,1.6fr) minmax(190px,1fr) repeat(7,92px) 70px 40px;align-items:center}
+.ts-row .cell{padding:8px 6px;text-align:center}
+.ts-row .ts-l{text-align:left;padding-left:16px}
+.ts-head{background:#f6f5f2;border-bottom:1px solid var(--line);font-weight:700;font-size:14px}
+.ts-head .is-today{background:#eef2f6}
+.ts-sum{border-bottom:1px solid var(--line);font-weight:700}
+.ts-proj{padding:14px 16px;border-bottom:1px solid var(--line);gap:10px;margin:0}
+.ts-line{border-bottom:1px solid #efece6;min-height:72px}
+.ts-line:last-child{border-bottom:0}
+.ts-what{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.ts-circle{flex:none;min-width:44px;height:44px;border-radius:50%;border:2px solid var(--line);display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:700}
+.ts-cellwrap{position:relative}
+.ts-note{position:absolute;left:50%;bottom:calc(100% + 10px);transform:translateX(-50%);width:300px;z-index:30;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(16,24,40,.16);text-align:left}
+.ts-note::after{content:"";position:absolute;left:50%;bottom:-7px;width:12px;height:12px;background:#fff;border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:translateX(-50%) rotate(45deg)}
+.ts-note textarea{display:block;width:100%;box-sizing:border-box;border:0;border-bottom:1px solid var(--line);border-radius:10px 10px 0 0;padding:12px 14px;font:15px Arial,sans-serif;resize:vertical;min-height:58px}
+.ts-note textarea:focus{outline:2px solid #7aa2c2;outline-offset:-2px}
+.ts-note p{margin:0;padding:10px 14px;font-size:14px}
+.ts-note a{font-weight:700}
+.ts-hasnote{position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:50%;background:#b54708;pointer-events:none}

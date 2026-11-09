@@ -56,6 +56,20 @@ export default function Time() {
   const weekTotal = entries.reduce((a, e) => a + e.minutes, 0)
   const phaseTotal = (phaseId: string | null) => phaseId ? (data.data?.totals ?? []).filter((t) => t.phase_id === phaseId).reduce((a, t) => a + t.minutes, 0) : 0
 
+  // a note typed on a day with no hours yet waits here until hours go in
+  const [pendingNote, setPendingNote] = useState<Record<string, string>>({})
+  const noteOf = (r: RowDef, d: Date) => entries.filter((e) => keyOf(e) === keyOf(r) && e.work_date === iso(d)).map((e) => e.note).filter(Boolean).join(' / ') || pendingNote[keyOf(r) + '@' + iso(d)] || ''
+  const setNote = async (r: RowDef, d: Date, text: string) => {
+    const existing = entries.filter((e) => keyOf(e) === keyOf(r) && e.work_date === iso(d))
+    const note = text.trim() || null
+    if (!existing.length) { setPendingNote((m) => ({ ...m, [keyOf(r) + '@' + iso(d)]: text })); return }
+    if ((existing.map((e) => e.note).filter(Boolean).join(' / ') || null) === note) return
+    const [first, ...rest] = existing
+    const { error } = await supabase.from('time_entries').update({ note }).eq('id', first.id)
+    if (error) return setErr(error.message)
+    if (rest.length) await supabase.from('time_entries').update({ note: null }).in('id', rest.map((e) => e.id))
+    announceTimeChange()
+  }
   const setCell = async (r: RowDef, d: Date, text: string) => {
     const val = parseFloat(text.replace(',', '.'))
     const minutes = isFinite(val) && val > 0 ? Math.round(val * 60) : 0
@@ -66,7 +80,7 @@ export default function Time() {
     if (existing.length) { const { error } = await supabase.from('time_entries').delete().in('id', existing.map((e) => e.id)); if (error) return setErr(error.message) }
     if (minutes > 0) {
       const { error } = await supabase.from('time_entries').insert({ profile_id: me, project_id: r.project_id, phase_id: r.phase_id, role_label: r.role_label, activity: r.activity,
-        work_date: iso(d), minutes, note: existing.map((e) => e.note).filter(Boolean).join(' / ') || null })
+        work_date: iso(d), minutes, note: existing.map((e) => e.note).filter(Boolean).join(' / ') || pendingNote[keyOf(r) + '@' + iso(d)]?.trim() || null })
       if (error) return setErr(error.message)
     }
     await ensureRow(r); announceTimeChange()
@@ -180,7 +194,7 @@ export default function Time() {
                             <option value="">{isOH ? 'Overhead type' : 'Activity'}</option>{(isOH ? OVERHEAD : ACTIVITIES).map((x) => <option key={x}>{x}</option>)}</select>
                         </div>
                         <div className="stack" style={{ gap: 4, alignItems: 'center' }}>
-                          <Cell value={cell(r, day)} today={false} label={`Hours, ${isOH ? 'Overhead' : `${p?.number ?? ''} ${p?.name ?? ''} ${code ?? ''}`} ${r.activity ?? ''}, ${day.toDateString()}`} onCommit={(t) => setCell(r, day, t)} />
+                          <Cell value={cell(r, day)} today={false} label={`Hours, ${isOH ? 'Overhead' : `${p?.number ?? ''} ${p?.name ?? ''} ${code ?? ''}`} ${r.activity ?? ''}, ${day.toDateString()}`} note={noteOf(r, day)} onCommit={(t) => setCell(r, day, t)} onNote={(t) => setNote(r, day, t)} />
                           <button className="linkbtn" style={{ color: 'var(--muted)', fontSize: 14 }} aria-label="Remove row" onClick={() => removeRow(r)}>Remove</button>
                         </div>
                       </li>)
@@ -191,16 +205,16 @@ export default function Time() {
         </>
       ) : (<>
       <div className="card" style={{ overflowX: 'auto' }}>
-        <div style={{ minWidth: 980 }}>
-          <div className="ts-grid" style={{ background: '#f6f5f2', borderBottom: '1px solid var(--line)', fontWeight: 700, fontSize: 14 }}>
-            <div className="cell" style={{ textAlign: 'left', paddingLeft: 16 }}>Activity</div>
-            {days.map((d) => <div key={iso(d)} className="cell" style={{ background: iso(d) === today ? '#eef2f6' : undefined }}>{d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>)}
+        <div className="ts-sheet">
+          <div className="ts-row ts-head">
+            <div className="cell ts-l">Project</div><div className="cell ts-l">Activity</div>
+            {days.map((d) => <div key={iso(d)} className={'cell' + (iso(d) === today ? ' is-today' : '')}>{d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>)}
             <div className="cell">Hours</div><div />
           </div>
-          <div className="ts-grid" style={{ borderBottom: '1px solid var(--line)' }}>
-            <div className="cell" style={{ textAlign: 'left', paddingLeft: 16 }}>All activities <span className="muted">· {rows.length}</span></div>
-            {days.map((d) => <div key={iso(d)} className="cell num" style={{ fontWeight: 700 }}>{hrs(dayTotal(d))}</div>)}
-            <div className="cell num" style={{ fontWeight: 700 }}>{hrs(weekTotal)}</div><div />
+          <div className="ts-row ts-sum">
+            <div className="cell ts-l">All activities <span className="muted">· {rows.length}</span></div><div />
+            {days.map((d) => <div key={iso(d)} className="cell num">{hrs(dayTotal(d))}</div>)}
+            <div className="cell num">{hrs(weekTotal)}</div><div />
           </div>
         </div>
       </div>
@@ -210,28 +224,29 @@ export default function Time() {
         const isOH = p?.number === 'OH'
         return (
           <section key={pid} className="card" style={{ overflowX: 'auto' }}>
-            <div style={{ minWidth: 980 }}>
-              <h2 className="row" style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)', gap: 10 }}>
+            <div className="ts-sheet">
+              <h2 className="row ts-proj">
                 {p && !isOH && <span className="tag" style={{ background: SECTOR_COLOR[p.sector ?? 'internal'] }}>{p.number}</span>}{isOH ? 'Overhead' : (p?.name ?? 'Project')}</h2>
               {rows.filter((r) => r.project_id === pid).map((r) => {
                 const code = p?.phases.find((x) => x.id === r.phase_id)?.code
                 const total = days.reduce((a, d) => a + cell(r, d), 0)
                 return (
-                  <div key={keyOf(r)} style={{ borderBottom: '1px solid #efece6' }}>
-                    {!isOH && <div className="row between" style={{ padding: '10px 16px 0' }}>
-                      <div><div>{code ? `${code} · ` : ''}{r.role_label ?? 'Role not set'}</div><strong>{code ? PHASE_NAME[code] : legacyOf(data.data?.entries ?? [], r)}</strong></div>
-                      {r.phase_id && <span title="Your hours on this phase, all time" className="num" style={{ minWidth: 44, height: 44, borderRadius: '50%', border: '2px solid var(--line)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>{hrs(phaseTotal(r.phase_id))}</span>}
-                    </div>}
-                    <div className="ts-grid">
-                      <div className="cell" style={{ paddingLeft: 16 }}>
-                        <label className="sr" htmlFor={'act-' + keyOf(r)}>Activity</label>
-                        <select id={'act-' + keyOf(r)} className="input" value={r.activity ?? ''} onChange={(e) => changeActivity(r, e.target.value)}>
-                          <option value="">{isOH ? 'Overhead type' : 'Activity'}</option>{(isOH ? OVERHEAD : ACTIVITIES).map((a) => <option key={a}>{a}</option>)}</select>
-                      </div>
-                      {days.map((d) => <div key={iso(d)} className="cell"><Cell value={cell(r, d)} today={iso(d) === today} label={`${p?.name ?? ''} ${code ?? ''} ${r.activity ?? ''} ${d.toDateString()}`} onCommit={(t) => setCell(r, d, t)} /></div>)}
-                      <div className="cell num" style={{ fontWeight: 700 }}>{hrs(total)}</div>
-                      <div className="cell"><button className="linkbtn" style={{ color: 'var(--muted)', fontSize: 18 }} aria-label="Remove row" onClick={() => removeRow(r)}>×</button></div>
+                  <div key={keyOf(r)} className="ts-row ts-line">
+                    <div className="cell ts-l ts-what">
+                      {isOH ? <strong>Overhead</strong> : <div style={{ minWidth: 0 }}>
+                        <div>{code ? `${code} · ` : ''}{r.role_label ?? 'Role not set'}</div>
+                        <strong>{code ? PHASE_NAME[code] : legacyOf(data.data?.entries ?? [], r)}</strong></div>}
+                      {r.phase_id && <span title="Hours on this phase, all time" className="num ts-circle">{hrs(phaseTotal(r.phase_id))}</span>}
                     </div>
+                    <div className="cell ts-l">
+                      <label className="sr" htmlFor={'act-' + keyOf(r)}>Activity</label>
+                      <select id={'act-' + keyOf(r)} className="input" value={r.activity ?? ''} onChange={(e) => changeActivity(r, e.target.value)}>
+                        <option value="">{isOH ? 'Overhead type' : 'Activity'}</option>{(isOH ? OVERHEAD : ACTIVITIES).map((a) => <option key={a}>{a}</option>)}</select>
+                    </div>
+                    {days.map((d) => <div key={iso(d)} className="cell"><Cell value={cell(r, d)} today={iso(d) === today} note={noteOf(r, d)}
+                      label={`${p?.name ?? ''} ${code ?? ''} ${r.activity ?? ''} ${d.toDateString()}`} onCommit={(t) => setCell(r, d, t)} onNote={(t) => setNote(r, d, t)} /></div>)}
+                    <div className="cell num" style={{ fontWeight: 700 }}>{hrs(total)}</div>
+                    <div className="cell"><button className="linkbtn" style={{ color: 'var(--muted)', fontSize: 18 }} aria-label="Remove row" onClick={() => removeRow(r)}>×</button></div>
                   </div>)
               })}
             </div>
@@ -243,9 +258,27 @@ export default function Time() {
   )
 }
 
-function Cell({ value, today, label, onCommit }: { value: number; today: boolean; label: string; onCommit: (t: string) => void }) {
+/** One day's hours. While it's focused, a note box opens above it (like Monograph); the note saves when you leave. */
+function Cell({ value, today, label, note, onCommit, onNote }: { value: number; today: boolean; label: string; note: string; onCommit: (t: string) => void; onNote: (t: string) => void }) {
   const [t, setT] = useState(hrs(value))
+  const [n, setN] = useState(note)
+  const [open, setOpen] = useState(false)
   useEffect(() => setT(hrs(value)), [value])
-  return <input aria-label={label} className={'ts-in num' + (today ? ' today' : '')} inputMode="decimal" value={t} onChange={(e) => setT(e.target.value)}
-    onFocus={(e) => e.target.select()} onBlur={() => onCommit(t)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
+  useEffect(() => { if (!open) setN(note) }, [note, open])
+  const leave = (e: React.FocusEvent<HTMLDivElement>) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return
+    setOpen(false)
+    if (n !== note) onNote(n)
+  }
+  return (
+    <div className="ts-cellwrap" onFocus={() => setOpen(true)} onBlur={leave}>
+      {open && <div className="ts-note" role="group" aria-label={`Note for ${label}`}>
+        <textarea rows={2} placeholder="Add a note…" value={n} onChange={(e) => setN(e.target.value)} aria-label="Note"
+          onKeyDown={(e) => { if (e.key === 'Escape') (e.target as HTMLTextAreaElement).blur() }} />
+        <p>Have an expense? <a href="#/expenses">Go to Expenses to add</a></p>
+      </div>}
+      <input aria-label={label} className={'ts-in num' + (today ? ' today' : '')} inputMode="decimal" value={t} onChange={(e) => setT(e.target.value)}
+        onFocus={(e) => e.target.select()} onBlur={() => onCommit(t)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
+      {note && !open && <span className="ts-hasnote" title={note} aria-label="Has a note" />}
+    </div>)
 }
