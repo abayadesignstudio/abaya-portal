@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { supabase, PHASE_NAME, PHASES, SECTOR_COLOR } from '../lib/supabase'
 import './time-mobile.css'
 import { useAuth } from '../lib/auth'
@@ -258,25 +259,37 @@ export default function Time() {
   )
 }
 
-/** One day's hours. While it's focused, a note box opens above it (like Monograph); the note saves when you leave. */
+/** One day's hours. While it's focused, a note box opens above it (like Monograph); the note saves when you leave.
+ *  The box is drawn on the page (fixed position) so the card's scroll area can't clip it. */
 function Cell({ value, today, label, note, onCommit, onNote }: { value: number; today: boolean; label: string; note: string; onCommit: (t: string) => void; onNote: (t: string) => void }) {
   const [t, setT] = useState(hrs(value))
   const [n, setN] = useState(note)
   const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+  const wrap = useRef<HTMLDivElement>(null)
+  const pop = useRef<HTMLDivElement>(null)
   useEffect(() => setT(hrs(value)), [value])
   useEffect(() => { if (!open) setN(note) }, [note, open])
-  const leave = (e: React.FocusEvent<HTMLDivElement>) => {
-    if (e.currentTarget.contains(e.relatedTarget as Node)) return
+  useEffect(() => {
+    if (!open) return
+    const place = () => { const r = wrap.current?.getBoundingClientRect(); if (r) setPos({ left: r.left + r.width / 2, top: r.top }) }
+    place(); window.addEventListener('scroll', place, true); window.addEventListener('resize', place)
+    return () => { window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place) }
+  }, [open])
+  const leave = (e: React.FocusEvent) => {
+    const to = e.relatedTarget as Node | null
+    if (to && (wrap.current?.contains(to) || pop.current?.contains(to))) return
     setOpen(false)
     if (n !== note) onNote(n)
   }
   return (
-    <div className="ts-cellwrap" onFocus={() => setOpen(true)} onBlur={leave}>
-      {open && <div className="ts-note" role="group" aria-label={`Note for ${label}`}>
-        <textarea rows={2} placeholder="Add a note…" value={n} onChange={(e) => setN(e.target.value)} aria-label="Note"
-          onKeyDown={(e) => { if (e.key === 'Escape') (e.target as HTMLTextAreaElement).blur() }} />
-        <p>Have an expense? <a href="#/expenses">Go to Expenses to add</a></p>
-      </div>}
+    <div ref={wrap} className="ts-cellwrap" onFocus={() => setOpen(true)} onBlur={leave}>
+      {open && pos && createPortal(
+        <div ref={pop} className="ts-note" role="group" aria-label={`Note for ${label}`} style={{ left: pos.left, top: pos.top }}>
+          <textarea rows={2} placeholder="Add a note…" value={n} onChange={(e) => setN(e.target.value)} aria-label="Note"
+            onKeyDown={(e) => { if (e.key === 'Escape') (e.target as HTMLTextAreaElement).blur() }} />
+          <p>Have an expense? <a href="#/expenses">Go to Expenses to add</a></p>
+        </div>, document.body)}
       <input aria-label={label} className={'ts-in num' + (today ? ' today' : '')} inputMode="decimal" value={t} onChange={(e) => setT(e.target.value)}
         onFocus={(e) => e.target.select()} onBlur={() => onCommit(t)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
       {note && !open && <span className="ts-hasnote" title={note} aria-label="Has a note" />}

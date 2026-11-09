@@ -23,7 +23,7 @@
 .ts-what{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .ts-circle{flex:none;min-width:44px;height:44px;border-radius:50%;border:2px solid var(--line);display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:700}
 .ts-cellwrap{position:relative}
-.ts-note{position:absolute;left:50%;bottom:calc(100% + 10px);transform:translateX(-50%);width:300px;z-index:30;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(16,24,40,.16);text-align:left}
+.ts-note{position:fixed;transform:translate(-50%,calc(-100% - 10px));width:300px;z-index:60;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(16,24,40,.16);text-align:left}
 .ts-note::after{content:"";position:absolute;left:50%;bottom:-7px;width:12px;height:12px;background:#fff;border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:translateX(-50%) rotate(45deg)}
 .ts-note textarea{display:block;width:100%;box-sizing:border-box;border:0;border-bottom:1px solid var(--line);border-radius:10px 10px 0 0;padding:12px 14px;font:15px Arial,sans-serif;resize:vertical;min-height:58px}
 .ts-note textarea:focus{outline:2px solid #7aa2c2;outline-offset:-2px}
