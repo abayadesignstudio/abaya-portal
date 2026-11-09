@@ -12,6 +12,8 @@ export function TimerPanel({ api, idPrefix, onDone, onCancel }: { api: TimerApi;
   const [view, setView] = useState<'form' | 'recent'>('form')
   const { v, setField, setV, err, busy, running, clock, projects, proj, isOverhead } = api
   const set = (k: keyof TimerFields) => (e: React.ChangeEvent<HTMLSelectElement | HTMLTextAreaElement>) => setField(k, e.target.value)
+  const suggested = api.defaultRole(v.project_id)
+  useEffect(() => { if (!running && !v.role_label && !v.bill_rate && suggested) setV((o) => (o.role_label ? o : { ...o, role_label: suggested })) }, [suggested, running, v.role_label, v.bill_rate, setV])
   const recents = uniqueRecent(api.recent)
   const id = (s: string) => idPrefix + s
   return (
@@ -86,6 +88,9 @@ export function ManualPanel({ api, me, idPrefix, onDone, onCancel }: { api: Time
   const proj = api.projects.find((p) => p.id === f.project_id)
   const isOverhead = proj?.number === 'OH'
   const set = (k: keyof TimerFields, v: string) => setF((o) => ({ ...o, [k]: v, ...(k === 'project_id' ? { phase_id: '', activity: '', role_label: api.defaultRole(v), bill_rate: '' } : {}) }))
+  // your standard role shows as soon as the panel opens (and your project role once you pick a project)
+  const suggested = api.defaultRole(f.project_id)
+  useEffect(() => { if (!f.role_label && !f.bill_rate && suggested) setF((o) => (o.role_label ? o : { ...o, role_label: suggested })) }, [suggested, f.role_label, f.bill_rate])
   const minutes = parseDuration(dur)
   const bump = (m: number) => setDur(fmtHours(Math.max(0, minutes + m)))
   const save = async () => {

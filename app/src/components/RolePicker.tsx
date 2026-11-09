@@ -29,7 +29,8 @@ export default function RolePicker({ id, role, rate, onChange }: { id: string; r
     </div>)
 }
 
-/** Your usual role on a project: your role on the project's team, else the role you used last on it, else your title, else the role you use most. */
+/** Your usual role on a project: your role on the project's team, else the role you used last on it, else your standard role
+ *  (your rate level in Settings → People), else the role you use most. With no project, your standard role. */
 export function useDefaultRole(me: string) {
   const [d, setD] = useState<{ members: { project_id: string; role_label: string | null; bill_rate: number | null }[]; recent: { project_id: string; role_label: string | null }[]; title: string | null } | null>(null)
   useEffect(() => {
@@ -42,11 +43,14 @@ export function useDefaultRole(me: string) {
     return () => { live = false }
   }, [me])
   return (projectId: string): string => {
-    if (!d || !projectId) return ''
-    const m = d.members.find((x) => x.project_id === projectId)?.role_label
-    if (m) return m
-    const last = d.recent.find((x) => x.project_id === projectId)?.role_label
-    if (last) return last
+    if (!d) return ''
+    if (projectId) {
+      const m = d.members.find((x) => x.project_id === projectId)?.role_label
+      if (m) return m
+      const last = d.recent.find((x) => x.project_id === projectId)?.role_label
+      if (last) return last
+    }
+    // no project yet (or nothing project-specific): your standard role from Settings → People
     if (d.title && (ROLES as readonly string[]).includes(d.title)) return d.title
     const counts = new Map<string, number>(); d.recent.forEach((x) => { if (x.role_label) counts.set(x.role_label, (counts.get(x.role_label) ?? 0) + 1) })
     return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? ''
