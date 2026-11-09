@@ -5,12 +5,12 @@ import { useLoad, must } from '../lib/useQuery'
 import './fee-tri.css'
 
 /** Proposal fee triangulator: three independent ways to price a job, one per corner of a triangle,
- *  with the median of the fees that have been filled in shown in the middle.
+ *  with the average (mean) of the fees that have been filled in shown in the middle, and the median beneath it.
  *  Inputs are kept on this device so they're still there when you come back. */
 
 type Person = { id: string; full_name: string | null; bill_rate: number | null }
 type HourRow = { key: string; profile_id: string; hours: string; rate: string }
-type Saved = { id: string; name: string; inputs: State; median_fee: number | null; created_at: string; updated_at: string }
+type Saved = { id: string; name: string; inputs: State; median_fee: number | null; hourly_fee: number | null; sf_fee: number | null; pct_fee: number | null; created_at: string; updated_at: string }
 type State = { rows: HourRow[]; sf: string; perSf: string; costPerSf: string; pct: string }
 
 const KEY = 'abaya.feeTriangulator'
@@ -19,7 +19,10 @@ const EMPTY: State = { rows: [newRow()], sf: '', perSf: '', costPerSf: '', pct: 
 const load = (): State => { try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); return s && Array.isArray(s.rows) ? { ...EMPTY, ...s } : EMPTY } catch { return EMPTY } }
 const num = (s: string) => { const n = parseFloat(String(s).replace(/[$,%\s]/g, '')); return Number.isFinite(n) ? n : 0 }
 const median = (xs: number[]) => { const a = [...xs].sort((x, y) => x - y); const m = Math.floor(a.length / 2); return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2 }
-const vsMedian = (v: number, m: number) => { if (!m || !v) return ''; const d = (v - m) / m * 100; return Math.abs(d) < 0.5 ? 'at median' : `${d > 0 ? '+' : '−'}${Math.abs(d).toFixed(0)}% vs median` }
+const mean = (xs: number[]) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0
+const vsAvg = (v: number, m: number) => { if (!m || !v) return ''; const d = (v - m) / m * 100; return Math.abs(d) < 0.5 ? 'at average' : `${d > 0 ? '+' : '−'}${Math.abs(d).toFixed(0)}% vs average` }
+/** A saved fee's average, from the three method fees stored with it. */
+const savedAvg = (x: { hourly_fee: number | null; sf_fee: number | null; pct_fee: number | null }) => mean([x.hourly_fee, x.sf_fee, x.pct_fee].map(Number).filter((v) => v > 0))
 
 export default function FeeTriangulator() {
   const people = useLoad(async () => must(await supabase.from('profiles').select('id, full_name, bill_rate').in('role', ['admin', 'staff']).order('full_name')) as Person[])
@@ -27,7 +30,7 @@ export default function FeeTriangulator() {
   useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(s)) } catch { /* private mode */ } }, [s])
   const set = (patch: Partial<State>) => setS((o) => ({ ...o, ...patch }))
   // saved triangulations (firm-wide, in the database), listed by year on the right
-  const saved = useLoad(async () => must(await supabase.from('fee_estimates').select('id, name, inputs, median_fee, created_at, updated_at').order('created_at', { ascending: false })) as Saved[])
+  const saved = useLoad(async () => must(await supabase.from('fee_estimates').select('id, name, inputs, median_fee, hourly_fee, sf_fee, pct_fee, created_at, updated_at').order('created_at', { ascending: false })) as Saved[])
   const [cur, setCur] = useState<{ id: string; name: string } | null>(() => { try { return JSON.parse(localStorage.getItem(KEY + '.cur') || 'null') } catch { return null } })
   useEffect(() => { try { localStorage.setItem(KEY + '.cur', JSON.stringify(cur)) } catch { /* private mode */ } }, [cur])
   const [name, setName] = useState(cur?.name ?? '')
@@ -52,8 +55,9 @@ export default function FeeTriangulator() {
   const fees = [hourly, bySf, byPct]
   const filled = fees.filter((f) => f > 0)
   const med = filled.length ? median(filled) : 0
+  const avg = mean(filled)
   const lo = filled.length ? Math.min(...filled) : 0, hi = filled.length ? Math.max(...filled) : 0
-  const spread = med && filled.length > 1 ? (hi - lo) / med * 100 : 0
+  const spread = avg && filled.length > 1 ? (hi - lo) / avg * 100 : 0
 
   // the triangle: corners in SVG units (viewBox 0 0 300 260)
   const V = useMemo(() => [{ x: 150, y: 18 }, { x: 22, y: 242 }, { x: 278, y: 242 }], [])
@@ -103,7 +107,7 @@ export default function FeeTriangulator() {
         <h2 id="ft-h" style={{ margin: 0 }}>Fee triangulator</h2>
         <button type="button" className="linkbtn" onClick={startNew}>New / clear</button>
       </div>
-      <p className="muted" style={{ margin: '4px 0 0', fontSize: 14 }}>Price the job three ways. The middle shows the median of the methods you fill in.</p>
+      <p className="muted" style={{ margin: '4px 0 0', fontSize: 14 }}>Price the job three ways. The middle shows the average of the methods you fill in.</p>
       <div className="ft-save">
         <label className="sr" htmlFor="ft-name">Fee name</label>
         <input id="ft-name" className="input" placeholder="Name this fee, e.g. Diamond Block — Phase 1" value={name} onChange={(e) => setName(e.target.value)}
@@ -143,12 +147,12 @@ export default function FeeTriangulator() {
             <button type="button" className="btn small secondary" onClick={() => set({ rows: [...s.rows, newRow()] })}>+ Add employee</button>
             <span className="muted num" style={{ fontSize: 13 }}>{hours ? `${hours.toLocaleString()} h` : ''}</span>
           </div>
-          <p className="ft-fee"><span className="num">{hourly ? money(hourly) : '—'}</span><small>{vsMedian(hourly, med)}</small></p>
+          <p className="ft-fee"><span className="num">{hourly ? money(hourly) : '—'}</span><small>{vsAvg(hourly, avg)}</small></p>
         </fieldset>
 
         {/* the triangle */}
         <div className="ft-tri">
-          <svg viewBox="0 0 300 260" role="img" aria-label={med ? `Median fee ${money(med)}` : 'Fill in at least one method to see the median fee'}>
+          <svg viewBox="0 0 300 260" role="img" aria-label={avg ? `Average fee ${money(avg)}` : 'Fill in at least one method to see the average fee'}>
             <polygon points={V.map((p) => `${p.x},${p.y}`).join(' ')} fill="#f6f5f2" stroke="#02253d" strokeWidth="2" strokeLinejoin="round" />
             {V.map((p, i) => <line key={i} x1={p.x} y1={p.y} x2={C.x} y2={C.y} stroke="#cfc9bd" strokeDasharray="3 4" />)}
             {V.map((p, i) => (
@@ -158,9 +162,9 @@ export default function FeeTriangulator() {
               </g>))}
           </svg>
           <div className="ft-center" aria-live="polite">
-            <span className="ft-center-l">Median fee</span>
-            <strong className="num">{med ? money(med) : '—'}</strong>
-            {filled.length > 1 && <span className="ft-center-s num">Range {money(lo)} – {money(hi)}<br />{spread.toFixed(0)}% spread</span>}
+            <span className="ft-center-l">Average fee</span>
+            <strong className="num">{avg ? money(avg) : '—'}</strong>
+            {filled.length > 1 && <span className="ft-center-s num">Median {money(med)}<br />Range {money(lo)} – {money(hi)} · {spread.toFixed(0)}% spread</span>}
             {filled.length === 1 && <span className="ft-center-s">Only one method filled in</span>}
           </div>
         </div>
@@ -174,7 +178,7 @@ export default function FeeTriangulator() {
             <div><label className="l" htmlFor="ft-psf">Fee per SF ($)</label>
               <input id="ft-psf" className="input num" inputMode="decimal" placeholder="0.00" value={s.perSf} onChange={(e) => set({ perSf: e.target.value })} /></div>
           </div>
-          <p className="ft-fee"><span className="num">{bySf ? money(bySf) : '—'}</span><small>{vsMedian(bySf, med)}</small></p>
+          <p className="ft-fee"><span className="num">{bySf ? money(bySf) : '—'}</span><small>{vsAvg(bySf, avg)}</small></p>
         </fieldset>
 
         {/* bottom-right corner: percent of construction cost */}
@@ -189,7 +193,7 @@ export default function FeeTriangulator() {
           <p id="ft-sf3-h" className="muted" style={{ margin: '6px 0 0', fontSize: 13 }}>
             {cost > 0 ? <>Construction cost: <span className="num">{num(s.sf).toLocaleString()} SF × {money(num(s.costPerSf))}/SF = <strong>{money(cost)}</strong></span></>
               : num(s.sf) > 0 ? <>Uses the area from corner 2: <span className="num">{num(s.sf).toLocaleString()} SF</span>.</> : 'Uses the area from corner 2. Enter it there.'}</p>
-          <p className="ft-fee"><span className="num">{byPct ? money(byPct) : '—'}</span><small>{vsMedian(byPct, med)}</small></p>
+          <p className="ft-fee"><span className="num">{byPct ? money(byPct) : '—'}</span><small>{vsAvg(byPct, avg)}</small></p>
         </fieldset>
       </div>
       </div>
@@ -206,7 +210,7 @@ export default function FeeTriangulator() {
             <li key={x.id} className={cur?.id === x.id ? 'on' : ''}>
               <button type="button" className="ft-item" onClick={() => open(x)} aria-current={cur?.id === x.id ? 'true' : undefined} title="Open these inputs in the triangulator">
                 <span className="ft-item-n">{x.name}</span>
-                <span className="ft-item-m"><span>{fmtD(x.created_at)}</span><span className="num">{x.median_fee ? money(x.median_fee) : '—'}</span></span>
+                <span className="ft-item-m"><span>{fmtD(x.created_at)}</span><span className="num">{savedAvg(x) ? money(savedAvg(x)) : '—'}</span></span>
               </button>
               <RowMenu label={`Actions for ${x.name}`} items={[{ label: 'Open', onSelect: () => open(x) }, { label: 'Rename…', onSelect: () => rename(x) }, 'divider', { label: 'Delete', danger: true, onSelect: () => remove(x) }]} />
             </li>))}
