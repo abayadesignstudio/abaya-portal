@@ -77,3 +77,4 @@
 .ft-split-t tfoot tr.warn td:nth-child(2){color:var(--amber)}
 .ft-split-w{margin:8px 0 0;padding:8px 10px;border-radius:8px;background:#fef6e7;color:#7a4b06;font-size:13px}
 .ft-create{width:100%;margin-top:14px}
+.np-seed{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:10px 12px;border-radius:8px;background:#eef3f8;border-left:3px solid var(--navy);font-size:14px}

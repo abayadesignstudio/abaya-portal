@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import RowMenu from '../components/RowMenu'
-import { useAuth } from '../lib/auth'
-import { newDoc } from '../lib/agreementTemplate'
 import { supabase, money, PHASES } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import './fee-tri.css'
@@ -29,7 +26,10 @@ const vsAvg = (v: number, m: number) => { if (!m || !v) return ''; const d = (v 
 /** A saved fee's average, from the three method fees stored with it. */
 const savedAvg = (x: { hourly_fee: number | null; sf_fee: number | null; pct_fee: number | null }) => mean([x.hourly_fee, x.sf_fee, x.pct_fee].map(Number).filter((v) => v > 0))
 
-export default function FeeTriangulator() {
+/** What the triangulator hands to "New proposal": the fee, the area and the phase split. */
+export type FeeSeed = { name: string; fee: number; sf: number; split: [string, number][] }
+
+export default function FeeTriangulator({ onCreateAgreement }: { onCreateAgreement: (seed: FeeSeed) => void }) {
   const people = useLoad(async () => must(await supabase.from('profiles').select('id, full_name, bill_rate').in('role', ['admin', 'staff']).order('full_name')) as Person[])
   const [s, setS] = useState<State>(load)
   useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(s)) } catch { /* private mode */ } }, [s])
@@ -72,26 +72,14 @@ export default function FeeTriangulator() {
   const splitPct = PHASES.map(([c]) => [c, num(s.split[c] ?? '0')] as const)
   const splitTotal = splitPct.reduce((a, [, v]) => a + v, 0)
   const setSplit = (c: string, v: string) => setS((o) => ({ ...o, split: { ...o.split, [c]: v } }))
-  // Create agreement: the average fee, the phases in the split, and a payment per phase go into a new draft agreement;
-  // the project, owner and the rest are filled in there.
-  const nav = useNavigate()
-  const { profile } = useAuth()
-  const [agBusy, setAgBusy] = useState(false)
+  // Create agreement: hands the average fee, the area and the phase split to the New proposal card below,
+  // where the project is chosen (every agreement belongs to a project); the rest is filled in on the agreement.
   const splitOk = Math.abs(splitTotal - 100) < 0.01
-  const createAgreement = async () => {
+  const createAgreement = () => {
     if (!avg) return setErr('Fill in at least one fee method first.')
     if (!splitOk) return setErr('The phase percentages need to add up to 100% before creating an agreement.')
-    setAgBusy(true); setErr('')
-    const used = splitPct.filter(([, v]) => v > 0)
-    const doc = newDoc(num(s.sf) > 0 ? { projSize: `${num(s.sf).toLocaleString()} SF` } : {})
-    const fee = Math.round(avg)
-    doc.v.fee = String(fee)
-    Object.keys(doc.ph).forEach((c) => { doc.ph[c].on = used.some(([u]) => u === c) })
-    doc.pay = used.map(([c, v], i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${PHASES.find(([x]) => x === c)?.[1] ?? c}`, phase: PHASES.find(([x]) => x === c)?.[1] ?? c, pct: String(v) }))
-    const { data, error } = await supabase.from('agreements').insert({ title: 'Untitled proposal', project_id: null, client_id: null, doc, total_fee: fee, created_by: profile?.id }).select('id').single()
-    setAgBusy(false)
-    if (error) return setErr(error.message)
-    nav('/proposals/' + (data as { id: string }).id)
+    setErr('')
+    onCreateAgreement({ name: name.trim(), fee: Math.round(avg), sf: num(s.sf), split: splitPct.filter(([, v]) => v > 0).map(([c, v]) => [c, v]) })
   }
   const payload = () => ({ name: name.trim(), inputs: s, hourly_fee: hourly || null, sf_fee: bySf || null, pct_fee: byPct || null, median_fee: med || null, updated_at: new Date().toISOString() })
   const saveNew = async () => {
@@ -251,10 +239,10 @@ export default function FeeTriangulator() {
         </table>
         {Math.abs(splitTotal - 100) >= 0.01 && <p className="ft-split-w" role="status">{splitTotal < 100 ? `${(100 - splitTotal).toLocaleString()}% (${money(avg * (100 - splitTotal) / 100)}) isn’t assigned to a phase.` : `Over by ${(splitTotal - 100).toLocaleString()}%. The phases add up to more than the fee.`}</p>}
         <button type="button" className="linkbtn" style={{ marginTop: 8 }} onClick={() => set({ split: DEFAULT_SPLIT })}>Reset to 15 / 20 / 40 / 5 / 20</button>
-        <button type="button" className="btn ft-create" disabled={agBusy || !avg || !splitOk} onClick={createAgreement}
+        <button type="button" className="btn ft-create" disabled={!avg || !splitOk} onClick={createAgreement}
           title={!avg ? 'Fill in at least one fee method first' : !splitOk ? 'Phase percentages must add up to 100%' : 'Start a draft agreement with this fee and phase split'}>
-          {agBusy ? 'Creating…' : 'Create agreement'}</button>
-        <p className="muted" style={{ margin: '6px 0 0', fontSize: 12 }}>Starts a draft with the {avg ? money(Math.round(avg)) : 'average'} fee, these phases and one payment per phase. You add the project and owner there.</p>
+          Create agreement</button>
+        <p className="muted" style={{ margin: '6px 0 0', fontSize: 12 }}>Carries the {avg ? money(Math.round(avg)) : 'average'} fee, these phases and one payment per phase into a new agreement. Pick the project below, then fill in the rest on the agreement.</p>
       </aside>
 
       <aside className="ft-list" aria-labelledby="ft-list-h">

@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { supabase, money, SECTOR_COLOR } from '../lib/supabase'
+import { supabase, money, SECTOR_COLOR, PHASES } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import { newDoc } from '../lib/agreementTemplate'
 import RowMenu, { type RowMenuItem } from '../components/RowMenu'
-import FeeTriangulator from './FeeTriangulator'
+import FeeTriangulator, { type FeeSeed } from './FeeTriangulator'
 
 type Row = { id: string; title: string; status: string; total_fee: number | null; updated_at: string
   clients: { name: string } | null; projects: { number: string; name: string; sector: string | null } | null }
@@ -33,6 +33,9 @@ export default function Proposals() {
     return ym
   }
   const [busy, setBusy] = useState(false)
+  // fee carried over from the triangulator's Create agreement button
+  const [seed, setSeed] = useState<FeeSeed | null>(null)
+  const takeSeed = (x: FeeSeed) => { setSeed(x); setErr(''); setTimeout(() => { document.getElementById('np-h')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); document.getElementById('np-proj')?.focus({ preventScroll: true }) }, 50) }
   const [err, setErr] = useState('')
   const list = useLoad(async () => must(await supabase.from('agreements')
     .select('id, title, status, total_fee, updated_at, clients(name), projects(number, name, sector)').order('updated_at', { ascending: false })) as unknown as Row[])
@@ -62,6 +65,13 @@ export default function Proposals() {
       projName: p.name, projAddr: p.address ?? '', projType: p.category ?? 'S',
       ownerName: p.clients?.name ?? '', ownerPhone: p.clients?.phone ?? '', ownerEmail: p.clients?.billing_email ?? '', ownerAddr: p.clients?.address ?? '',
     } : {}, fees)
+    if (seed) { // the triangulator's fee, phases and one payment per phase replace the project's phase fees
+      doc.v.fee = String(seed.fee)
+      if (seed.sf > 0 && !doc.v.projSize) doc.v.projSize = `${seed.sf.toLocaleString()} SF`
+      Object.keys(doc.ph).forEach((c) => { doc.ph[c].on = seed.split.some(([u]) => u === c) })
+      const nameOf = (c: string) => PHASES.find(([x]) => x === c)?.[1] ?? c
+      doc.pay = seed.split.map(([c, v], i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${nameOf(c)}`, phase: nameOf(c), pct: String(v) }))
+    }
     const { data, error } = await supabase.from('agreements').insert({
       title: `${p.name} — Proposal`, project_id: p.id, client_id: p.client_id ?? null,
       doc, total_fee: +doc.v.fee || 0, created_by: profile?.id,
@@ -124,9 +134,13 @@ export default function Proposals() {
   return (
     <div className="stack">
       <h1>Proposals/Agreements</h1>
-      <FeeTriangulator />
+      <FeeTriangulator onCreateAgreement={takeSeed} />
       <section className="card pad stack" aria-labelledby="np-h">
         <h2 id="np-h">New proposal</h2>
+        {seed && <div className="np-seed" role="status">
+          <span>Using the fee triangulator{seed.name ? <> (<strong>{seed.name}</strong>)</> : ''}: <strong className="num">{money(seed.fee)}</strong> across {seed.split.map(([c, v]) => `${c} ${v}%`).join(' · ')}. Choose the project, then Create proposal.</span>
+          <button type="button" className="linkbtn" onClick={() => setSeed(null)}>Don’t use</button>
+        </div>}
         <div className="row" style={{ alignItems: 'flex-end' }}>
           <div style={{ minWidth: 320, flex: 1, maxWidth: 520 }}>
             <label className="l" htmlFor="np-proj">Project</label>
