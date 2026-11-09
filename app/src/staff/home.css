@@ -189,3 +189,12 @@
 .tk-faces > * + *{margin-left:-6px}
 .tk-faces .tk-more{font-size:10px;font-weight:700;color:var(--muted);margin-left:2px}
 .tk.done .tk-faces{opacity:.55}
+.tk-ico{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin:-1px 0 0;padding:0;border:0;background:none;cursor:pointer;border-radius:50%}
+.tk-ico:disabled{cursor:default}
+.tk-ico:focus-visible{outline:2px solid var(--navy);outline-offset:1px}
+.tk-ico-static{cursor:inherit;margin-right:4px;vertical-align:-4px}
+.tk-mark{display:inline-flex;align-items:center;justify-content:center;line-height:0}
+.tk-mark svg{display:block}
+.tk-pm .tk-open{text-decoration:none;color:inherit}
+.tk-pm.late{border-color:#f3b8b2}
+.tk.done .tk-pm .tk-title,.tk-pm.done .tk-title{text-decoration:line-through;color:#8a8f98;font-weight:400}

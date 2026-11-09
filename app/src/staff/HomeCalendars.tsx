@@ -4,6 +4,7 @@ import { supabase, SECTOR_COLOR, money } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import { isoDate, parseDate } from './workload'
 import Avatar from '../components/Avatar'
+import MarkIcon, { type MarkKind } from '../components/MarkIcon'
 
 // Tasks and shared schedules on the home page.
 //  - Tasks: one person each; checking one off crosses it out (it stays on the calendar, like Google Calendar).
@@ -100,7 +101,8 @@ export function TaskItem({ t, me, admin, people, showWho, prefixName, onChange, 
   return (
     <li className={'tk' + (done ? ' done' : '')} style={{ borderLeftColor: t.projects ? sectorColor(t.projects.sector) : '#9aa4b2' }}>
       <div className="tk-main">
-        <input type="checkbox" checked={done} disabled={!mine} onChange={() => { if (!busy) toggle() }} aria-label={`${done ? 'Mark not done' : 'Mark done'}: ${t.title}`} />
+        <button type="button" className="tk-ico" role="checkbox" aria-checked={done} disabled={!mine} onClick={(ev) => { ev.stopPropagation(); if (!busy) toggle() }} aria-label={`${done ? 'Mark not done' : 'Mark done'}: ${t.title}`} title={done ? 'Done — click to undo' : 'Mark done'}>
+          <Mark kind="task" done={done} color={t.projects ? sectorColor(t.projects.sector) : undefined} /></button>
         {(() => {
           const body = <>
             <ProjTag p={t.projects} />
@@ -136,7 +138,8 @@ export function EventItem({ e, me, admin, people, onChange }: { e: Ev; me: strin
   return (
     <li className="tk" style={{ borderLeftColor: e.projects ? sectorColor(e.projects.sector) : '#9aa4b2' }}>
       <label className="tk-main">
-        <input type="checkbox" checked={checked} disabled={!mine} onChange={() => { if (!busy && !checked) complete() }} aria-label={`Mark done: ${e.title}`} />
+        <button type="button" className="tk-ico" role="checkbox" aria-checked={checked} disabled={!mine} onClick={(ev) => { ev.preventDefault(); if (!busy && !checked) complete() }} aria-label={`Mark done: ${e.title}`} title="Mark done">
+          <Mark kind="event" done={checked} color={e.projects ? sectorColor(e.projects.sector) : undefined} /></button>
         <span className="tk-text">
           <ProjTag p={e.projects} />
           {e.start_time && <span className="num tk-time">{time12(e.start_time)} </span>}
@@ -147,6 +150,44 @@ export function EventItem({ e, me, admin, people, onChange }: { e: Ev; me: strin
   )
 }
 
+
+/** A timeline icon sized for calendar lines, coloured by the item's project. */
+function Mark({ kind, done, color }: { kind: MarkKind; done: boolean; color?: string }) {
+  const c = color ?? '#02253d'
+  return <span className="tk-mark" style={{ ['--mc' as string]: `color-mix(in srgb, ${c} 85%, #000)`, ['--pin' as string]: done ? c : `color-mix(in srgb, ${c} 70%, #fff)` }}><MarkIcon kind={kind} done={done} size={16} /></span>
+}
+
+/** A milestone or deliverable from the Projects timeline. Its icon marks it reached/delivered; the title opens the project. */
+export type ProjMark = { id: string; kind: 'milestone' | 'deliverable'; title: string; date: string; done: boolean; project_id: string; assignee: string | null
+  projects: { number: string; name: string; sector: string | null } | null }
+function ProjMarkItem({ m, people, onChange }: { m: ProjMark; people: Person[]; onChange: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [flip, setFlip] = useState<boolean | null>(null)
+  const done = flip ?? m.done
+  const late = !done && m.date < isoDate(new Date())
+  const toggle = async () => {
+    const next = !done; setFlip(next); setBusy(true)
+    const r = m.kind === 'milestone'
+      ? await supabase.from('milestones').update({ done: next }).eq('id', m.id)
+      : await supabase.from('deliverables').update({ status: next ? 'done' : 'todo' }).eq('id', m.id)
+    setBusy(false)
+    if (r.error) { setFlip(null); return }
+    onChange()
+  }
+  const word = m.kind === 'milestone' ? (done ? 'reached' : 'not reached') : (done ? 'delivered' : 'not delivered')
+  return (
+    <li className={'tk tk-pm' + (done ? ' done' : '') + (late ? ' late' : '')} style={{ borderLeftColor: m.projects ? sectorColor(m.projects.sector) : '#9aa4b2' }}>
+      <div className="tk-main">
+        <button type="button" className="tk-ico" role="checkbox" aria-checked={done} disabled={busy} onClick={(ev) => { ev.stopPropagation(); toggle() }}
+          aria-label={`${m.kind === 'milestone' ? 'Milestone' : 'Deliverable'} ${m.title}: ${word}. Click to change.`} title={m.kind === 'milestone' ? (done ? 'Reached — click to undo' : 'Mark reached') : (done ? 'Delivered — click to undo' : 'Mark delivered')}>
+          <Mark kind={m.kind} done={done} color={late ? '#d92d20' : m.projects ? sectorColor(m.projects.sector) : undefined} /></button>
+        <a className="tk-text tk-open" href={`#/projects/${m.project_id}`} title={`${m.kind === 'milestone' ? 'Milestone' : 'Deliverable'} — open the project`}>
+          <ProjTag p={m.projects} />
+          {m.assignee && <Faces ids={[m.assignee]} people={people} />}<span className="tk-title">{m.title}</span>
+        </a>
+      </div>
+    </li>)
+}
 
 const tz = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago'
 /** The assignee's (or attendees') round profile pictures at the start of a calendar line; names stay readable to screen readers. */
@@ -180,6 +221,7 @@ async function fnError(error: unknown, fallback: string) {
 /** A Google Calendar meeting on the month grid. Click it for details (like Google Calendar). */
 function GEventItem({ e, people, project, onOpen }: { e: GM; people: Person[]; me: string; project?: Proj; onOpen: (e: GM, el: HTMLElement) => void }) {
   const body = <>
+    <span className="tk-ico tk-ico-static"><Mark kind="event" done={false} color={project ? sectorColor(project.sector) : undefined} /></span>
     <ProjTag p={project} />
     {!e.all_day && <span className="num tk-time">{time12(hhmm(e.start))} </span>}
     <Faces ids={e.people} people={people} /><span className="tk-title">{e.title}</span>
@@ -474,6 +516,26 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   // bills due (admins only; bills include salaries)
   const bills = useLoad(async () => admin ? must(await supabase.from('company_bills').select('id, name, amount, due_on, paid_on').gte('due_on', from).lte('due_on', to)) as BillRow[] : [], [admin, from, to])
   const [showBills, setShowBills] = useState(true)
+  // milestones and deliverables from the Projects timeline; a person sees deliverables assigned to them and milestones on their projects
+  const marks = useLoad(async () => {
+    const [ms, dl, mem] = await Promise.all([
+      supabase.from('milestones').select('id, title, date, done, project_id, projects(number, name, sector)').gte('date', from).lte('date', to),
+      supabase.from('deliverables').select('id, title, due_date, status, assignee, project_id, projects(number, name, sector)').gte('due_date', from).lte('due_date', to),
+      supabase.from('project_members').select('project_id, profile_id'),
+    ])
+    type MsRow = { id: string; title: string; date: string; done: boolean; project_id: string; projects: ProjMark['projects'] }
+    type DlRow = { id: string; title: string; due_date: string; status: string; assignee: string | null; project_id: string; projects: ProjMark['projects'] }
+    const list: ProjMark[] = [
+      ...((ms.data ?? []) as unknown as MsRow[]).map((r) => ({ id: r.id, kind: 'milestone' as const, title: r.title, date: r.date, done: r.done, project_id: r.project_id, assignee: null, projects: r.projects })),
+      ...((dl.data ?? []) as unknown as DlRow[]).map((r) => ({ id: r.id, kind: 'deliverable' as const, title: r.title, date: r.due_date, done: r.status === 'done', project_id: r.project_id, assignee: r.assignee, projects: r.projects })),
+    ]
+    return { list, members: (mem.data ?? []) as { project_id: string; profile_id: string }[] }
+  }, [from, to])
+  /** Is this milestone/deliverable on the calendar being shown? Everyone: all. A person: their deliverables, and milestones on projects they're on. */
+  const markFor = (m: ProjMark) => who === 'all' || (m.kind === 'deliverable'
+    ? m.assignee === who || (!m.assignee && (marks.data?.members ?? []).some((x) => x.project_id === m.project_id && x.profile_id === who))
+    : (marks.data?.members ?? []).some((x) => x.project_id === m.project_id && x.profile_id === who))
+  const marksOn = (k: string) => (marks.data?.list ?? []).filter((m) => m.date === k && markFor(m)).sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'milestone' ? -1 : 1))
   // Google Calendar meetings for everyone who connected Google
   const feed = useLoad(async () => {
     const { data, error } = await supabase.functions.invoke('calendar-feed', { body: { from, to } })
@@ -492,7 +554,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
     for (const l of m.values()) l.sort((a, b) => (a.all_day === b.all_day ? a.start.localeCompare(b.start) : a.all_day ? -1 : 1))
     return m
   }, [feed.data, me])
-  useCalendarChanges((kind) => { if (kind === 'tasks') { tasks.reload(); evs.reload() } else { feed.reload(); links.reload() } })
+  useCalendarChanges((kind) => { if (kind === 'tasks') { tasks.reload(); evs.reload(); marks.reload() } else { feed.reload(); links.reload() } })
   const reload = () => calendarChanged('tasks')
   const today = isoDate(new Date())
   const shift = (n: number) => setCursor(view === 'month' ? new Date(month.getFullYear(), month.getMonth() + n, 1) : addDays(day0, n * (view === 'week' ? 7 * weeks : view === 'day' ? 1 : SCHEDULE_DAYS)))
@@ -514,6 +576,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
     const t = (tasks.data ?? []).filter((x) => x.due_on === k && show(x.assignee)).sort((a, b) => rank(a.assignee) - rank(b.assignee))
     return {
       bills: showBills ? (bills.data ?? []).filter((b) => b.due_on === k) : [],
+      marks: marksOn(k),
       evs: (evs.data ?? []).filter((e) => e.starts_on <= k && e.ends_on >= k && show(e.profile_id)),
       gAll: g.filter((e) => e.all_day), gTimed: g.filter((e) => !e.all_day),
       tAll: t.filter((x) => !x.due_time), tTimed: t.filter((x) => x.due_time),
@@ -524,6 +587,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   /** the untimed things on a day (all = also the timed ones, in time order, for the schedule list) */
   const renderAllDay = (k: string, all?: boolean) => { const x = itemsFor(k); return <ul className="tk-list">
     {x.bills.map((b) => <BillItem key={b.id} b={b} onChange={bills.reload} />)}
+    {x.marks.map((m) => <ProjMarkItem key={m.kind + m.id} m={m} people={people} onChange={marks.reload} />)}
     {x.gAll.map(gItem)}
     {x.evs.map((e) => <EventItem key={e.id} e={e} me={me} admin={admin} people={people} onChange={reload} />)}
     {all ? [...x.gTimed.map((e) => ({ at: hhmm(e.start), el: gItem(e) })), ...x.tTimed.map((t) => ({ at: t.due_time!.slice(0, 5), el: tItem(t) }))].sort((a, b) => a.at.localeCompare(b.at)).map((y) => y.el) : null}
@@ -581,6 +645,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
               </div>
               <ul className="tk-list">
                 {showBills && (bills.data ?? []).filter((b) => b.due_on === k).map((b) => <BillItem key={b.id} b={b} onChange={bills.reload} />)}
+                {marksOn(k).map((m) => <ProjMarkItem key={m.kind + m.id} m={m} people={people} onChange={marks.reload} />)}
                 {(gByDay.get(k) ?? []).filter((e) => who === 'all' || e.people.includes(who)).map((e) => <GEventItem key={e.key} e={e} me={me} people={people} project={projOf(e)} onOpen={(x, el) => pop({ kind: 'event', ev: x }, el)} />)}
                 {dayEvs.map((e) => <EventItem key={e.id} e={e} me={me} admin={admin} people={people} onChange={reload} />)}
                 {dayTasks.map((t) => <TaskItem key={t.id} t={t} me={me} admin={admin} people={people} prefixName onChange={reload} onEdit={(x, el) => pop({ kind: 'task', task: x }, el)} />)}
@@ -605,7 +670,7 @@ type View = 'schedule' | 'day' | 'week' | 'month'
 const VIEWS: [View, string][] = [['schedule', 'Schedule'], ['day', 'Day'], ['week', 'Week'], ['month', 'Month']]
 const SCHEDULE_DAYS = 30
 const HOUR = 48 // px per hour in the day / week timeline
-type DayItems = { bills: BillRow[]; evs: Ev[]; gAll: GM[]; gTimed: GM[]; tAll: Task[]; tTimed: Task[] }
+type DayItems = { bills: BillRow[]; marks: ProjMark[]; evs: Ev[]; gAll: GM[]; gTimed: GM[]; tAll: Task[]; tTimed: Task[] }
 type Timed = { key: string; a: number; b: number; el: React.ReactNode } // minutes from midnight
 
 /** Day and week views: an all-day strip on top, then an hourly timeline (opens scrolled to 7am), like Google Calendar. */
@@ -616,7 +681,7 @@ function TimeGrid({ days, today, items, renderAllDay, renderTimed, onEmpty }: { 
   const [now, setNow] = useState(() => new Date())
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(t) }, [])
   const cols = `56px repeat(${days.length}, minmax(${days.length > 1 ? 84 : 200}px, 1fr))`
-  const anyAllDay = days.some((d) => { const x = items(isoDate(d)); return x.bills.length + x.evs.length + x.gAll.length + x.tAll.length > 0 })
+  const anyAllDay = days.some((d) => { const x = items(isoDate(d)); return x.bills.length + x.marks.length + x.evs.length + x.gAll.length + x.tAll.length > 0 })
   return (
     <div className="cv-wrap" style={{ overflowX: 'auto' }}><div style={{ minWidth: days.length > 1 ? 650 : 0 }}>
       <div className="cv-head" style={{ gridTemplateColumns: cols }}>
@@ -660,7 +725,7 @@ function TimeGrid({ days, today, items, renderAllDay, renderTimed, onEmpty }: { 
 
 /** Schedule view: the next 30 days as a list, only days that have something on them. */
 function ScheduleList({ days, today, items, renderAll, onAdd }: { days: Date[]; today: string; items: (k: string) => DayItems; renderAll: (k: string) => React.ReactNode; onAdd: (k: string, el: HTMLElement) => void }) {
-  const busy = days.filter((d) => { const x = items(isoDate(d)); return x.bills.length + x.evs.length + x.gAll.length + x.gTimed.length + x.tAll.length + x.tTimed.length > 0 })
+  const busy = days.filter((d) => { const x = items(isoDate(d)); return x.bills.length + x.marks.length + x.evs.length + x.gAll.length + x.gTimed.length + x.tAll.length + x.tTimed.length > 0 })
   if (!busy.length) return <p className="muted" style={{ margin: 0 }}><em>Nothing scheduled from {days[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to {days[days.length - 1].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.</em></p>
   return <ol className="cv-sched">{busy.map((d) => { const k = isoDate(d); return (
     <li key={k} className={k === today ? 'today' : ''}>
