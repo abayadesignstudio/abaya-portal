@@ -151,6 +151,7 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .stimer-pill.sel{background:#9a8f63;color:#02253d}
 .stimer-pill.sel .stimer-pbtn{background:rgba(2,37,61,.16);color:#02253d}
 .stimer-pill.sel .stimer-pbtn:hover:not(:disabled){background:rgba(2,37,61,.28)}
+.stimer-pill.sel .stimer-x{width:22px;height:22px;background:transparent;margin-left:-2px}
 .stimer-pill.sel .stimer-clock{color:#02253d;cursor:default}
 .stimer-pill.sel .stimer-paused{color:#02253d;text-transform:none;letter-spacing:0;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* settings gear beside your name at the bottom of the sidebar */

@@ -155,12 +155,16 @@ export default function SidebarTimer({ me }: { me: string }) {
   }, [open])
   useEffect(() => { if (!flash) return; const t = setTimeout(() => setFlash(''), 3500); return () => clearTimeout(t) }, [flash])
   const running = !!api.running
+  // when a timer stops (here, on the phone or by Discard), let go of the task: the bar goes back to ▶ Timer +.
+  // A task is only picked up again by clicking it in today's list.
+  const wasRunning = useRef(running)
+  useEffect(() => { if (wasRunning.current && !running) setSelKey(null); wasRunning.current = running }, [running])
   // the circle: start (opens the form) · pause while running · resume while paused
   const circle = async () => {
     if (running) { if (api.paused) await api.resume(); else await api.pause(); return }
     setOpen(open === 'timer' ? null : 'timer')
   }
-  const end = async () => { if (await api.stop()) { setOpen(null); setFlash('Time logged.') } else setOpen('timer') }
+  const end = async () => { if (await api.stop()) { setSelKey(null); setOpen(null); setFlash('Time logged.') } else setOpen('timer') }
   const r = api.running
   const sameAsRunning = (t: TodayTask) => !!r && r.project_id === t.project_id && (r.phase_id ?? null) === t.phase_id && (r.role_label ?? null) === t.role_label && (r.activity ?? null) === t.activity
   const sel = api.today.find((t) => t.key === selKey && !sameAsRunning(t)) ?? null
@@ -184,6 +188,8 @@ export default function SidebarTimer({ me }: { me: string }) {
             <span className="stimer-clock num" title={`${taskName(sel)} so far today`}>{clockOf(sel.minutes * 60000)}<small className="stimer-paused">{taskName(sel)}</small></span>
             <button type="button" className="stimer-pbtn" onClick={() => setOpen(open === 'task' ? null : 'task')} aria-expanded={open === 'task'} aria-label={`Add time or a note to ${taskName(sel)}`} title="Add time or a note">
               <GearIcon size={18} /></button>
+            <button type="button" className="stimer-pbtn stimer-x" onClick={() => { setSelKey(null); if (open === 'task') setOpen(null) }} aria-label={`Release ${taskName(sel)}`} title="Release (start a new timer instead)">
+              <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg></button>
           </div>
         ) : running ? (
           // running: one green pill (amber while paused): pause / resume on the left, the time in the middle, stop on the right
