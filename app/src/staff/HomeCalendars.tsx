@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { supabase, SECTOR_COLOR, money } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import { isoDate, parseDate } from './workload'
+import Avatar from '../components/Avatar'
 
 // Tasks and shared schedules on the home page.
 //  - Tasks: one person each; checking one off crosses it out (it stays on the calendar, like Google Calendar).
@@ -13,7 +14,7 @@ import { isoDate, parseDate } from './workload'
 // Every change is passed to the task-sync function, which mirrors it into the assignee's Google Tasks when they've
 // connected Google (My account). If sync isn't set up, the portal works the same and nothing is lost.
 
-export type Person = { id: string; full_name: string | null; email: string; initials: string | null; role: string }
+export type Person = { id: string; full_name: string | null; email: string; initials: string | null; role: string; avatar_url?: string | null }
 export type Task = { id: string; title: string; notes: string | null; assignee: string; created_by: string | null; due_on: string; due_time: string | null; done_at: string | null
   project_id: string | null; projects: { number: string; name: string; sector: string | null } | null }
 type Ev = { id: string; profile_id: string; project_id?: string | null; title: string; starts_on: string; ends_on: string; start_time: string | null; projects: { number: string; name: string; sector: string | null } | null }
@@ -66,7 +67,7 @@ function useCalendarChanges(on: (kind: Kind) => void) {
 }
 
 export function useStaff() {
-  return useLoad(async () => must(await supabase.from('profiles').select('id, full_name, email, initials, role').in('role', ['admin', 'staff']).order('full_name')) as Person[])
+  return useLoad(async () => must(await supabase.from('profiles').select('id, full_name, email, initials, role, avatar_url').in('role', ['admin', 'staff']).order('full_name')) as Person[])
 }
 export function useTasks(from: string, to: string, assignee?: string) {
   return useLoad(async () => {
@@ -104,7 +105,7 @@ export function TaskItem({ t, me, admin, people, showWho, prefixName, onChange, 
           const body = <>
             <ProjTag p={t.projects} />
             {t.due_time && <span className="num tk-time">{time12(t.due_time)} </span>}
-            <span className="tk-title">{prefixName && <span className="tk-who">{firstName(who)}: </span>}{t.title}</span>
+            {prefixName && <Faces ids={[t.assignee]} people={people} />}<span className="tk-title">{t.title}</span>
             {showWho && <span className="tk-sub">{firstName(who)}</span>}
           </>
           return mine && onEdit
@@ -124,7 +125,6 @@ export function EventItem({ e, me, admin, people, onChange }: { e: Ev; me: strin
   const [busy, setBusy] = useState(false)
   const [checked, setChecked] = useState(false) // flips instantly; the item becomes a done task on reload
   const mine = e.profile_id === me || admin
-  const who = people.find((p) => p.id === e.profile_id)
   const complete = async () => {
     setChecked(true); setBusy(true)
     const { data, error } = await supabase.from('tasks').insert({ title: e.title, assignee: e.profile_id, created_by: me, due_on: e.starts_on, due_time: e.start_time,
@@ -140,7 +140,7 @@ export function EventItem({ e, me, admin, people, onChange }: { e: Ev; me: strin
         <span className="tk-text">
           <ProjTag p={e.projects} />
           {e.start_time && <span className="num tk-time">{time12(e.start_time)} </span>}
-          <span className="tk-title"><span className="tk-who">{firstName(who)}: </span>{e.title}</span>
+          <Faces ids={[e.profile_id]} people={people} /><span className="tk-title">{e.title}</span>
         </span>
       </label>
     </li>
@@ -149,6 +149,18 @@ export function EventItem({ e, me, admin, people, onChange }: { e: Ev; me: strin
 
 
 const tz = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago'
+/** The assignee's (or attendees') round profile pictures at the start of a calendar line; names stay readable to screen readers. */
+function Faces({ ids, people }: { ids: string[]; people: Person[] }) {
+  const list = ids.map((id) => people.find((p) => p.id === id)).filter(Boolean) as Person[]
+  if (!list.length) return null
+  const label = list.map((p) => firstName(p)).join(', ')
+  return (
+    <span className="tk-faces" title={label}>
+      {list.slice(0, 3).map((p) => <Avatar key={p.id} url={p.avatar_url} name={p.full_name || p.email} initials={p.initials} size={18} />)}
+      {list.length > 3 && <span className="tk-more">+{list.length - 3}</span>}
+      <span className="sr">{label}: </span>
+    </span>)
+}
 const names = (ids: string[], people: Person[], _me?: string) => ids.map((id) => firstName(people.find((p) => p.id === id))).join(', ') // "Joshua, Micah" (same as tasks)
 function whenText(e: GEv) {
   const opts: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'long', day: 'numeric' }
@@ -166,11 +178,11 @@ async function fnError(error: unknown, fallback: string) {
 }
 
 /** A Google Calendar meeting on the month grid. Click it for details (like Google Calendar). */
-function GEventItem({ e, people, me, project, onOpen }: { e: GM; people: Person[]; me: string; project?: Proj; onOpen: (e: GM, el: HTMLElement) => void }) {
+function GEventItem({ e, people, project, onOpen }: { e: GM; people: Person[]; me: string; project?: Proj; onOpen: (e: GM, el: HTMLElement) => void }) {
   const body = <>
     <ProjTag p={project} />
     {!e.all_day && <span className="num tk-time">{time12(hhmm(e.start))} </span>}
-    <span className="tk-title"><span className="tk-who">{names(e.people, people, me)}: </span>{e.title}</span>
+    <Faces ids={e.people} people={people} /><span className="tk-title">{e.title}</span>
   </>
   return (
     <li className={'tk tk-g' + (e.all_day ? ' allday' : '')} style={{ borderLeftColor: project ? sectorColor(project.sector) : '#9aa4b2' }}>

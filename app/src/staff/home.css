@@ -184,3 +184,8 @@
 .hm-seg button{border:0;background:#fff;color:var(--navy);font:700 13px Arial,sans-serif;padding:7px 8px;cursor:pointer}
 .hm-seg button + button{border-left:1px solid #b9b4aa}
 .hm-seg button[aria-pressed="true"]{background:var(--navy);color:#fff}
+.tk-faces{display:inline-flex;align-items:center;vertical-align:-4px;margin-right:5px}
+.tk-faces > img,.tk-faces > span[aria-hidden]{border:1.5px solid #fff;box-sizing:content-box}
+.tk-faces > * + *{margin-left:-6px}
+.tk-faces .tk-more{font-size:10px;font-weight:700;color:var(--muted);margin-left:2px}
+.tk.done .tk-faces{opacity:.55}
