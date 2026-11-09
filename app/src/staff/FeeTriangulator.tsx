@@ -9,11 +9,11 @@ import './fee-tri.css'
 
 type Person = { id: string; full_name: string | null; bill_rate: number | null }
 type HourRow = { key: string; profile_id: string; hours: string; rate: string }
-type State = { rows: HourRow[]; sf: string; perSf: string; cost: string; pct: string }
+type State = { rows: HourRow[]; sf: string; perSf: string; costPerSf: string; pct: string }
 
 const KEY = 'abaya.feeTriangulator'
 const newRow = (): HourRow => ({ key: Math.random().toString(36).slice(2), profile_id: '', hours: '', rate: '' })
-const EMPTY: State = { rows: [newRow()], sf: '', perSf: '', cost: '', pct: '' }
+const EMPTY: State = { rows: [newRow()], sf: '', perSf: '', costPerSf: '', pct: '' }
 const load = (): State => { try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); return s && Array.isArray(s.rows) ? { ...EMPTY, ...s } : EMPTY } catch { return EMPTY } }
 const num = (s: string) => { const n = parseFloat(String(s).replace(/[$,%\s]/g, '')); return Number.isFinite(n) ? n : 0 }
 const median = (xs: number[]) => { const a = [...xs].sort((x, y) => x - y); const m = Math.floor(a.length / 2); return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2 }
@@ -33,7 +33,9 @@ export default function FeeTriangulator() {
   const hourly = s.rows.reduce((a, r) => a + num(r.hours) * num(r.rate), 0)
   const hours = s.rows.reduce((a, r) => a + num(r.hours), 0)
   const bySf = num(s.sf) * num(s.perSf)
-  const byPct = num(s.cost) * num(s.pct) / 100
+  // construction cost = area × construction cost per SF (the area is shared with corner 2)
+  const cost = num(s.sf) * num(s.costPerSf)
+  const byPct = cost * num(s.pct) / 100
   const fees = [hourly, bySf, byPct]
   const filled = fees.filter((f) => f > 0)
   const med = filled.length ? median(filled) : 0
@@ -115,13 +117,16 @@ export default function FeeTriangulator() {
         {/* bottom-right corner: percent of construction cost */}
         <fieldset className="ft-corner ft-br">
           <legend><span className="ft-dot" aria-hidden="true">3</span>Percent of construction cost</legend>
-          <div className="ft-pair">
-            <div><label className="l" htmlFor="ft-cost">Construction cost ($)</label>
-              <input id="ft-cost" className="input num" inputMode="decimal" placeholder="0" value={s.cost} onChange={(e) => set({ cost: e.target.value })} /></div>
+          <div className="ft-trio">
+            <div><label className="l" htmlFor="ft-sf3">Area (SF)</label>
+              <input id="ft-sf3" className="input num" inputMode="decimal" placeholder="0" value={s.sf} onChange={(e) => set({ sf: e.target.value })} aria-describedby="ft-sf3-h" /></div>
+            <div><label className="l" htmlFor="ft-cpsf">Cost per SF ($)</label>
+              <input id="ft-cpsf" className="input num" inputMode="decimal" placeholder="0.00" value={s.costPerSf} onChange={(e) => set({ costPerSf: e.target.value })} /></div>
             <div><label className="l" htmlFor="ft-pct">Fee (%)</label>
               <input id="ft-pct" className="input num" inputMode="decimal" placeholder="0.0" value={s.pct} onChange={(e) => set({ pct: e.target.value })} /></div>
           </div>
-          {num(s.sf) > 0 && num(s.cost) > 0 && <p className="muted" style={{ margin: '6px 0 0', fontSize: 13 }}>Construction cost works out to {money(num(s.cost) / num(s.sf))}/SF.</p>}
+          <p id="ft-sf3-h" className="muted" style={{ margin: '6px 0 0', fontSize: 13 }}>
+            {cost > 0 ? <>Construction cost: <span className="num">{num(s.sf).toLocaleString()} SF × {money(num(s.costPerSf))}/SF = <strong>{money(cost)}</strong></span></> : 'Same area as corner 2; changing it here changes it there.'}</p>
           <p className="ft-fee"><span className="num">{byPct ? money(byPct) : '—'}</span><small>{vsMedian(byPct, med)}</small></p>
         </fieldset>
       </div>
