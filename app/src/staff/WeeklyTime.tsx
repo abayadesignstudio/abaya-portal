@@ -12,7 +12,8 @@ type Entry = { profile_id: string; minutes: number }
 const WEEK_HOURS = 40
 const h1 = (n: number) => (Math.round(n * 10) / 10).toLocaleString()
 
-export default function WeeklyTime({ weeklyNeed }: { weeklyNeed: number }) {
+/** bare: render without the card and heading (used inside Home's My hours card). */
+export default function WeeklyTime({ weeklyNeed, bare }: { weeklyNeed: number; bare?: boolean }) {
   const [start, setStart] = useState(() => mondayOf(new Date()))
   const end = useMemo(() => { const d = new Date(start); d.setDate(d.getDate() + 6); return d }, [start])
   const shift = (weeks: number) => { const d = new Date(start); d.setDate(d.getDate() + 7 * weeks); setStart(d) }
@@ -40,11 +41,11 @@ export default function WeeklyTime({ weeklyNeed }: { weeklyNeed: number }) {
   const label = `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
 
   return (
-    <section className="card pad stack wt" aria-labelledby="wt-h">
+    <section className={bare ? 'stack wt' : 'card pad stack wt'} aria-labelledby={bare ? undefined : 'wt-h'} aria-label={bare ? 'Team billable hours this week' : undefined}>
       <div className="row between" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}>
         <div>
-          <h2 id="wt-h" style={{ margin: 0 }}>Time this week</h2>
-          <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>Billable hours against each person’s target ({WEEK_HOURS} h × utilization).</p>
+          {!bare && <h2 id="wt-h" style={{ margin: 0 }}>Time this week</h2>}
+          <p className="muted" style={{ margin: bare ? 0 : '4px 0 0', fontSize: 13 }}>Billable hours against each person’s target ({WEEK_HOURS} h × utilization).</p>
         </div>
         <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
           <button type="button" className="btn small secondary" style={{ minHeight: 30, padding: '0 9px' }} onClick={() => shift(-1)} aria-label="Previous week">‹</button>
@@ -53,14 +54,14 @@ export default function WeeklyTime({ weeklyNeed }: { weeklyNeed: number }) {
       </div>
       <p style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{label}{thisWeek && <span className="muted" style={{ fontWeight: 400 }}> · this week</span>}</p>
 
-      <div className="wt-need">
+      {weeklyNeed > 0 && <div className="wt-need">
         <div className="row between" style={{ fontSize: 14 }}><strong>Billable value</strong><span className="num"><strong>{money(Math.round(value))}</strong> of {money(Math.round(weeklyNeed))}</span></div>
         <div className="bar wt-bar" aria-hidden="true"><span style={{ width: `${weeklyNeed ? Math.min(100, value / weeklyNeed * 100) : 0}%`, background: value >= weeklyNeed * pace ? '#067647' : '#b54708' }} />{thisWeek && pace < 1 && <i style={{ left: `${pace * 100}%` }} />}</div>
         <p className={value >= weeklyNeed * pace ? 'wt-ok' : 'wt-warn'} style={{ margin: '6px 0 0', fontSize: 13 }}>
           {weeklyNeed ? `${Math.round(value / weeklyNeed * 100)}% of the weekly need` : ''}
           {thisWeek && pace < 1 ? (value >= weeklyNeed * pace ? ' — on pace so far.' : ` — ${money(Math.round(weeklyNeed * pace - value))} behind pace.`) : value >= weeklyNeed ? ' — covered.' : ` — ${money(Math.round(weeklyNeed - value))} short.`}</p>
         <p className="muted" style={{ margin: '2px 0 0', fontSize: 12 }}>Billable hours × each person’s billing rate, against this year’s need ÷ 52.</p>
-      </div>
+      </div>}
 
       <ul className="wt-list">
         {rows.map(({ p, billable: b, target: t }) => {

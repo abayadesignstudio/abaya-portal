@@ -12,6 +12,35 @@ const EMPLOYER_PAYROLL_TAX = 7.65 // % — employer Social Security (6.2%) + Med
 const HOURS_PER_YEAR = 2080 // 40 h × 52 weeks
 const KEY = 'abaya.bills.yearly'
 
+type Opt = { tax: boolean; margin: string }
+const readOpt = (): Opt => { try { return { tax: false, margin: '0', ...JSON.parse(localStorage.getItem(KEY) || '{}') } } catch { return { tax: false, margin: '0' } } }
+/** Bills by category for the year: recurring bills in a month × 12 + one-off bills in the year. */
+function annualize(monthBills: Bill[], oneOff: Bill[]) {
+  const byCat: Record<string, number> = {}
+  monthBills.filter((b) => b.recurring_monthly).forEach((b) => { byCat[b.category] = (byCat[b.category] ?? 0) + Number(b.amount) * 12 })
+  oneOff.forEach((b) => { byCat[b.category] = (byCat[b.category] ?? 0) + Number(b.amount) })
+  return byCat
+}
+/** Revenue needed for the year from annualized bills, with the payroll-tax and margin options set on the Bills page. */
+function needOf(byCat: Record<string, number>, opt: Opt) {
+  const bills = Object.values(byCat).reduce((a, b) => a + b, 0)
+  const payrollTax = opt.tax ? (byCat['Salaries'] ?? 0) * EMPLOYER_PAYROLL_TAX / 100 : 0
+  const costs = bills + payrollTax
+  const marginPct = Math.min(90, Math.max(0, Number(opt.margin) || 0))
+  return { bills, payrollTax, costs, marginPct, need: marginPct ? costs / (1 - marginPct / 100) : costs }
+}
+/** This year's revenue need, for pages other than Bills (uses this month's bills). */
+export function useYearlyNeed() {
+  const d = new Date(); const y = d.getFullYear(); const m = `${y}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+  const next = new Date(y, d.getMonth() + 1, 1); const n = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01`
+  const data = useLoad(async () => {
+    const month = must(await supabase.from('company_bills').select('category, amount, recurring_monthly').eq('recurring_monthly', true).gte('due_on', m).lt('due_on', n)) as Bill[]
+    const oneOff = must(await supabase.from('company_bills').select('category, amount, recurring_monthly').eq('recurring_monthly', false).gte('due_on', `${y}-01-01`).lt('due_on', `${y + 1}-01-01`)) as Bill[]
+    return needOf(annualize(month, oneOff), readOpt()).need
+  }, [m])
+  return data.data ?? 0
+}
+
 export default function YearlyNeed({ month, monthBills, order, colors }: { month: string; monthBills: Bill[]; order: string[]; colors: Record<string, string> }) {
   const year = Number(month.slice(0, 4))
   const data = useLoad(async () => {
@@ -21,19 +50,13 @@ export default function YearlyNeed({ month, monthBills, order, colors }: { month
     const people = must(await supabase.from('profiles').select('util_target, bill_rate').in('role', ['admin', 'staff'])) as { util_target: number | null; bill_rate: number | null }[]
     return { oneOff, collected: paid.reduce((a, x) => a + Number(x.amount_paid || 0), 0), people }
   }, [year])
-  const [opt, setOpt] = useState<{ tax: boolean; margin: string }>(() => { try { return { tax: false, margin: '0', ...JSON.parse(localStorage.getItem(KEY) || '{}') } } catch { return { tax: false, margin: '0' } } })
+  const [opt, setOpt] = useState<Opt>(readOpt)
   useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(opt)) } catch { /* private mode */ } }, [opt])
 
   // annualize: recurring bills in this month × 12, one-off bills dated this year once
-  const byCat: Record<string, number> = {}
-  monthBills.filter((b) => b.recurring_monthly).forEach((b) => { byCat[b.category] = (byCat[b.category] ?? 0) + Number(b.amount) * 12 })
-  ;(data.data?.oneOff ?? []).forEach((b) => { byCat[b.category] = (byCat[b.category] ?? 0) + Number(b.amount) })
+  const byCat = annualize(monthBills, data.data?.oneOff ?? [])
   const cats = Object.keys(byCat).sort((a, b) => { const ia = order.indexOf(a), ib = order.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) })
-  const bills = Object.values(byCat).reduce((a, b) => a + b, 0)
-  const payrollTax = opt.tax ? (byCat['Salaries'] ?? 0) * EMPLOYER_PAYROLL_TAX / 100 : 0
-  const costs = bills + payrollTax
-  const marginPct = Math.min(90, Math.max(0, Number(opt.margin) || 0))
-  const need = marginPct ? costs / (1 - marginPct / 100) : costs
+  const { payrollTax, costs, marginPct, need } = needOf(byCat, opt)
   const profit = need - costs
 
   // pace: how much of the year has gone by (only for the current year)

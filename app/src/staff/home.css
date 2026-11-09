@@ -180,3 +180,7 @@
 .cv-seg{overflow:visible}
 .cv-seg>button:first-child{border-radius:7px 0 0 7px}
 .cv-seg>button:last-child{border-radius:0 7px 7px 0}
+.hm-seg{display:grid;grid-template-columns:1fr 1fr;border:1px solid #b9b4aa;border-radius:8px;overflow:hidden}
+.hm-seg button{border:0;background:#fff;color:var(--navy);font:700 13px Arial,sans-serif;padding:7px 8px;cursor:pointer}
+.hm-seg button + button{border-left:1px solid #b9b4aa}
+.hm-seg button[aria-pressed="true"]{background:var(--navy);color:#fff}
