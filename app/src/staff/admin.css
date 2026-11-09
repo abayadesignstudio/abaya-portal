@@ -36,7 +36,7 @@
 /* Bills page: bills on the left, yearly need on the right */
 .bills-page{display:grid;grid-template-columns:minmax(0,1100px) minmax(300px,380px);gap:24px;align-items:start}
 .bills-main{min-width:0}
-.yn{position:sticky;top:16px}
+.bills-side{min-width:0}
 .yn-big{display:flex;align-items:baseline;gap:8px}
 .yn-big strong{font-size:34px;color:var(--navy);line-height:1.1}
 .yn-split{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -55,4 +55,12 @@
 .yn-pace .bar > i{position:absolute;top:-4px;width:2px;height:16px;background:var(--navy);transform:translateX(-1px)}
 .yn-ok{color:#067647;font-weight:700}
 .yn-warn{color:#b54708;font-weight:700}
-@media (max-width:1400px){.bills-page{grid-template-columns:minmax(0,1fr)}.yn{position:static}}
+@media (max-width:1400px){.bills-page{grid-template-columns:minmax(0,1fr)}}
+.wt-need{background:#f6f5f2;border-radius:8px;padding:10px 12px}
+.wt-bar{position:relative;margin-top:6px;overflow:visible}
+.wt-bar > span{border-radius:999px}
+.wt-bar > i{position:absolute;top:-3px;width:2px;height:14px;background:var(--navy);opacity:.55;transform:translateX(-1px)}
+.wt-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.wt-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wt-ok{color:#067647;font-weight:700}
+.wt-warn{color:#b54708;font-weight:700}

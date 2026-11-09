@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase, money } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import type { Bill } from './Bills'
+import WeeklyTime from './WeeklyTime'
 
 /** Bills page, right side: what the firm has to bring in for the year to cover its bills and salaries.
  *  Monthly (recurring) bills in the month on screen × 12, plus one-off bills dated in that year,
@@ -48,6 +49,7 @@ export default function YearlyNeed({ month, monthBills, order, colors }: { month
   const capacity = (data.data?.people ?? []).reduce((a, p) => a + HOURS_PER_YEAR * (Number(p.util_target) || 0) / 100 * (Number(p.bill_rate) || 0), 0)
 
   return (
+    <div className="stack bills-side">
     <aside className="card pad stack yn" aria-labelledby="yn-h">
       <div>
         <h2 id="yn-h" style={{ margin: 0 }}>What we need in {year}</h2>
@@ -94,5 +96,7 @@ export default function YearlyNeed({ month, monthBills, order, colors }: { month
         <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}>{Math.round(billHours).toLocaleString()} billable hours a year at everyone’s utilization target. At your billing rates those hours are worth {money(Math.round(capacity))}{capacity ? ` — ${(capacity / need).toFixed(1)}× what you need.` : '.'}</p>
       </div>}
     </aside>
+    <WeeklyTime weeklyNeed={need / 52} />
+    </div>
   )
 }
