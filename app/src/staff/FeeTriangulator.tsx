@@ -5,7 +5,7 @@ import { useLoad, must } from '../lib/useQuery'
 import './fee-tri.css'
 
 /** Proposal fee triangulator: three independent ways to price a job, one per corner of a triangle,
- *  with the average (mean) of the fees that have been filled in shown in the middle, and the median beneath it.
+ *  with the average (mean) of the fees that have been filled in shown in the middle.
  *  Inputs are kept on this device so they're still there when you come back. */
 
 type Person = { id: string; full_name: string | null; bill_rate: number | null }
@@ -164,7 +164,7 @@ export default function FeeTriangulator() {
           <div className="ft-center" aria-live="polite">
             <span className="ft-center-l">Average fee</span>
             <strong className="num">{avg ? money(avg) : '—'}</strong>
-            {filled.length > 1 && <span className="ft-center-s num">Median {money(med)}<br />Range {money(lo)} – {money(hi)} · {spread.toFixed(0)}% spread</span>}
+            {filled.length > 1 && <span className="ft-center-s num">Range {money(lo)} – {money(hi)}<br />{spread.toFixed(0)}% spread</span>}
             {filled.length === 1 && <span className="ft-center-s">Only one method filled in</span>}
           </div>
         </div>
