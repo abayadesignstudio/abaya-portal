@@ -221,7 +221,6 @@ async function fnError(error: unknown, fallback: string) {
 /** A Google Calendar meeting on the month grid. Click it for details (like Google Calendar). */
 function GEventItem({ e, people, project, onOpen }: { e: GM; people: Person[]; me: string; project?: Proj; onOpen: (e: GM, el: HTMLElement) => void }) {
   const body = <>
-    <span className="tk-ico tk-ico-static"><Mark kind="event" done={false} color={project ? sectorColor(project.sector) : undefined} /></span>
     <ProjTag p={project} />
     {!e.all_day && <span className="num tk-time">{time12(hhmm(e.start))} </span>}
     <Faces ids={e.people} people={people} /><span className="tk-title">{e.title}</span>
@@ -229,7 +228,7 @@ function GEventItem({ e, people, project, onOpen }: { e: GM; people: Person[]; m
   return (
     <li className={'tk tk-g' + (e.all_day ? ' allday' : '')} style={{ borderLeftColor: project ? sectorColor(project.sector) : '#9aa4b2' }}>
       <div className="tk-main">
-        <span className="tk-gicon" aria-hidden="true">◷</span>
+        <span className="tk-ico tk-ico-static" aria-hidden="true"><Mark kind="event" done={false} color={project ? sectorColor(project.sector) : undefined} /></span>
         <button type="button" className="tk-text tk-open" title={[e.title, e.location].filter(Boolean).join('\n')} onClick={(ev) => { ev.stopPropagation(); onOpen(e, ev.currentTarget) }}>{body}</button>
       </div>
     </li>
