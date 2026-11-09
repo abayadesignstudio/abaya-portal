@@ -6,6 +6,7 @@ import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import { ACTIVITIES, OVERHEAD, loadProjects, iso, mondayOf, hrs, TIME_CHANGED, announceTimeChange, type Proj } from '../lib/time'
 import Combobox, { sectorColor, type ComboOption } from '../components/Combobox'
+import { useDefaultRole } from '../components/RolePicker'
 
 const PHONE = '(max-width: 900px)'
 function useIsPhone() {
@@ -17,7 +18,7 @@ function useIsPhone() {
 const legacyOf = (es: { project_id: string; phase_id: string | null; legacy_phase?: string | null }[], r: { project_id: string; phase_id: string | null }) =>
   es.find((e) => e.project_id === r.project_id && !r.phase_id && !e.phase_id && e.legacy_phase)?.legacy_phase ?? 'No phase'
 type Entry = { id: string; work_date: string; minutes: number; note: string | null; activity: string | null; role_label: string | null; project_id: string; phase_id: string | null; legacy_phase?: string | null }
-type RowDef = { id?: string; project_id: string; phase_id: string | null; role_label: string | null; activity: string | null }
+type RowDef = { id?: string; project_id: string; phase_id: string | null; role_label: string | null; activity: string | null; bill_rate?: number | null }
 const keyOf = (r: { project_id: string; phase_id: string | null; activity: string | null }) => `${r.project_id}|${r.phase_id ?? ''}|${r.activity ?? ''}`
 
 export default function Time() {
@@ -27,6 +28,7 @@ export default function Time() {
   const [me, setMe] = useState(profile!.id)
   const self = me === profile!.id
   const people = useLoad(async () => admin ? must(await supabase.from('profiles').select('id, full_name, email').in('role', ['admin', 'staff']).order('full_name')) as { id: string; full_name: string | null; email: string }[] : [], [admin])
+  const defaultRole = useDefaultRole(me)
   const whoName = (people.data ?? []).find((p) => p.id === me)?.full_name ?? 'this person'
   const [week, setWeek] = useState(() => mondayOf(new Date()))
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => { const d = new Date(week); d.setDate(d.getDate() + i); return d }), [week])
@@ -34,7 +36,7 @@ export default function Time() {
   const data = useLoad(async () => {
     const entries = must(await supabase.from('time_entries').select('id, work_date, minutes, note, activity, role_label, project_id, phase_id, legacy_phase')
       .eq('profile_id', me).gte('work_date', iso(days[0])).lte('work_date', iso(days[6])).order('created_at')) as Entry[]
-    const rows = must(await supabase.from('timesheet_rows').select('id, project_id, phase_id, role_label, activity').eq('profile_id', me).order('created_at')) as RowDef[]
+    const rows = must(await supabase.from('timesheet_rows').select('id, project_id, phase_id, role_label, activity, bill_rate').eq('profile_id', me).order('created_at')) as RowDef[]
     const phaseIds = Array.from(new Set([...rows, ...entries].map((r) => r.phase_id).filter(Boolean))) as string[]
     const totals = phaseIds.length ? must(await supabase.from('time_entries').select('phase_id, minutes').eq('profile_id', me).in('phase_id', phaseIds)) as { phase_id: string; minutes: number }[] : []
     return { entries, rows, totals }
@@ -80,7 +82,7 @@ export default function Time() {
     setErr('')
     if (existing.length) { const { error } = await supabase.from('time_entries').delete().in('id', existing.map((e) => e.id)); if (error) return setErr(error.message) }
     if (minutes > 0) {
-      const { error } = await supabase.from('time_entries').insert({ profile_id: me, project_id: r.project_id, phase_id: r.phase_id, role_label: r.role_label, activity: r.activity,
+      const { error } = await supabase.from('time_entries').insert({ profile_id: me, project_id: r.project_id, phase_id: r.phase_id, role_label: r.role_label, activity: r.activity, bill_rate: r.bill_rate ?? null,
         work_date: iso(d), minutes, note: existing.map((e) => e.note).filter(Boolean).join(' / ') || pendingNote[keyOf(r) + '@' + iso(d)]?.trim() || null })
       if (error) return setErr(error.message)
     }
@@ -151,7 +153,7 @@ export default function Time() {
       <div className="row between">
         <div className="row" style={phone ? { width: '100%' } : undefined}>
           <Combobox id="ts-add" label="Add project and phase" placeholder="Search for project and add phase" style={{ width: phone ? '100%' : 380 }} clearOnSelect value=""
-            options={phaseOptions} onChange={(x) => { const [project_id, phase_id] = x.split('|'); if (project_id) addRow({ project_id, phase_id: phase_id || null, role_label: null, activity: null }) }} />
+            options={phaseOptions} onChange={(x) => { const [project_id, phase_id] = x.split('|'); if (project_id) addRow({ project_id, phase_id: phase_id || null, role_label: defaultRole(project_id) || null, activity: null }) }} />
           <label className="sr" htmlFor="ts-oh">Add overhead</label>
           <select id="ts-oh" className="input" style={{ width: phone ? '100%' : 200 }} value="" onChange={(e) => { if (e.target.value && overhead) addRow({ project_id: overhead.id, phase_id: null, role_label: null, activity: e.target.value }) }}>
             <option value="">Add overhead</option>{OVERHEAD.map((o) => <option key={o}>{o}</option>)}</select>
@@ -235,7 +237,7 @@ export default function Time() {
                   <div key={keyOf(r)} className="ts-row ts-line">
                     <div className="cell ts-l ts-what">
                       {isOH ? <strong>Overhead</strong> : <div style={{ minWidth: 0 }}>
-                        <div>{code ? `${code} · ` : ''}{r.role_label ?? 'Role not set'}</div>
+                        <div>{code ? `${code} · ` : ''}{r.role_label ?? 'Role not set'}{r.bill_rate != null && <span className="muted"> · ${Number(r.bill_rate)}/hr</span>}</div>
                         <strong>{code ? PHASE_NAME[code] : legacyOf(data.data?.entries ?? [], r)}</strong></div>}
                       {r.phase_id && <span title="Hours on this phase, all time" className="num ts-circle">{hrs(phaseTotal(r.phase_id))}</span>}
                     </div>

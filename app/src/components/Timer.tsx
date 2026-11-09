@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { useTimer, uniqueRecent, clockOf, EMPTY_FIELDS, type TimerApi, type TimerFields, type TodayTask } from './useTimer'
 import Combobox, { sectorColor } from './Combobox'
 import GearIcon from './GearIcon'
+import RolePicker from './RolePicker'
 
 /** The time-entry form and recent list, shared by the sidebar popover and the phone sheet. */
 export function TimerPanel({ api, idPrefix, onDone, onCancel }: { api: TimerApi; idPrefix: string; onDone: () => void; onCancel: () => void }) {
@@ -22,7 +23,7 @@ export function TimerPanel({ api, idPrefix, onDone, onCancel }: { api: TimerApi;
       {view === 'recent' ? (
         <ul style={{ listStyle: 'none', margin: 0, padding: 8, maxHeight: 420, overflowY: 'auto' }}>
           {recents.length === 0 && <li className="muted" style={{ padding: 12 }}>No entries yet.</li>}
-          {recents.map((r, i) => <li key={i}><button type="button" className="recent" onClick={() => { setV({ project_id: r.project_id, phase_id: r.phase_id ?? '', role_label: r.role_label ?? '', activity: r.activity ?? '', note: '' }); setView('form') }}>
+          {recents.map((r, i) => <li key={i}><button type="button" className="recent" onClick={() => { setV({ project_id: r.project_id, phase_id: r.phase_id ?? '', role_label: r.role_label ?? '', activity: r.activity ?? '', note: '', bill_rate: '' }); setView('form') }}>
             <strong>{r.projects?.number === 'OH' ? 'Overhead' : `${r.projects?.number} · ${r.projects?.name}`}</strong><span className="muted">{[r.phases?.code, r.role_label, r.activity].filter(Boolean).join(' · ') || '—'}</span></button></li>)}
         </ul>
       ) : (
@@ -34,7 +35,7 @@ export function TimerPanel({ api, idPrefix, onDone, onCancel }: { api: TimerApi;
             value={v.phase_id} onChange={(x) => setField('phase_id', x)}
             options={(proj?.phases ?? []).map((x) => ({ value: x.id, chip: x.code, color: 'var(--navy, #02253d)', label: PHASE_NAME[x.code] ?? x.code }))} />}
           <div className="tm-pair">
-            <div><label className="sr" htmlFor={id('r')}>Role</label><select id={id('r')} className="input" value={v.role_label} onChange={set('role_label')}><option value="">Role</option>{ROLES.map((r) => <option key={r}>{r}</option>)}</select></div>
+            <RolePicker id={id('r')} role={v.role_label} rate={v.bill_rate} onChange={(role, rate) => setV((o) => ({ ...o, role_label: role, bill_rate: rate }))} />
             <div><label className="sr" htmlFor={id('a')}>Activity</label><select id={id('a')} className="input" value={v.activity} onChange={set('activity')}><option value="">{isOverhead ? 'Overhead type' : 'Activity'}</option>{(isOverhead ? OVERHEAD : ACTIVITIES).map((a) => <option key={a}>{a}</option>)}</select></div>
           </div>
           <label className="sr" htmlFor={id('n')}>Note</label>
@@ -84,7 +85,7 @@ export function ManualPanel({ api, me, idPrefix, onDone, onCancel }: { api: Time
   const id = (x: string) => idPrefix + x
   const proj = api.projects.find((p) => p.id === f.project_id)
   const isOverhead = proj?.number === 'OH'
-  const set = (k: keyof TimerFields, v: string) => setF((o) => ({ ...o, [k]: v, ...(k === 'project_id' ? { phase_id: '', activity: '' } : {}) }))
+  const set = (k: keyof TimerFields, v: string) => setF((o) => ({ ...o, [k]: v, ...(k === 'project_id' ? { phase_id: '', activity: '', role_label: api.defaultRole(v), bill_rate: '' } : {}) }))
   const minutes = parseDuration(dur)
   const bump = (m: number) => setDur(fmtHours(Math.max(0, minutes + m)))
   const save = async () => {
@@ -92,9 +93,10 @@ export function ManualPanel({ api, me, idPrefix, onDone, onCancel }: { api: Time
     if (!(minutes > 0)) return setErr('Enter how long you worked, e.g. 1.5 or 1:30.')
     if (minutes > 24 * 60) return setErr('That’s more than 24 hours. Split it across days.')
     setBusy(true); setErr('')
-    const row = { project_id: f.project_id, phase_id: f.phase_id || null, role_label: f.role_label || null, activity: f.activity || null, note: f.note || null }
+    const row = { project_id: f.project_id, phase_id: f.phase_id || null, role_label: f.role_label || null, activity: f.activity || null, note: f.note || null,
+      bill_rate: f.bill_rate !== '' && isFinite(Number(f.bill_rate)) ? Number(f.bill_rate) : null }
     const { error } = await supabase.from('time_entries').insert({ profile_id: me, ...row, work_date: date, minutes })
-    if (!error) await supabase.from('timesheet_rows').insert({ profile_id: me, project_id: row.project_id, phase_id: row.phase_id, role_label: row.role_label, activity: row.activity })
+    if (!error) await supabase.from('timesheet_rows').insert({ profile_id: me, project_id: row.project_id, phase_id: row.phase_id, role_label: row.role_label, activity: row.activity, bill_rate: row.bill_rate })
     setBusy(false)
     if (error) return setErr(error.message)
     announceTimeChange(); api.refreshRecent(); onDone()
@@ -108,7 +110,7 @@ export function ManualPanel({ api, me, idPrefix, onDone, onCancel }: { api: Time
         value={f.phase_id} onChange={(x) => set('phase_id', x)}
         options={(proj?.phases ?? []).map((x) => ({ value: x.id, chip: x.code, color: 'var(--navy, #02253d)', label: PHASE_NAME[x.code] ?? x.code }))} />}
       <div className="tm-pair">
-      <div><label className="sr" htmlFor={id('r')}>Role</label><select id={id('r')} className="input" value={f.role_label} onChange={(e) => set('role_label', e.target.value)}><option value="">Role</option>{ROLES.map((r) => <option key={r}>{r}</option>)}</select></div>
+      <RolePicker id={id('r')} role={f.role_label} rate={f.bill_rate} onChange={(role, rate) => setF((o) => ({ ...o, role_label: role, bill_rate: rate }))} />
       <div><label className="sr" htmlFor={id('a')}>Activity</label><select id={id('a')} className="input" value={f.activity} onChange={(e) => set('activity', e.target.value)}><option value="">{isOverhead ? 'Overhead type' : 'Activity'}</option>{(isOverhead ? OVERHEAD : ACTIVITIES).map((a) => <option key={a}>{a}</option>)}</select></div>
       </div>
       <div><label className="l" htmlFor={id('d')}>Date</label><input id={id('d')} type="date" className="input" value={date} max={iso(new Date())} onChange={(e) => setDate(e.target.value)} /></div>

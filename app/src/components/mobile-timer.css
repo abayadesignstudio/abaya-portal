@@ -13,3 +13,9 @@
   .mtimer-sheet .btn{min-height:52px}
   .mtimer-sheet .tm-pair{grid-template-columns:1fr}
 }
+.rp{min-width:0}
+.tm-pair > .rp:has(.rp-custom){grid-column:1 / -1}
+.rp-custom{display:grid;grid-template-columns:minmax(0,1fr) 120px;gap:6px;margin-top:6px;align-items:center}
+.rp-custom .linkbtn{grid-column:1 / -1;justify-self:start;font-size:13px}
+.rp-rate{display:flex;align-items:center;gap:4px}
+.rp-rate .input{min-width:0}

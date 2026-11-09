@@ -47,7 +47,7 @@ export function RoleRateDialog({ name, role, rate, rates, onSave, onClose }: { n
     </div>)
 }
 export type Alloc = { phase_id: string; profile_id: string; hours: number }
-export type Logged = { phase_id: string | null; profile_id: string; minutes: number }
+export type Logged = { phase_id: string | null; profile_id: string; minutes: number; bill_rate?: number | null }
 type Consultant = { id: string; phase_id: string | null; name: string; discipline: string | null; fee: number; billed: number; markup_pct: number }
 type Expense = { id: string; phase_id: string | null; description: string; amount: number; spent_on: string; reimbursable: boolean; planned: boolean; invoice_id: string | null }
 
@@ -67,7 +67,7 @@ export default function BudgetTab({ projectId }: { projectId: string }) {
     const people = must(await supabase.from('profiles').select('id, full_name, email, initials, title, bill_rate, avatar_url').in('role', ['admin', 'staff']).order('full_name')) as Person[]
     const members = must(await supabase.from('project_members').select('profile_id, role_label, bill_rate').eq('project_id', projectId)) as Member[]
     const allocs = ids.length ? must(await supabase.from('phase_allocations').select('phase_id, profile_id, hours').in('phase_id', ids)) as Alloc[] : []
-    const logged = must(await supabase.from('time_entries').select('phase_id, profile_id, minutes').eq('project_id', projectId)) as Logged[]
+    const logged = must(await supabase.from('time_entries').select('phase_id, profile_id, minutes, bill_rate').eq('project_id', projectId)) as Logged[]
     const consultants = must(await supabase.from('project_consultants').select('id, phase_id, name, discipline, fee, billed, markup_pct').eq('project_id', projectId).order('created_at')) as Consultant[]
     const expenses = must(await supabase.from('expenses').select('id, phase_id, description, amount, spent_on, reimbursable, planned, invoice_id').eq('project_id', projectId).order('spent_on', { ascending: false })) as Expense[]
     const fee = contractFee(await linkedAgreements(projectId))
@@ -136,8 +136,11 @@ function TeamPay({ people, allocs, time, rateOf, roleOf }: { people: Person[]; a
   const rows = ids.map((id) => {
     const who = people.find((x) => x.id === id); const rate = rateOf(id)
     const hrs = allocs.filter((a) => a.profile_id === id).reduce((n, a) => n + Number(a.hours), 0)
-    const logged = time.filter((t) => t.profile_id === id).reduce((n, t) => n + t.minutes / 60, 0)
-    return { id, name: who?.full_name || who?.email || 'Former staff', role: roleOf(id), rate, hrs, billable: hrs * rate, logged, earned: logged * rate }
+    const mine = time.filter((t) => t.profile_id === id)
+    const logged = mine.reduce((n, t) => n + t.minutes / 60, 0)
+    // an entry with its own rate (custom role, e.g. an older agreement's rate) bills at that rate
+    const earned = mine.reduce((n, t) => n + t.minutes / 60 * (t.bill_rate != null ? Number(t.bill_rate) : rate), 0)
+    return { id, name: who?.full_name || who?.email || 'Former staff', role: roleOf(id), rate, hrs, billable: hrs * rate, logged, earned }
   }).sort((a, b) => b.billable - a.billable || b.earned - a.earned)
   const sum = (k: 'hrs' | 'billable' | 'logged' | 'earned') => rows.reduce((n, r) => n + r[k], 0)
   const pay = (n: number) => n / MULTIPLIER

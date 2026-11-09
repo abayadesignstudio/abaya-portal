@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import { loadProjects, iso, announceTimeChange, TIME_CHANGED } from '../lib/time'
+import { useDefaultRole } from './RolePicker'
 
-export type RunningTimer = { project_id: string; phase_id: string | null; role_label: string | null; activity: string | null; note: string | null; started_at: string; banked_minutes: number; paused_at?: string | null; banked_seconds?: number }
+export type RunningTimer = { project_id: string; phase_id: string | null; role_label: string | null; bill_rate?: number | null; activity: string | null; note: string | null; started_at: string; banked_minutes: number; paused_at?: string | null; banked_seconds?: number }
 export type Recent = { project_id: string; phase_id: string | null; role_label: string | null; activity: string | null; projects: { number: string; name: string } | null; phases: { code: string } | null }
-export type TimerFields = { project_id: string; phase_id: string; role_label: string; activity: string; note: string }
-export const EMPTY_FIELDS: TimerFields = { project_id: '', phase_id: '', role_label: '', activity: '', note: '' }
+/** bill_rate: '' = the usual rate; a number = this entry's own hourly rate (custom role). */
+export type TimerFields = { project_id: string; phase_id: string; role_label: string; activity: string; note: string; bill_rate: string }
+export const EMPTY_FIELDS: TimerFields = { project_id: '', phase_id: '', role_label: '', activity: '', note: '', bill_rate: '' }
 
 /** Today's logged time, one line per task (project · phase · role · activity), newest first. */
 export type TodayTask = { key: string; project_id: string; phase_id: string | null; role_label: string | null; activity: string | null; minutes: number; last: string
@@ -39,7 +41,8 @@ export function useTimer(me: string) {
   }, [me, recentKey])
   const t = timer.data
   useEffect(() => { const i = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(i) }, [])
-  useEffect(() => { if (t) setV({ project_id: t.project_id, phase_id: t.phase_id ?? '', role_label: t.role_label ?? '', activity: t.activity ?? '', note: t.note ?? '' }) }, [t])
+  useEffect(() => { if (t) setV({ project_id: t.project_id, phase_id: t.phase_id ?? '', role_label: t.role_label ?? '', activity: t.activity ?? '', note: t.note ?? '', bill_rate: t.bill_rate != null ? String(Number(t.bill_rate)) : '' }) }, [t])
+  const defaultRole = useDefaultRole(me)
   const reloadTimer = timer.reload, reloadToday = today.reload
   useEffect(() => {
     const f = () => { reloadTimer(); reloadToday() }
@@ -52,9 +55,11 @@ export function useTimer(me: string) {
   const elapsed = t ? (t.paused_at ? new Date(t.paused_at).getTime() : now) - new Date(t.started_at).getTime() + t.banked_minutes * 60000 + (t.banked_seconds ?? 0) * 1000 : 0
   const proj = projects.data?.find((p) => p.id === v.project_id)
   const isOverhead = proj?.number === 'OH'
+  // picking a project loads your usual role on it (team role, or what you used last)
   const setField = useCallback((k: keyof TimerFields, value: string) =>
-    setV((o) => ({ ...o, [k]: value, ...(k === 'project_id' ? { phase_id: '', activity: '' } : {}) })), [])
-  const fields = () => ({ project_id: v.project_id, phase_id: v.phase_id || null, role_label: v.role_label || null, activity: v.activity || null, note: v.note || null })
+    setV((o) => ({ ...o, [k]: value, ...(k === 'project_id' ? { phase_id: '', activity: '', role_label: defaultRole(value), bill_rate: '' } : {}) })), [defaultRole])
+  const fields = () => ({ project_id: v.project_id, phase_id: v.phase_id || null, role_label: v.role_label || null, activity: v.activity || null, note: v.note || null,
+    bill_rate: v.bill_rate !== '' && isFinite(Number(v.bill_rate)) ? Number(v.bill_rate) : null })
 
   const run = async (fn: () => Promise<boolean>) => { setBusy(true); try { return await fn() } finally { setBusy(false) } }
   const startNow = async () => {
@@ -72,7 +77,7 @@ export function useTimer(me: string) {
     if (error) { setErr(error.message); return false }
     await supabase.from('timers').delete().eq('profile_id', me)
     // keep the combination on the timesheet (a duplicate row is rejected by the unique index, which is fine)
-    await supabase.from('timesheet_rows').insert({ profile_id: me, project_id: f.project_id || t.project_id, phase_id: f.phase_id, role_label: f.role_label, activity: f.activity })
+    await supabase.from('timesheet_rows').insert({ profile_id: me, project_id: f.project_id || t.project_id, phase_id: f.phase_id, role_label: f.role_label, activity: f.activity, bill_rate: f.bill_rate })
     setRecentKey((k) => k + 1); return true
   }
 
@@ -99,14 +104,14 @@ export function useTimer(me: string) {
     /** Start a timer on a task from today's list (logging whatever is running first). */
     pickUp: (x: TodayTask) => run(async () => {
       if (t && !(await logNow())) return false
-      const next = { project_id: x.project_id, phase_id: x.phase_id ?? '', role_label: x.role_label ?? '', activity: x.activity ?? '', note: '' }
+      const next = { project_id: x.project_id, phase_id: x.phase_id ?? '', role_label: x.role_label ?? '', activity: x.activity ?? '', note: '', bill_rate: '' }
       setV(next)
       const { error } = await supabase.from('timers').upsert({ profile_id: me, project_id: next.project_id, phase_id: x.phase_id, role_label: x.role_label, activity: x.activity, note: null,
         started_at: new Date().toISOString(), banked_minutes: 0, banked_seconds: 0, paused_at: null })
       if (error) { setErr(error.message); return false }
       setErr(''); announceTimeChange(); return true
     }),
-    projects: projects.data ?? [], proj, isOverhead, recent: recent.data ?? [],
+    projects: projects.data ?? [], proj, isOverhead, recent: recent.data ?? [], defaultRole,
     start: () => run(startNow),
     stop: () => run(async () => { const ok = await logNow(); if (ok) { setV(EMPTY_FIELDS); setErr(''); announceTimeChange() } return ok }),
     /** Log the running task, then start the task now in the form. */
