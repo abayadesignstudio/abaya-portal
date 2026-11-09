@@ -28,7 +28,7 @@ export default function StaffHome() {
   const staff = useStaff()
   const todayIso = isoDate(new Date())
   const [dFilter, setDFilter] = useState<'week' | 'all'>('week')
-  // My hours card: my year, or the whole team's billable week (admins), remembered on this device
+  // My hours card: my year, or the whole team's billable week, remembered on this device
   const [hView, setHView] = useState<'me' | 'team'>(() => { try { return localStorage.getItem('abaya.home.hoursView') === 'team' ? 'team' : 'me' } catch { return 'me' } })
   const pickHView = (v: 'me' | 'team') => { setHView(v); try { localStorage.setItem('abaya.home.hoursView', v) } catch { /* private mode */ } }
   const yearlyNeed = useYearlyNeed()
@@ -92,14 +92,14 @@ export default function StaffHome() {
           <section className="card pad stack" aria-labelledby="hm-me">
             <div className="row" style={{ gap: 12 }}>
               <Avatar url={profile?.avatar_url} name={profile?.full_name || profile?.email} initials={profile?.initials} size={40} />
-              <div style={{ flex: 1 }}><h2 id="hm-me">{admin && hView === 'team' ? 'Team this week' : 'My hours'}</h2><p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>{admin && hView === 'team' ? 'Billable hours' : profile?.title || (profile?.role === 'admin' ? 'Admin' : 'Staff')}</p></div>
-              {!(admin && hView === 'team') && <div style={{ textAlign: 'right' }}><p className="num" style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>{w.util ? w.util + '%' : '—'}</p><p className="muted" style={{ margin: 0, fontSize: 12 }}>utilization target</p></div>}
+              <div style={{ flex: 1 }}><h2 id="hm-me">{hView === 'team' ? 'Team this week' : 'My hours'}</h2><p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>{hView === 'team' ? 'Billable hours' : profile?.title || (profile?.role === 'admin' ? 'Admin' : 'Staff')}</p></div>
+              {hView !== 'team' && <div style={{ textAlign: 'right' }}><p className="num" style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>{w.util ? w.util + '%' : '—'}</p><p className="muted" style={{ margin: 0, fontSize: 12 }}>utilization target</p></div>}
             </div>
-            {admin && <div className="hm-seg" role="group" aria-label="Hours view">
+            {<div className="hm-seg" role="group" aria-label="Hours view">
               <button type="button" aria-pressed={hView === 'me'} onClick={() => pickHView('me')}>My year</button>
               <button type="button" aria-pressed={hView === 'team'} onClick={() => pickHView('team')}>Team this week</button>
             </div>}
-            {admin && hView === 'team' ? <WeeklyTime weeklyNeed={yearlyNeed / 52} bare /> : <>
+            {hView === 'team' ? <WeeklyTime weeklyNeed={yearlyNeed / 52} bare /> : <>
             {w.util ? (
               <div>
                 <div className="row between" style={{ fontSize: 14 }}><strong className="num">{fmt(w.bill)} of {fmt(w.target)} billable hrs</strong>

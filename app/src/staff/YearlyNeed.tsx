@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useAuth } from '../lib/auth'
 import { supabase, money } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import type { Bill } from './Bills'
@@ -10,10 +11,14 @@ import WeeklyTime from './WeeklyTime'
 
 const EMPLOYER_PAYROLL_TAX = 7.65 // % — employer Social Security (6.2%) + Medicare (1.45%)
 const HOURS_PER_YEAR = 2080 // 40 h × 52 weeks
-const KEY = 'abaya.bills.yearly'
 
 type Opt = { tax: boolean; margin: string }
-const readOpt = (): Opt => { try { return { tax: false, margin: '0', ...JSON.parse(localStorage.getItem(KEY) || '{}') } } catch { return { tax: false, margin: '0' } } }
+/** The firm's published options (Settings row 1); admins set them, everyone else reads them. */
+async function loadOpt(): Promise<Opt> {
+  const { data } = await supabase.from('firm_settings').select('need_payroll_tax, need_margin').eq('id', 1).maybeSingle()
+  const r = data as { need_payroll_tax: boolean; need_margin: number } | null
+  return { tax: !!r?.need_payroll_tax, margin: String(Number(r?.need_margin ?? 0)) }
+}
 /** Bills by category for the year: recurring bills in a month × 12 + one-off bills in the year. */
 function annualize(monthBills: Bill[], oneOff: Bill[]) {
   const byCat: Record<string, number> = {}
@@ -36,7 +41,7 @@ export function useYearlyNeed() {
   const data = useLoad(async () => {
     const month = must(await supabase.from('company_bills').select('category, amount, recurring_monthly').eq('recurring_monthly', true).gte('due_on', m).lt('due_on', n)) as Bill[]
     const oneOff = must(await supabase.from('company_bills').select('category, amount, recurring_monthly').eq('recurring_monthly', false).gte('due_on', `${y}-01-01`).lt('due_on', `${y + 1}-01-01`)) as Bill[]
-    return needOf(annualize(month, oneOff), readOpt()).need
+    return needOf(annualize(month, oneOff), await loadOpt()).need
   }, [m])
   return data.data ?? 0
 }
@@ -50,8 +55,19 @@ export default function YearlyNeed({ month, monthBills, order, colors }: { month
     const people = must(await supabase.from('profiles').select('util_target, bill_rate').in('role', ['admin', 'staff'])) as { util_target: number | null; bill_rate: number | null }[]
     return { oneOff, collected: paid.reduce((a, x) => a + Number(x.amount_paid || 0), 0), people }
   }, [year])
-  const [opt, setOpt] = useState<Opt>(readOpt)
-  useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(opt)) } catch { /* private mode */ } }, [opt])
+  const { profile } = useAuth()
+  const admin = profile?.role === 'admin'
+  const [opt, setOpt] = useState<Opt>({ tax: false, margin: '0' })
+  const [optMsg, setOptMsg] = useState('')
+  useEffect(() => { loadOpt().then(setOpt) }, [])
+  /** Admins publish the options for everyone. */
+  const saveOpt = async (next: Opt) => {
+    setOpt(next)
+    const m = Math.min(89.99, Math.max(0, Number(next.margin) || 0))
+    const { error } = await supabase.from('firm_settings').update({ need_payroll_tax: next.tax, need_margin: m }).eq('id', 1)
+    setOptMsg(error ? error.message : 'Published to everyone.')
+    setTimeout(() => setOptMsg(''), 2500)
+  }
 
   // annualize: recurring bills in this month × 12, one-off bills dated this year once
   const byCat = annualize(monthBills, data.data?.oneOff ?? [])
@@ -97,13 +113,16 @@ export default function YearlyNeed({ month, monthBills, order, colors }: { month
       </table>
       {cats.length === 0 && <p className="muted" style={{ margin: 0, fontSize: 14 }}><em>No monthly bills in this month yet.</em></p>}
 
-      <fieldset className="yn-opts">
-        <legend className="sr">Options</legend>
-        <label className="row" style={{ gap: 8, fontSize: 14 }}><input type="checkbox" checked={opt.tax} onChange={(e) => setOpt({ ...opt, tax: e.target.checked })} style={{ width: 18, height: 18 }} />
+      {admin ? <fieldset className="yn-opts">
+        <legend className="sr">Options (published to everyone)</legend>
+        <label className="row" style={{ gap: 8, fontSize: 14 }}><input type="checkbox" checked={opt.tax} onChange={(e) => saveOpt({ ...opt, tax: e.target.checked })} style={{ width: 18, height: 18 }} />
           Add employer payroll taxes on salaries ({EMPLOYER_PAYROLL_TAX}%)</label>
         <div className="row" style={{ gap: 8, fontSize: 14 }}><label htmlFor="yn-m">Profit margin</label>
-          <input id="yn-m" className="input num" inputMode="decimal" value={opt.margin} onChange={(e) => setOpt({ ...opt, margin: e.target.value })} style={{ width: 70, minHeight: 34, padding: '4px 8px' }} /><span>% of revenue</span></div>
-      </fieldset>
+          <input id="yn-m" className="input num" inputMode="decimal" value={opt.margin} onChange={(e) => setOpt({ ...opt, margin: e.target.value })} onBlur={() => saveOpt(opt)}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} style={{ width: 70, minHeight: 34, padding: '4px 8px' }} /><span>% of revenue</span></div>
+        <p className="muted" style={{ margin: 0, fontSize: 12 }}>{optMsg || 'Everyone sees these numbers; only admins can change them.'}</p>
+      </fieldset> : <p className="yn-opts muted" style={{ margin: 0, fontSize: 13 }}>
+        Includes {opt.tax ? `employer payroll taxes (${EMPLOYER_PAYROLL_TAX}%)` : 'no payroll taxes'} and a {Number(opt.margin) || 0}% profit margin, set by the firm.</p>}
 
       {elapsed > 0 && <div className="yn-pace">
         <div className="row between" style={{ fontSize: 14 }}><strong>Collected in {year}</strong><span className="num">{money(collected)}</span></div>
