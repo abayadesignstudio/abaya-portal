@@ -5,18 +5,18 @@ import { useAuth } from '../lib/auth'
 import { PasswordForm } from './SetPassword'
 import Avatar from '../components/Avatar'
 
-/** My account: each person sets or changes their own sign-in password. */
-export default function Account() {
+/** My account: photo, sign-in email, Google Calendar and password. Shown at the top of Settings (embedded) and at #/account. */
+export default function Account({ embedded }: { embedded?: boolean }) {
   const { profile, session } = useAuth()
   const [done, setDone] = useState(false)
   return (
-    <div className="stack" style={{ maxWidth: 640 }}>
-      <h1>My account</h1>
+    <div className="stack" style={embedded ? undefined : { maxWidth: 640 }}>
+      {!embedded && <h1>My account</h1>}
+      <PhotoSection />
       <section className="card pad stack" aria-labelledby="acc-h">
         <h2 id="acc-h" style={{ margin: 0 }}>{profile?.full_name || 'Your account'}</h2>
         <p className="muted" style={{ margin: 0 }}>Signed in as <strong>{session?.user.email}</strong>. You sign in with this email.</p>
       </section>
-      <PhotoSection />
       <GoogleSection />
       <section className="card pad stack" aria-labelledby="pw-h">
         <h2 id="pw-h" style={{ margin: 0 }}>Password</h2>

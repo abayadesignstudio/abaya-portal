@@ -85,6 +85,7 @@ export function TaskItem({ t, me, admin, people, showWho, prefixName, onChange, 
   const done = optimistic && optimistic.was === t.done_at ? optimistic.v : !!t.done_at
   const mine = t.assignee === me || t.created_by === me || admin
   const who = people.find((p) => p.id === t.assignee)
+  const [open, setOpen] = useState(false)
   const toggle = async () => {
     const next = !done
     setOptimistic({ v: next, was: t.done_at }); setBusy(true)
@@ -110,12 +111,14 @@ export function TaskItem({ t, me, admin, people, showWho, prefixName, onChange, 
             {prefixName && <Faces ids={[t.assignee]} people={people} />}<span className="tk-title">{t.title}</span>
             {showWho && <span className="tk-sub">{firstName(who)}</span>}
           </>
-          return mine && onEdit
-            ? <button type="button" className="tk-text tk-open" title={t.notes ? `${t.notes}\n\nClick to edit` : 'Click to edit'} onClick={(ev) => { ev.stopPropagation(); onEdit(t, ev.currentTarget) }}>{body}</button>
-            : <span className="tk-text" title={t.notes || undefined}>{body}</span>
+          return <button type="button" className="tk-text tk-open" aria-expanded={open} title={open ? 'Click to fold' : 'Click for details'} onClick={(ev) => { ev.stopPropagation(); setOpen(!open) }}>{body}{t.notes && !open && <span className="tk-hasnote" aria-label="has a note"> ¶</span>}</button>
         })()}
       </div>
       {mine && <button type="button" className="tk-x" onClick={remove} disabled={busy} aria-label={`Delete task ${t.title}`}>×</button>}
+      {open && <Unrolled
+        rows={[['Task', t.title], t.projects && ['Project', `${t.projects.number} · ${t.projects.name}`], ['Due', `${longDay(t.due_on)}${t.due_time ? ' · ' + time12(t.due_time) : ''}`], ['Assigned to', nameOf(who)], done && ['Status', 'Done']]}
+        notes={t.notes}
+        actions={mine && onEdit ? <button type="button" className="btn small secondary" onClick={(ev) => onEdit(t, ev.currentTarget.closest('.tk') as HTMLElement)}>Edit task</button> : undefined} />}
     </li>
   )
 }
@@ -127,6 +130,7 @@ export function EventItem({ e, me, admin, people, onChange }: { e: Ev; me: strin
   const [busy, setBusy] = useState(false)
   const [checked, setChecked] = useState(false) // flips instantly; the item becomes a done task on reload
   const mine = e.profile_id === me || admin
+  const [open, setOpen] = useState(false)
   const complete = async () => {
     setChecked(true); setBusy(true)
     const { data, error } = await supabase.from('tasks').insert({ title: e.title, assignee: e.profile_id, created_by: me, due_on: e.starts_on, due_time: e.start_time,
@@ -137,19 +141,33 @@ export function EventItem({ e, me, admin, people, onChange }: { e: Ev; me: strin
   }
   return (
     <li className="tk" style={{ borderLeftColor: e.projects ? sectorColor(e.projects.sector) : '#9aa4b2' }}>
-      <label className="tk-main">
-        <button type="button" className="tk-ico" role="checkbox" aria-checked={checked} disabled={!mine} onClick={(ev) => { ev.preventDefault(); if (!busy && !checked) complete() }} aria-label={`Mark done: ${e.title}`} title="Mark done">
+      <div className="tk-main">
+        <button type="button" className="tk-ico" role="checkbox" aria-checked={checked} disabled={!mine} onClick={(ev) => { ev.stopPropagation(); if (!busy && !checked) complete() }} aria-label={`Mark done: ${e.title}`} title="Mark done">
           <Mark kind="event" done={checked} color={e.projects ? sectorColor(e.projects.sector) : undefined} /></button>
-        <span className="tk-text">
+        <button type="button" className="tk-text tk-open" aria-expanded={open} title={open ? 'Click to fold' : 'Click for details'} onClick={(ev) => { ev.stopPropagation(); setOpen(!open) }}>
           <ProjTag p={e.projects} />
           {e.start_time && <span className="num tk-time">{time12(e.start_time)} </span>}
           <Faces ids={[e.profile_id]} people={people} /><span className="tk-title">{e.title}</span>
-        </span>
-      </label>
+        </button>
+      </div>
+      {open && <Unrolled rows={[['Event', e.title], e.projects && ['Project', `${e.projects.number} · ${e.projects.name}`],
+        ['When', `${longDay(e.starts_on)}${e.ends_on !== e.starts_on ? ' – ' + longDay(e.ends_on) : ''}${e.start_time ? ' · ' + time12(e.start_time) : ''}`],
+        ['Who', nameOf(people.find((p) => p.id === e.profile_id))]]} />}
     </li>
   )
 }
 
+
+const longDay = (iso: string) => parseDate(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+/** The extra lines a calendar item shows once it's clicked open. */
+function Unrolled({ rows, notes, actions }: { rows: ([string, React.ReactNode] | false | null | undefined | "")[]; notes?: string | null; actions?: React.ReactNode }) {
+  return (
+    <div className="tk-more-box" onClick={(e) => e.stopPropagation()}>
+      <dl>{rows.filter(Boolean).map((r) => { const [k, v] = r as [string, React.ReactNode]; return <div key={k}><dt>{k}</dt><dd>{v}</dd></div> })}</dl>
+      {notes ? <p className="tk-notes">{notes}</p> : null}
+      {actions && <div className="tk-acts">{actions}</div>}
+    </div>)
+}
 
 /** A timeline icon sized for calendar lines, coloured by the item's project. */
 function Mark({ kind, done, color }: { kind: MarkKind; done: boolean; color?: string }) {
@@ -175,17 +193,22 @@ function ProjMarkItem({ m, people, onChange }: { m: ProjMark; people: Person[]; 
     onChange()
   }
   const word = m.kind === 'milestone' ? (done ? 'reached' : 'not reached') : (done ? 'delivered' : 'not delivered')
+  const [open, setOpen] = useState(false)
   return (
     <li className={'tk tk-pm' + (done ? ' done' : '') + (late ? ' late' : '')} style={{ borderLeftColor: m.projects ? sectorColor(m.projects.sector) : '#9aa4b2' }}>
       <div className="tk-main">
         <button type="button" className="tk-ico" role="checkbox" aria-checked={done} disabled={busy} onClick={(ev) => { ev.stopPropagation(); toggle() }}
           aria-label={`${m.kind === 'milestone' ? 'Milestone' : 'Deliverable'} ${m.title}: ${word}. Click to change.`} title={m.kind === 'milestone' ? (done ? 'Reached — click to undo' : 'Mark reached') : (done ? 'Delivered — click to undo' : 'Mark delivered')}>
           <Mark kind={m.kind} done={done} color={late ? '#d92d20' : m.projects ? sectorColor(m.projects.sector) : undefined} /></button>
-        <a className="tk-text tk-open" href={`#/projects/${m.project_id}`} title={`${m.kind === 'milestone' ? 'Milestone' : 'Deliverable'} — open the project`}>
+        <button type="button" className="tk-text tk-open" aria-expanded={open} title={open ? 'Click to fold' : 'Click for details'} onClick={(ev) => { ev.stopPropagation(); setOpen(!open) }}>
           <ProjTag p={m.projects} />
           {m.assignee && <Faces ids={[m.assignee]} people={people} />}<span className="tk-title">{m.title}</span>
-        </a>
+        </button>
       </div>
+      {open && <Unrolled rows={[[m.kind === 'milestone' ? 'Milestone' : 'Deliverable', m.title], m.projects && ['Project', `${m.projects.number} · ${m.projects.name}`],
+        [m.kind === 'milestone' ? 'Date' : 'Due', longDay(m.date)], m.assignee && ['Assigned to', nameOf(people.find((p) => p.id === m.assignee))],
+        ['Status', done ? (m.kind === 'milestone' ? 'Reached' : 'Delivered') : late ? 'Overdue' : 'Open']]}
+        actions={<a className="btn small secondary" href={`#/projects/${m.project_id}`}>Open project</a>} />}
     </li>)
 }
 
@@ -220,6 +243,7 @@ async function fnError(error: unknown, fallback: string) {
 
 /** A Google Calendar meeting on the month grid. Click it for details (like Google Calendar). */
 function GEventItem({ e, people, project, onOpen }: { e: GM; people: Person[]; me: string; project?: Proj; onOpen: (e: GM, el: HTMLElement) => void }) {
+  const [open, setOpen] = useState(false)
   const body = <>
     <ProjTag p={project} />
     {!e.all_day && <span className="num tk-time">{time12(hhmm(e.start))} </span>}
@@ -229,8 +253,12 @@ function GEventItem({ e, people, project, onOpen }: { e: GM; people: Person[]; m
     <li className={'tk tk-g' + (e.all_day ? ' allday' : '')} style={{ borderLeftColor: project ? sectorColor(project.sector) : '#9aa4b2' }}>
       <div className="tk-main">
         <span className="tk-ico tk-ico-static" aria-hidden="true"><Mark kind="event" done={false} color={project ? sectorColor(project.sector) : undefined} /></span>
-        <button type="button" className="tk-text tk-open" title={[e.title, e.location].filter(Boolean).join('\n')} onClick={(ev) => { ev.stopPropagation(); onOpen(e, ev.currentTarget) }}>{body}</button>
+        <button type="button" className="tk-text tk-open" aria-expanded={open} title={open ? 'Click to fold' : 'Click for details'} onClick={(ev) => { ev.stopPropagation(); setOpen(!open) }}>{body}</button>
       </div>
+      {open && <Unrolled rows={[['When', whenText(e)], project && ['Project', `${project.number} · ${project.name}`], e.location && ['Where', e.location], ['Who', names(e.people, people)]]}
+        notes={e.description ? e.description.replace(/<[^>]+>/g, ' ').replace(/\s+\n/g, '\n').trim() : null}
+        actions={<><button type="button" className="btn small secondary" onClick={(ev) => onOpen(e, ev.currentTarget.closest('.tk') as HTMLElement)}>Details &amp; edit</button>
+          {e.link && <a className="btn small secondary" href={e.link} target="_blank" rel="noreferrer">Open in Google</a>}</>} />}
     </li>
   )
 }

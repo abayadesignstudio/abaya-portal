@@ -64,3 +64,6 @@
 .wt-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wt-ok{color:#067647;font-weight:700}
 .wt-warn{color:#b54708;font-weight:700}
+.set-grid{display:grid;grid-template-columns:minmax(0,560px) minmax(0,1fr);gap:24px;align-items:start}
+.set-h{margin:0;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+@media (max-width:1200px){.set-grid{grid-template-columns:minmax(0,1fr)}}

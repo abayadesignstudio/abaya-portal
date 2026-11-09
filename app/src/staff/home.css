@@ -198,3 +198,14 @@
 .tk-pm .tk-open{text-decoration:none;color:inherit}
 .tk-pm.late{border-color:#f3b8b2}
 .tk.done .tk-pm .tk-title,.tk-pm.done .tk-title{text-decoration:line-through;color:#8a8f98;font-weight:400}
+.tk{flex-wrap:wrap}
+.tk-more-box{flex-basis:100%;margin:4px 0 2px 22px;padding:6px 8px;border-top:1px solid var(--line);font-size:12px;cursor:default}
+.tk-more-box dl{margin:0;display:grid;gap:2px}
+.tk-more-box dl > div{display:grid;grid-template-columns:72px minmax(0,1fr);gap:6px}
+.tk-more-box dt{color:var(--muted)}
+.tk-more-box dd{margin:0;overflow-wrap:anywhere}
+.tk-notes{margin:6px 0 0;white-space:pre-wrap;background:#f6f5f2;border-radius:6px;padding:6px 8px;font-size:12.5px}
+.tk-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.tk-acts .btn{min-height:28px;padding:0 10px;font-size:12px}
+.tk-hasnote{color:var(--muted);font-weight:400}
+.tk.done .tk-more-box dd{text-decoration:none;color:inherit}

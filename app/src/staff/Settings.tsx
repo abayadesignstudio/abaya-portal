@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import Account from '../pages/Account'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
@@ -16,10 +17,21 @@ export default function Settings() {
   return (
     <div className="stack">
       <h1>Settings</h1>
-      <FirmSettings admin={admin} />
-      {admin && <OnlinePayments />}
-      {admin && <BillableRates />}
-      {admin ? <People me={profile!.id} /> : <p className="muted">Only admins can manage people and invitations.</p>}
+      <div className="set-grid">
+        <div className="stack" style={{ minWidth: 0 }}>
+          <h2 className="set-h">My profile</h2>
+          <Account embedded />
+        </div>
+        <div className="stack" style={{ minWidth: 0 }}>
+          <h2 className="set-h">Firm · set by admins</h2>
+          {admin ? <>
+            <FirmSettings admin />
+            <OnlinePayments />
+            <BillableRates />
+            <People me={profile!.id} />
+          </> : <p className="card pad muted" style={{ margin: 0 }}>The firm details, online payments, billable rates and people are set by an admin.</p>}
+        </div>
+      </div>
     </div>
   )
 }
