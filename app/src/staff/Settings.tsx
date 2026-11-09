@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import Account from '../pages/Account'
-import { supabase } from '../lib/supabase'
+import { supabase, money } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import { useRates, type Rate } from './budget/BudgetTab'
@@ -8,7 +8,7 @@ import './admin.css'
 
 type FS = { digest_time: string; digest_enabled: boolean; reminder_days: number[]; late_rate_monthly: number; firm_name: string | null; address: string | null; phone: string | null; billing_email: string | null; check_payee: string | null
   wire_bank_name: string | null; wire_bank_address: string | null; wire_account_name: string | null; wire_routing: string | null; wire_account: string | null; wire_swift: string | null; wire_notes: string | null }
-type Person = { id: string; email: string; full_name: string | null; initials: string | null; title: string | null; role: 'admin' | 'staff' | 'client' | 'none'; util_target: number | null; bill_rate: number | null }
+type Person = { id: string; email: string; full_name: string | null; initials: string | null; title: string | null; role: 'admin' | 'staff' | 'client' | 'none'; util_target: number | null; bill_rate: number | null; rate_id?: string | null }
 type Invite = { email: string; role: string; full_name: string | null; created_at: string }
 
 export default function Settings() {
@@ -172,8 +172,10 @@ function FirmSettings({ admin }: { admin: boolean }) {
 }
 
 function People({ me }: { me: string }) {
+  const rates = useRates()
+  const [customFor, setCustomFor] = useState<string | null>(null)
   const { data, error, reload } = useLoad(async () => {
-    const people = must(await supabase.from('profiles').select('id, email, full_name, initials, title, role, util_target, bill_rate').in('role', ['admin', 'staff']).order('full_name')) as Person[]
+    const people = must(await supabase.from('profiles').select('id, email, full_name, initials, title, role, util_target, bill_rate, rate_id').in('role', ['admin', 'staff']).order('full_name')) as Person[]
     const invites = must(await supabase.from('invites').select('email, role, full_name, created_at').in('role', ['admin', 'staff']).order('created_at', { ascending: false })) as Invite[]
     return { people, invites: invites.filter((i) => !people.some((p) => p.email.toLowerCase() === i.email.toLowerCase())) }
   })
@@ -201,7 +203,7 @@ function People({ me }: { me: string }) {
       {error && <p className="err" role="alert">{error}</p>}
       <div className="tablewrap">
         <table className="table" style={{ minWidth: 760 }}>
-          <thead><tr><th>Name</th><th>Role</th><th className="r">Utilization target (%)</th><th className="r">Bill rate ($/hr)</th></tr></thead>
+          <thead><tr><th>Name</th><th>Role</th><th className="r">Utilization target (%)</th><th>Billable rate</th></tr></thead>
           <tbody>{data?.people.map((p) => (
             <tr key={p.id}>
               <td><strong>{p.full_name || p.email}</strong><div className="muted" style={{ fontSize: 13 }}>{p.title ? `${p.title} · ` : ''}{p.email}</div></td>
@@ -210,8 +212,21 @@ function People({ me }: { me: string }) {
                   <option value="staff">Staff</option><option value="admin">Admin</option><option value="none">No access</option></select></td>
               <td className="r"><label className="sr" htmlFor={`u-${p.id}`}>Utilization target for {p.email}</label>
                 <input id={`u-${p.id}`} className="input num" style={{ width: 90, textAlign: 'right' }} inputMode="decimal" defaultValue={p.util_target ?? ''} onBlur={(e) => { const v = num(e.target.value); if (v !== p.util_target) update(p, { util_target: v }) }} /></td>
-              <td className="r"><label className="sr" htmlFor={`b-${p.id}`}>Bill rate for {p.email}</label>
-                <input id={`b-${p.id}`} className="input num" style={{ width: 100, textAlign: 'right' }} inputMode="decimal" defaultValue={p.bill_rate ?? ''} onBlur={(e) => { const v = num(e.target.value); if (v !== p.bill_rate) update(p, { bill_rate: v }) }} /></td>
+              <td><label className="sr" htmlFor={`b-${p.id}`}>Billable rate for {p.email}</label>
+                {/* a level from the rate table sets their role and rate together; Custom keeps a one-off rate */}
+                <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                  <select id={`b-${p.id}`} className="input inline-select" style={{ minWidth: 240 }} value={customFor === p.id || (!p.rate_id && p.bill_rate != null) ? '__custom' : p.rate_id ?? ''}
+                    onChange={(e) => { const v = e.target.value
+                      if (v === '__custom') { setCustomFor(p.id); return }
+                      setCustomFor(null); update(p, v ? { rate_id: v } : { rate_id: null, bill_rate: null }) }}>
+                    <option value="">No rate set</option>
+                    {[...new Set((rates.data ?? []).map((r) => r.role))].map((role) => <optgroup key={role} label={role}>
+                      {(rates.data ?? []).filter((r) => r.role === role).map((r) => <option key={r.id} value={r.id}>{r.level} — {money(r.rate)}/hr</option>)}</optgroup>)}
+                    <option value="__custom">Custom rate…</option>
+                  </select>
+                  {(customFor === p.id || (!p.rate_id && p.bill_rate != null)) && <span className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>$<input className="input num" aria-label={`Custom rate for ${p.email}`} style={{ width: 90, textAlign: 'right' }} inputMode="decimal" defaultValue={p.bill_rate ?? ''}
+                    onBlur={(e) => { const v = num(e.target.value); if (v !== p.bill_rate || p.rate_id) update(p, { rate_id: null, bill_rate: v }) }} />/hr</span>}
+                </div></td>
             </tr>))}</tbody>
         </table>
       </div>
