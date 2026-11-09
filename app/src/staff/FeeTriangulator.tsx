@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import RowMenu from '../components/RowMenu'
 import { supabase, money } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import './fee-tri.css'
@@ -9,6 +10,7 @@ import './fee-tri.css'
 
 type Person = { id: string; full_name: string | null; bill_rate: number | null }
 type HourRow = { key: string; profile_id: string; hours: string; rate: string }
+type Saved = { id: string; name: string; inputs: State; median_fee: number | null; created_at: string; updated_at: string }
 type State = { rows: HourRow[]; sf: string; perSf: string; costPerSf: string; pct: string }
 
 const KEY = 'abaya.feeTriangulator'
@@ -24,6 +26,17 @@ export default function FeeTriangulator() {
   const [s, setS] = useState<State>(load)
   useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(s)) } catch { /* private mode */ } }, [s])
   const set = (patch: Partial<State>) => setS((o) => ({ ...o, ...patch }))
+  // saved triangulations (firm-wide, in the database), listed by year on the right
+  const saved = useLoad(async () => must(await supabase.from('fee_estimates').select('id, name, inputs, median_fee, created_at, updated_at').order('created_at', { ascending: false })) as Saved[])
+  const [cur, setCur] = useState<{ id: string; name: string } | null>(() => { try { return JSON.parse(localStorage.getItem(KEY + '.cur') || 'null') } catch { return null } })
+  useEffect(() => { try { localStorage.setItem(KEY + '.cur', JSON.stringify(cur)) } catch { /* private mode */ } }, [cur])
+  const [name, setName] = useState(cur?.name ?? '')
+  const [msg, setMsg] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false)
+  useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(''), 3000); return () => clearTimeout(t) }, [msg])
+  const years = useMemo(() => [...new Set((saved.data ?? []).map((x) => new Date(x.created_at).getFullYear()))].sort((a, b) => b - a), [saved.data])
+  const [year, setYear] = useState<number | null>(null)
+  const shownYear = year ?? years[0] ?? new Date().getFullYear()
+  const inYear = (saved.data ?? []).filter((x) => new Date(x.created_at).getFullYear() === shownYear)
   const setRow = (key: string, patch: Partial<HourRow>) => setS((o) => ({ ...o, rows: o.rows.map((r) => (r.key === key ? { ...r, ...patch } : r)) }))
   const pickPerson = (key: string, id: string) => {
     const p = people.data?.find((x) => x.id === id)
@@ -46,13 +59,63 @@ export default function FeeTriangulator() {
   const V = useMemo(() => [{ x: 150, y: 18 }, { x: 22, y: 242 }, { x: 278, y: 242 }], [])
   const C = { x: 150, y: (18 + 242 + 242) / 3 }
 
+  const payload = () => ({ name: name.trim(), inputs: s, hourly_fee: hourly || null, sf_fee: bySf || null, pct_fee: byPct || null, median_fee: med || null, updated_at: new Date().toISOString() })
+  const saveNew = async () => {
+    if (!name.trim()) return setErr('Give this fee a name first.')
+    setBusy(true); setErr('')
+    const { data, error } = await supabase.from('fee_estimates').insert(payload()).select('id, name, created_at').single()
+    setBusy(false)
+    if (error) return setErr(error.message)
+    setCur({ id: data.id, name: data.name }); setYear(new Date(data.created_at).getFullYear()); setMsg('Saved.'); saved.reload()
+  }
+  const update = async () => {
+    if (!cur) return saveNew()
+    if (!name.trim()) return setErr('Give this fee a name first.')
+    setBusy(true); setErr('')
+    const { error } = await supabase.from('fee_estimates').update(payload()).eq('id', cur.id)
+    setBusy(false)
+    if (error) return setErr(error.message)
+    setCur({ id: cur.id, name: name.trim() }); setMsg('Saved.'); saved.reload()
+  }
+  const open = (x: Saved) => { setS({ ...EMPTY, ...x.inputs, rows: (x.inputs.rows?.length ? x.inputs.rows : [newRow()]).map((r) => ({ ...r, key: r.key || newRow().key })) }); setCur({ id: x.id, name: x.name }); setName(x.name); setErr(''); setMsg('') }
+  const startNew = () => { setS({ ...EMPTY, rows: [newRow()] }); setCur(null); setName(''); setErr(''); setMsg('') }
+  const rename = async (x: Saved) => {
+    const n = window.prompt('Rename this fee', x.name)?.trim(); if (!n || n === x.name) return
+    const { error } = await supabase.from('fee_estimates').update({ name: n }).eq('id', x.id)
+    if (error) return setErr(error.message)
+    if (cur?.id === x.id) { setCur({ id: x.id, name: n }); setName(n) }
+    saved.reload()
+  }
+  const remove = async (x: Saved) => {
+    if (!window.confirm(`Delete “${x.name}”? This can’t be undone.`)) return
+    const { error } = await supabase.from('fee_estimates').delete().eq('id', x.id)
+    if (error) return setErr(error.message)
+    if (cur?.id === x.id) setCur(null)
+    saved.reload()
+  }
+  const fmtD = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+
   return (
     <section className="card pad ft" aria-labelledby="ft-h">
+      <div className="ft-layout">
+      <div className="ft-main">
       <div className="row between" style={{ alignItems: 'baseline' }}>
         <h2 id="ft-h" style={{ margin: 0 }}>Fee triangulator</h2>
-        <button type="button" className="linkbtn" onClick={() => setS({ ...EMPTY, rows: [newRow()] })}>Clear</button>
+        <button type="button" className="linkbtn" onClick={startNew}>New / clear</button>
       </div>
       <p className="muted" style={{ margin: '4px 0 0', fontSize: 14 }}>Price the job three ways. The middle shows the median of the methods you fill in.</p>
+      <div className="ft-save">
+        <label className="sr" htmlFor="ft-name">Fee name</label>
+        <input id="ft-name" className="input" placeholder="Name this fee, e.g. Diamond Block — Phase 1" value={name} onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') (cur ? update : saveNew)() }} />
+        {cur ? <>
+          <button type="button" className="btn" disabled={busy} onClick={update}>Save</button>
+          <button type="button" className="btn secondary" disabled={busy} onClick={saveNew} title="Keep the original and save these inputs under the name above">Save as new</button>
+        </> : <button type="button" className="btn" disabled={busy} onClick={saveNew}>Save fee</button>}
+      </div>
+      {cur && <p className="muted" style={{ margin: '6px 0 0', fontSize: 13 }}>Editing saved fee <strong>{cur.name}</strong>. Save updates it; Save as new keeps both.</p>}
+      {msg && <p className="ok" role="status" style={{ margin: '8px 0 0' }}>{msg}</p>}
+      {err && <p className="err" role="alert" style={{ margin: '8px 0 0' }}>{err}</p>}
 
       <div className="ft-grid">
         {/* top corner: hourly */}
@@ -129,6 +192,27 @@ export default function FeeTriangulator() {
             {cost > 0 ? <>Construction cost: <span className="num">{num(s.sf).toLocaleString()} SF × {money(num(s.costPerSf))}/SF = <strong>{money(cost)}</strong></span></> : 'Same area as corner 2; changing it here changes it there.'}</p>
           <p className="ft-fee"><span className="num">{byPct ? money(byPct) : '—'}</span><small>{vsMedian(byPct, med)}</small></p>
         </fieldset>
+      </div>
+      </div>
+
+      <aside className="ft-list" aria-labelledby="ft-list-h">
+        <h3 id="ft-list-h">Saved fees</h3>
+        {years.length > 0 && <div className="ft-years" role="group" aria-label="Year">
+          {years.map((y) => <button key={y} type="button" className="chip" aria-pressed={y === shownYear} onClick={() => setYear(y)}>{y}</button>)}
+        </div>}
+        {saved.error && <p className="err" style={{ fontSize: 13 }}>{saved.error}</p>}
+        {saved.data && inYear.length === 0 && <p className="muted" style={{ fontSize: 14, margin: '8px 0 0' }}>{years.length ? `No fees saved in ${shownYear}.` : 'Nothing saved yet. Name a fee and click Save fee.'}</p>}
+        <ul>
+          {inYear.map((x) => (
+            <li key={x.id} className={cur?.id === x.id ? 'on' : ''}>
+              <button type="button" className="ft-item" onClick={() => open(x)} aria-current={cur?.id === x.id ? 'true' : undefined} title="Open these inputs in the triangulator">
+                <span className="ft-item-n">{x.name}</span>
+                <span className="ft-item-m"><span>{fmtD(x.created_at)}</span><span className="num">{x.median_fee ? money(x.median_fee) : '—'}</span></span>
+              </button>
+              <RowMenu label={`Actions for ${x.name}`} items={[{ label: 'Open', onSelect: () => open(x) }, { label: 'Rename…', onSelect: () => rename(x) }, 'divider', { label: 'Delete', danger: true, onSelect: () => remove(x) }]} />
+            </li>))}
+        </ul>
+      </aside>
       </div>
     </section>
   )
