@@ -8,6 +8,7 @@ import { workload, fmt, isoDate, parseDate, mondayOf } from './workload'
 import { MonthCalendar, TodayCard, useStaff } from './HomeCalendars'
 import BillsPanel from './BillsPanel'
 import WeeklyTime from './WeeklyTime'
+import MyProjectsGantt from './MyProjectsGantt'
 import { useYearlyNeed } from './YearlyNeed'
 import './admin.css'
 import './home.css'
@@ -130,6 +131,7 @@ export default function StaffHome() {
         </div>
         <div className="stack" style={{ minWidth: 0 }}>
           <MonthCalendar me={me} admin={admin} people={staff.data ?? []} projects={projects.data ?? []} />
+          <MyProjectsGantt me={me} />
 
           <section className="card pad stack" aria-labelledby="hm-dl">
             <div className="row between">
