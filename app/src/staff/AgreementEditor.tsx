@@ -240,7 +240,7 @@ export default function AgreementEditor() {
     <div className="stack" style={{ gap: 0 }}>
       <div className="ag-toolbar no-print">
         <div>
-          <Link to="/proposals" style={{ fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>‹ Proposals</Link>
+          <Link to="/proposals" style={{ fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>‹ Proposals/Agreements</Link>
           <h1 style={{ fontSize: 21, marginTop: 4 }}>{row.title}</h1>
         </div>
       </div>

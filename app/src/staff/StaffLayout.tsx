@@ -10,7 +10,7 @@ import wordmark from '../assets/abaya-wordmark.png'
 import './admin.css'
 
 // Time stays last, right above the timer
-const LINKS: [string, string][] = [['/', 'Home'], ['/projects', 'Projects'], ['/employees', 'Employees'], ['/proposals', 'Proposals'], ['/invoices', 'Invoices'],
+const LINKS: [string, string][] = [['/', 'Home'], ['/projects', 'Projects'], ['/employees', 'Employees'], ['/proposals', 'Proposals/Agreements'], ['/invoices', 'Invoices'],
   ['/bills', 'Bills'], ['/expenses', 'Expenses'], ['/clients', 'Clients'], ['/notifications', 'Notifications'], ['/site', 'Website'], ['/time', 'Time']]
 
 export default function StaffLayout() {

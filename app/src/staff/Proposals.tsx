@@ -122,7 +122,7 @@ export default function Proposals() {
   const rows = (list.data ?? []).filter((r) => filter === 'all' || r.status === filter)
   return (
     <div className="stack">
-      <h1>Proposals &amp; agreements</h1>
+      <h1>Proposals/Agreements</h1>
       <section className="card pad stack" aria-labelledby="np-h">
         <h2 id="np-h">New proposal</h2>
         <div className="row" style={{ alignItems: 'flex-end' }}>
