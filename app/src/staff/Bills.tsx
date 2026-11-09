@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import RowMenu, { type RowMenuItem } from '../components/RowMenu'
 import { supabase, money } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
@@ -43,7 +44,20 @@ export default function Bills() {
   const spentBy = useMemo(() => { const m: Record<string, number> = {}; bills.forEach((b) => { m[b.category] = (m[b.category] ?? 0) + Number(b.amount) }); return m }, [bills])
   const spent = bills.reduce((a, b) => a + Number(b.amount), 0)
   const budget = Object.values(budgetBy).reduce((a, b) => a + b, 0)
-  const cats = Array.from(new Set([...CATS.map(([c]) => c).filter((c) => spentBy[c] || budgetBy[c]), ...Object.keys(spentBy), ...Object.keys(budgetBy)]))
+  // category order: yours (saved on this device), then the standard order for anything new
+  const [order, setOrder] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem('abaya.bills.catOrder') || '[]') } catch { return [] } })
+  useEffect(() => { try { localStorage.setItem('abaya.bills.catOrder', JSON.stringify(order)) } catch { /* private mode */ } }, [order])
+  const rank = (c: string) => { const i = order.indexOf(c); return i >= 0 ? i : 1000 + (CATS.findIndex(([x]) => x === c) + 1 || 99) }
+  const cats = Array.from(new Set([...CATS.map(([c]) => c).filter((c) => spentBy[c] || budgetBy[c]), ...Object.keys(spentBy), ...Object.keys(budgetBy)])).sort((a, b) => rank(a) - rank(b))
+  const groups = cats.filter((c) => bills.some((b) => b.category === c))
+  /** Move a category up/down (or to another's place when dragged); the whole current order is saved. */
+  const moveCat = (c: string, to: number) => {
+    const list = [...groups]; const from = list.indexOf(c); if (from < 0 || to < 0 || to >= list.length || from === to) return
+    list.splice(from, 1); list.splice(to, 0, c)
+    setOrder([...list, ...order.filter((x) => !list.includes(x))])
+  }
+  const [dragCat, setDragCat] = useState<string | null>(null)
+  const [editing, setEditing] = useState<Bill | null>(null)
   const missingRecurring = (data?.prevRecurring ?? []).filter((p) => !bills.some((b) => b.name === p.name))
 
   const copyRecurring = async () => {
@@ -57,7 +71,32 @@ export default function Bills() {
     const { error } = await supabase.from('company_bills').update({ paid_on: paid ? todayIso() : null }).eq('id', b.id)
     setErr(error?.message ?? ''); reload()
   }
-  const remove = async (b: Bill) => { const { error } = await supabase.from('company_bills').delete().eq('id', b.id); setErr(error?.message ?? ''); reload() }
+  const remove = async (b: Bill) => {
+    if (!window.confirm(`Delete “${b.name}” (${money(b.amount)}, due ${new Date(b.due_on + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})? This can’t be undone.`)) return
+    const { error } = await supabase.from('company_bills').delete().eq('id', b.id); setErr(error?.message ?? ''); reload()
+  }
+  /** Copy a bill (unpaid) into this month or the next, then open the copy to edit. */
+  const duplicate = async (b: Bill, months = 0) => {
+    const [y, m, d] = b.due_on.split('-').map(Number)
+    const last = new Date(y, m - 1 + months + 1, 0).getDate()
+    const due = new Date(y, m - 1 + months, Math.min(d, last))
+    const due_on = `${due.getFullYear()}-${pad(due.getMonth() + 1)}-${pad(due.getDate())}`
+    const { data: row, error } = await supabase.from('company_bills').insert({ name: months ? b.name : `${b.name} (copy)`, category: b.category, amount: b.amount, due_on, recurring_monthly: b.recurring_monthly, note: b.note, created_by: profile!.id }).select('*').single()
+    if (error) return setErr(error.message)
+    setErr('')
+    if (months) { setMonth(monthKey(due)); return }
+    reload(); setAdding(false); setEditing(row as Bill)
+  }
+  const toggleMonthly = async (b: Bill) => { const { error } = await supabase.from('company_bills').update({ recurring_monthly: !b.recurring_monthly }).eq('id', b.id); setErr(error?.message ?? ''); reload() }
+  const menu = (b: Bill): RowMenuItem[] => [
+    { label: 'Edit…', onSelect: () => { setAdding(false); setEditing(b) } },
+    { label: 'Duplicate', onSelect: () => duplicate(b) },
+    { label: 'Copy to next month', onSelect: () => duplicate(b, 1) },
+    { label: b.recurring_monthly ? 'Stop repeating monthly' : 'Repeat every month', onSelect: () => toggleMonthly(b) },
+    { label: b.paid_on ? 'Mark unpaid' : 'Mark paid', onSelect: () => markPaid(b, !b.paid_on) },
+    'divider',
+    { label: 'Delete', danger: true, onSelect: () => remove(b) },
+  ]
 
   // donut
   let offset = 0
@@ -72,12 +111,13 @@ export default function Bills() {
           <button className="btn small secondary" aria-label="Previous month" onClick={() => setMonth(addMonths(month, -1))}>‹</button>
           <strong style={{ minWidth: 150, textAlign: 'center' }}>{monthLabel(month)}</strong>
           <button className="btn small secondary" aria-label="Next month" onClick={() => setMonth(addMonths(month, 1))}>›</button>
-          {admin && <button className="btn" onClick={() => setAdding(!adding)}>{adding ? 'Close' : 'Add bill'}</button>}
+          {admin && <button className="btn" onClick={() => { setEditing(null); setAdding(!adding) }}>{adding ? 'Close' : 'Add bill'}</button>}
         </div>
       </div>
       {!admin && <p className="muted" style={{ margin: 0 }}>Only admins can add or change bills.</p>}
       {(error || err) && <p className="err" role="alert">{error || err}</p>}
       {adding && admin && <AddBill month={month} me={profile!.id} onDone={() => { setAdding(false); reload() }} />}
+      {editing && admin && <AddBill key={editing.id} month={month} me={profile!.id} bill={editing} onDone={() => { setEditing(null); reload() }} onCancel={() => setEditing(null)} />}
       {missingRecurring.length > 0 && admin && <div className="ok row between"><span>{missingRecurring.length} recurring bill{missingRecurring.length === 1 ? '' : 's'} from last month {missingRecurring.length === 1 ? 'isn’t' : 'aren’t'} in {monthLabel(month)} yet.</span><button className="btn small" onClick={copyRecurring}>Add them</button></div>}
 
       <section className="card pad stack" aria-labelledby="bd-h">
@@ -112,42 +152,63 @@ export default function Bills() {
 
       <section className="card pad" aria-labelledby="bl-h">
         <h2 id="bl-h" style={{ marginBottom: 8 }}>Bills this month</h2>
-        <div className="tablewrap"><table className="table" style={{ minWidth: 760 }}>
-          <thead><tr><th>Bill</th><th>Category</th><th>Due</th><th className="r">Amount</th><th>Status</th><th></th></tr></thead>
-          <tbody>
-            {bills.map((b) => { const [l, cls] = statusOf(b); return (
-              <tr key={b.id}>
-                <td><strong>{b.name}</strong>{b.recurring_monthly && <span className="pill" style={{ marginLeft: 8 }}>Monthly</span>}{b.note && <div className="muted" style={{ fontSize: 13 }}>{b.note}</div>}</td>
-                <td>{b.category}</td>
-                <td className="num">{new Date(b.due_on + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
-                <td className="r num"><strong>{money(b.amount)}</strong></td>
-                <td><span className={'badge ' + cls}>{l}</span></td>
-                <td>{admin && <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
-                  <button className="btn small secondary" onClick={() => markPaid(b, !b.paid_on)}>{b.paid_on ? 'Mark unpaid' : 'Mark paid'}</button>
-                  <button className="btn small danger" aria-label={`Delete ${b.name}`} onClick={() => remove(b)}>×</button></div>}</td>
-              </tr>) })}
-            {data && bills.length === 0 && <tr><td colSpan={6} className="muted" style={{ textAlign: 'center', padding: 24 }}><em>No bills in {monthLabel(month)}.</em></td></tr>}
-          </tbody>
+        <p className="muted" style={{ margin: '0 0 8px', fontSize: 13 }}>Grouped by category. Drag a category heading, or use its arrows, to change the order.</p>
+        <div className="tablewrap"><table className="table bills-t" style={{ minWidth: 720 }}>
+          <thead><tr><th>Bill</th><th>Due</th><th className="r">Amount</th><th>Status</th><th><span className="sr">Actions</span></th></tr></thead>
+          {groups.map((c, gi) => { const rows = bills.filter((b) => b.category === c); return (
+            <tbody key={c} className={'bills-g' + (dragCat === c ? ' dragging' : '')}
+              onDragOver={(e) => { if (dragCat && dragCat !== c) e.preventDefault() }}
+              onDrop={(e) => { e.preventDefault(); if (dragCat) moveCat(dragCat, gi); setDragCat(null) }}>
+              <tr className="bills-gh" draggable onDragStart={(e) => { setDragCat(c); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c) }} onDragEnd={() => setDragCat(null)}>
+                <th colSpan={2} scope="colgroup">
+                  <span className="bills-grip" aria-hidden="true">⋮⋮</span>
+                  <span aria-hidden="true" className="bills-dot" style={{ background: COLOR[c] ?? '#98a2b3' }} />{c}
+                  <span className="muted bills-n">{rows.length} bill{rows.length === 1 ? '' : 's'}</span>
+                </th>
+                <td className="r num"><strong>{money(spentBy[c] ?? 0)}</strong></td>
+                <td colSpan={2} className="r">
+                  <span className="bills-mv">
+                    <button type="button" className="btn small secondary" disabled={gi === 0} onClick={() => moveCat(c, gi - 1)} aria-label={`Move ${c} up`} title="Move up">↑</button>
+                    <button type="button" className="btn small secondary" disabled={gi === groups.length - 1} onClick={() => moveCat(c, gi + 1)} aria-label={`Move ${c} down`} title="Move down">↓</button>
+                  </span>
+                </td>
+              </tr>
+              {rows.map((b) => { const [l, cls] = statusOf(b); return (
+                <tr key={b.id}>
+                  <td><strong>{b.name}</strong>{b.recurring_monthly && <span className="pill" style={{ marginLeft: 8 }}>Monthly</span>}{b.note && <div className="muted" style={{ fontSize: 13 }}>{b.note}</div>}</td>
+                  <td className="num">{new Date(b.due_on + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
+                  <td className="r num"><strong>{money(b.amount)}</strong></td>
+                  <td><span className={'badge ' + cls}>{l}</span></td>
+                  <td>{admin && <div className="row" style={{ gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
+                    <button className="btn small secondary" onClick={() => markPaid(b, !b.paid_on)}>{b.paid_on ? 'Mark unpaid' : 'Mark paid'}</button>
+                    <RowMenu label={`Actions for ${b.name}`} items={menu(b)} /></div>}</td>
+                </tr>) })}
+            </tbody>) })}
+          {data && bills.length === 0 && <tbody><tr><td colSpan={5} className="muted" style={{ textAlign: 'center', padding: 24 }}><em>No bills in {monthLabel(month)}.</em></td></tr></tbody>}
         </table></div>
       </section>
     </div>
   )
 }
 
-function AddBill({ month, me, onDone }: { month: string; me: string; onDone: () => void }) {
-  const [f, setF] = useState({ name: '', category: 'Rent', amount: '', due_on: month, recurring: false, note: '' })
+function AddBill({ month, me, bill, onDone, onCancel }: { month: string; me: string; bill?: Bill; onDone: () => void; onCancel?: () => void }) {
+  const [f, setF] = useState(() => bill
+    ? { name: bill.name, category: bill.category, amount: String(Number(bill.amount)), due_on: bill.due_on, recurring: bill.recurring_monthly, note: bill.note ?? '' }
+    : { name: '', category: 'Rent', amount: '', due_on: month, recurring: false, note: '' })
   const [err, setErr] = useState('')
+  useEffect(() => { if (bill) document.getElementById('b-n')?.focus() }, [bill])
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
-    const amount = Number(f.amount)
+    const amount = Number(String(f.amount).replace(/[$,]/g, ''))
     if (!f.name.trim() || !(amount > 0)) return setErr('Enter a name and an amount.')
-    const { error } = await supabase.from('company_bills').insert({ name: f.name.trim(), category: f.category, amount, due_on: f.due_on, recurring_monthly: f.recurring, note: f.note || null, created_by: me })
+    const row = { name: f.name.trim(), category: f.category, amount, due_on: f.due_on, recurring_monthly: f.recurring, note: f.note || null }
+    const { error } = bill ? await supabase.from('company_bills').update(row).eq('id', bill.id) : await supabase.from('company_bills').insert({ ...row, created_by: me })
     if (error) return setErr(error.message)
     onDone()
   }
   return (
     <form onSubmit={save} className="card pad stack">
-      <h2>Add bill</h2>
+      <h2>{bill ? 'Edit bill' : 'Add bill'}</h2>
       <div className="formgrid">
         <div><label className="l" htmlFor="b-n">Bill</label><input id="b-n" className="input" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Office rent — Suite 215" /></div>
         <div><label className="l" htmlFor="b-c">Category</label><select id="b-c" className="input" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>{CATS.map(([c]) => <option key={c}>{c}</option>)}</select></div>
@@ -157,7 +218,7 @@ function AddBill({ month, me, onDone }: { month: string; me: string; onDone: () 
       </div>
       <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={f.recurring} onChange={(e) => setF({ ...f, recurring: e.target.checked })} style={{ width: 18, height: 18 }} />Repeats every month</label>
       {err && <p className="err" role="alert">{err}</p>}
-      <div><button className="btn">Save bill</button></div>
+      <div className="row"><button className="btn">{bill ? 'Save changes' : 'Save bill'}</button>{onCancel && <button type="button" className="btn secondary" onClick={onCancel}>Cancel</button>}</div>
     </form>)
 }
 

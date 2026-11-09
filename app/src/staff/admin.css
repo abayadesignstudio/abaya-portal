@@ -23,3 +23,13 @@
 .br-line{display:grid;grid-template-columns:minmax(170px,1fr) 128px 26px;gap:6px;align-items:center}
 .br-money{display:flex;align-items:center;gap:4px}
 .br-money .input{text-align:right}
+/* Bills: grouped by category */
+.bills-t tbody.bills-g + tbody.bills-g .bills-gh th,.bills-t tbody.bills-g + tbody.bills-g .bills-gh td{border-top:10px solid #fff}
+.bills-gh th,.bills-gh td{background:#f6f5f2;padding:8px 12px;font-size:15px;font-weight:700;text-transform:none;letter-spacing:0;color:var(--text);vertical-align:middle}
+.bills-gh{cursor:grab}
+.bills-g.dragging .bills-gh th,.bills-g.dragging .bills-gh td{background:#e6edf4}
+.bills-grip{color:#a39e93;margin-right:8px;font-size:13px;letter-spacing:-2px}
+.bills-dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px}
+.bills-n{font-weight:400;font-size:13px;margin-left:10px}
+.bills-mv{display:inline-flex;gap:4px}
+.bills-mv .btn{min-height:28px;padding:0 9px}
