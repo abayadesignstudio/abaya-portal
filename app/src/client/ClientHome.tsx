@@ -5,12 +5,12 @@ import { sortPhases, fmtDate, type PhaseRow } from '../lib/projectContent'
 import PhaseStepper from './PhaseStepper'
 import './client.css'
 
-type P = { id: string; number: string; name: string; sector: string | null; category: string | null; status: string; next_milestone: string | null; phases: PhaseRow[] }
+type P = { id: string; number: string; name: string; sector: string | null; category: string | null; categories: string[] | null; status: string; next_milestone: string | null; phases: PhaseRow[] }
 type I = { id: string; number: string; total: number; amount_paid: number; status: string; due_date: string | null }
 
 export default function ClientHome() {
   const { data, error } = useLoad(async () => ({
-    projects: must(await supabase.from('projects').select('id, number, name, sector, category, status, next_milestone, phases(id, code, fee, status, start_date, end_date, meetings_included)').order('number', { ascending: false })) as unknown as P[],
+    projects: must(await supabase.from('projects').select('id, number, name, sector, category, categories, status, next_milestone, phases(id, code, fee, status, start_date, end_date, meetings_included)').order('number', { ascending: false })) as unknown as P[],
     invoices: must(await supabase.from('invoices').select('id, number, total, amount_paid, status, due_date').eq('status', 'open')) as I[],
   }))
   const owed = (data?.invoices ?? []).reduce((a, i) => a + Number(i.total) - Number(i.amount_paid), 0)
@@ -32,7 +32,7 @@ export default function ClientHome() {
             <div className="row" style={{ gap: 8 }}>
               <span className="tag" style={{ background: SECTOR_COLOR[p.sector ?? 'internal'] }}>{p.number}</span>
               <strong style={{ fontSize: 18 }}>{p.name}</strong>
-              {p.category && <abbr className="pill" title={CATEGORY_NAME[p.category]}>{p.category}</abbr>}
+              {(p.categories ?? []).map((c) => <abbr key={c} className="pill" title={CATEGORY_NAME[c]}>{c}</abbr>)}
             </div>
             <span className="muted" style={{ fontSize: 14 }}>{p.status === 'complete' ? 'Complete' : p.next_milestone ?? ''}</span>
           </div>

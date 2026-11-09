@@ -9,7 +9,7 @@ import FeeTriangulator, { type FeeSeed } from './FeeTriangulator'
 
 type Row = { id: string; title: string; status: string; total_fee: number | null; updated_at: string
   clients: { name: string } | null; projects: { number: string; name: string; sector: string | null } | null }
-type Proj = { id: string; number: string; name: string; address: string | null; category: string | null; client_id: string | null
+type Proj = { id: string; number: string; name: string; address: string | null; category: string | null; categories: string[] | null; client_id: string | null
   clients: { name: string; phone: string | null; billing_email: string | null; address: string | null } | null; phases: { code: string; fee: number }[] }
 
 const STATUS: Record<string, [string, string, string]> = {
@@ -40,7 +40,7 @@ export default function Proposals() {
   const list = useLoad(async () => must(await supabase.from('agreements')
     .select('id, title, status, total_fee, updated_at, clients(name), projects(number, name, sector)').order('updated_at', { ascending: false })) as unknown as Row[])
   const projects = useLoad(async () => must(await supabase.from('projects')
-    .select('id, number, name, address, category, client_id, clients(name, phone, billing_email, address), phases(code, fee)')
+    .select('id, number, name, address, category, categories, client_id, clients(name, phone, billing_email, address), phases(code, fee)')
     .neq('number', 'OH').in('status', ['active', 'paused', 'proposal']).order('number', { ascending: false })) as unknown as Proj[])
 
   const create = async () => {
@@ -55,14 +55,14 @@ export default function Proposals() {
         let cid: string | null = np.client && np.client !== 'new' ? np.client : null
         if (np.client === 'new') cid = (must(await supabase.from('clients').insert({ name: np.newClient.trim() }).select('id').single()) as { id: string }).id
         const made = must(await supabase.from('projects').insert({ number: np.number.trim(), name: np.name.trim(), client_id: cid, category: np.category, sector: np.sector, status: 'proposal' })
-          .select('id, number, name, address, category, client_id, clients(name, phone, billing_email, address), phases(code, fee)').single()) as unknown as Proj
+          .select('id, number, name, address, category, categories, client_id, clients(name, phone, billing_email, address), phases(code, fee)').single()) as unknown as Proj
         p = made
       } catch (e) { setBusy(false); return setErr(/duplicate|unique/i.test(String((e as Error).message)) ? `Project number ${np.number.trim()} is already used.` : (e as Error).message) }
     }
     if (!p) { setBusy(false); return setErr('That project wasn’t found. Reload the page and try again.') }
     const fees = p ? Object.fromEntries((p.phases ?? []).filter((ph) => Number(ph.fee) > 0).map((ph) => [ph.code, Number(ph.fee)])) : {}
     const doc = newDoc(p ? {
-      projName: p.name, projAddr: p.address ?? '', projType: p.category ?? 'S',
+      projName: p.name, projAddr: p.address ?? '', projType: (p.categories ?? []).join(',') || p.category || 'S',
       ownerName: p.clients?.name ?? '', ownerPhone: p.clients?.phone ?? '', ownerEmail: p.clients?.billing_email ?? '', ownerAddr: p.clients?.address ?? '',
     } : {}, fees)
     if (seed) { // the triangulator's fee, phases and one payment per phase replace the project's phase fees

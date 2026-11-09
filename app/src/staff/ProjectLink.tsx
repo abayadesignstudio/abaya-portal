@@ -9,7 +9,7 @@ import { typeCodes } from './TypePicker'
 // Links a proposal to a project (and that project's client), so the Proposals list shows them and the
 // cover can be filled from the project's records. A brand-new project can be created right here.
 type Client = { id: string; name: string; phone: string | null; billing_email: string | null; address: string | null }
-type Proj = { id: string; number: string; name: string; address: string | null; category: string | null; sector: string | null; client_id: string | null; clients: Client | null }
+type Proj = { id: string; number: string; name: string; address: string | null; category: string | null; categories?: string[] | null; sector: string | null; client_id: string | null; clients: Client | null }
 type Cover = Record<string, string>
 
 const SECTORS: [string, string][] = [['commercial', 'Commercial / Retail'], ['residential', 'Residential'], ['medical', 'Medical'], ['civic', 'Civic'], ['consultation', 'Consultation']]
@@ -18,7 +18,8 @@ const SECTORS: [string, string][] = [['commercial', 'Commercial / Retail'], ['re
 function coverFrom(p: Proj): Cover {
   const c = p.clients
   const out: Cover = { projName: p.name, projAddr: p.address ?? '', ownerName: c?.name ?? '', ownerPhone: c?.phone ?? '', ownerEmail: c?.billing_email ?? '', ownerAddr: c?.address ?? '' }
-  if (p.category && typeCodes(p.category).length) out.projType = p.category
+  const types = (p.categories ?? []).length ? (p.categories ?? []).join(',') : p.category ?? ''
+  if (typeCodes(types).length) out.projType = types
   return out
 }
 
@@ -36,7 +37,7 @@ export default function ProjectLink({ projectId, clientId, agreementId, cover, o
 
   const load = async () => {
     const [p, c] = await Promise.all([
-      supabase.from('projects').select('id, number, name, address, category, sector, client_id, clients(id, name, phone, billing_email, address)').neq('number', 'OH').order('number', { ascending: false }),
+      supabase.from('projects').select('id, number, name, address, category, categories, sector, client_id, clients(id, name, phone, billing_email, address)').neq('number', 'OH').order('number', { ascending: false }),
       supabase.from('clients').select('id, name, phone, billing_email, address').order('name'),
     ])
     setProjects((p.data as unknown as Proj[]) ?? []); setClients((c.data as Client[]) ?? [])
@@ -78,7 +79,7 @@ export default function ProjectLink({ projectId, clientId, agreementId, cover, o
       let cid: string | null = f.client || null
       if (f.client === 'new') cid = (must(await supabase.from('clients').insert({ name: f.newClient.trim() }).select('id').single()) as { id: string }).id
       const cat = typeCodes(cover.projType)[0] ?? 'S'
-      const p = must(await supabase.from('projects').insert({ number: f.number.trim(), name: f.name.trim(), client_id: cid, category: cat, sector: f.sector, address: cover.projAddr?.trim() || null }).select('id').single()) as { id: string }
+      const p = must(await supabase.from('projects').insert({ number: f.number.trim(), name: f.name.trim(), client_id: cid, categories: typeCodes(cover.projType).length ? typeCodes(cover.projType) : [cat], sector: f.sector, address: cover.projAddr?.trim() || null }).select('id').single()) as { id: string }
       await load()
       await save(p.id, cid)
       setAdding(false); setF({ number: '', name: '', client: '', newClient: '', sector: 'commercial' })

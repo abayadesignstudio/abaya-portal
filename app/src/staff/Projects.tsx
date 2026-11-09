@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import TypePicker, { typeCodes } from './TypePicker'
 import { Link } from 'react-router-dom'
 import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASES } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
@@ -6,7 +7,7 @@ import { useAuth } from '../lib/auth'
 import ProjectsGantt, { Grip, type Reorder } from './ProjectsGantt'
 import './admin.css'
 
-type Row = { id: string; number: string; name: string; status: string; category: string | null; sector: string | null; next_milestone: string | null
+type Row = { id: string; number: string; name: string; status: string; category: string | null; categories: string[] | null; sector: string | null; next_milestone: string | null
   clients: { name: string } | null; phases: { id: string; code: string; status: string; fee: number; start_date: string | null; end_date: string | null }[] }
 type TimeRow = { project_id: string; minutes: number; profiles: { bill_rate: number | null } | null }
 type OpenInv = { project_id: string; total: number; amount_paid: number; due_date: string | null }
@@ -42,7 +43,7 @@ export default function Projects() {
   const setStatus = (v: string) => { setStatusRaw(v); keep('abaya.projects.status', v) }
   const [cats, setCatsRaw] = useState<string[]>(() => remember('abaya.projects.types', '').split(',').filter(Boolean)) // project types to show; none picked = all types
   const setCats = (v: string[]) => { setCatsRaw(v); keep('abaya.projects.types', v.join(',')) }
-  const typeOk = (c: string | null) => cats.length === 0 || (!!c && cats.includes(c))
+  const typeOk = (cs: string[] | null) => cats.length === 0 || (cs ?? []).some((c) => cats.includes(c)) // a Shell + Finish-Out project shows under either
   const toggleType = (id: string) => setCats(id === 'all' ? [] : cats.includes(id) ? cats.filter((x) => x !== id) : [...cats, id])
   const [q, setQ] = useState('')
   const [adding, setAdding] = useState(false)
@@ -56,7 +57,7 @@ export default function Projects() {
   const [err, setErr] = useState('')
   const { data, error, reload } = useLoad(async () => {
     const projects = must(await supabase.from('projects')
-      .select('id, number, name, status, category, sector, next_milestone, clients(name), phases(id, code, status, fee, start_date, end_date)').order('number', { ascending: false })) as unknown as Row[]
+      .select('id, number, name, status, category, categories, sector, next_milestone, clients(name), phases(id, code, status, fee, start_date, end_date)').order('number', { ascending: false })) as unknown as Row[]
     const time = must(await supabase.from('time_entries').select('project_id, minutes, profiles(bill_rate)')) as unknown as TimeRow[]
     const open = must(await supabase.from('invoices').select('project_id, total, amount_paid, due_date').eq('status', 'open')) as OpenInv[]
     return { projects, time, open }
@@ -81,7 +82,7 @@ export default function Projects() {
     const fresh = sortRows(all.filter((p) => !placed.includes(p.id)), 'new').map((p) => p.id)
     return [...fresh, ...placed]
   }, [working, saved.data, all])
-  const rows = sortRows(all.filter((p) => (status === 'all' || p.status === status) && typeOk(p.category) &&
+  const rows = sortRows(all.filter((p) => (status === 'all' || p.status === status) && typeOk(p.categories) &&
     (!q || `${p.number} ${p.name} ${p.clients?.name ?? ''}`.toLowerCase().includes(q.toLowerCase()))), sort, fullOrder)
   const saveOrder = async (ids: string[]) => {
     const { error } = await supabase.from('project_order').upsert({ profile_id: profile!.id, project_ids: ids, updated_at: new Date().toISOString() })
@@ -107,7 +108,7 @@ export default function Projects() {
     },
   } : undefined
   const feeUsed = useMemo(() => Object.fromEntries(all.map((p) => { const fee = p.phases.reduce((a, ph) => a + Number(ph.fee), 0); return [p.id, fee ? (labor[p.id] ?? 0) / fee * 100 : null] })), [all, labor])
-  const count = (s: string) => all.filter((p) => (s === 'all' || p.status === s) && typeOk(p.category)).length
+  const count = (s: string) => all.filter((p) => (s === 'all' || p.status === s) && typeOk(p.categories)).length
   const unset = all.filter((p) => !p.sector).length
 
   const setSector = async (id: string, sector: string) => {
@@ -166,7 +167,7 @@ export default function Projects() {
                     <div className="row" style={{ gap: 8 }}>
                       <span className="tag" style={{ background: SECTOR_COLOR[p.sector ?? 'internal'] }} title={p.sector ?? 'No building type'}>{p.number}</span>
                       <Link to={`/projects/${p.id}`} style={{ fontWeight: 700, color: 'var(--text)', textDecoration: 'none' }}>{p.name}</Link>
-                      {p.category && <abbr className="pill" title={CATEGORY_NAME[p.category]}>{p.category}</abbr>}
+                      {(p.categories ?? []).map((c) => <abbr key={c} className="pill" title={CATEGORY_NAME[c]}>{c}</abbr>)}
                       {!p.sector && <><label className="sr" htmlFor={'sec-' + p.id}>Building type for {p.name}</label>
                         <select id={'sec-' + p.id} className="inline-select" value="" onChange={(e) => e.target.value && setSector(p.id, e.target.value)}>
                           <option value="">Set building type…</option>{SECTORS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></>}
@@ -206,7 +207,7 @@ function NewProject({ onDone }: { onDone: () => void }) {
     try {
       let clientId = f.client || null
       if (f.client === 'new') clientId = (must(await supabase.from('clients').insert({ name: f.newClient.trim() }).select('id').single()) as { id: string }).id
-      const p = must(await supabase.from('projects').insert({ number: f.number.trim(), name: f.name.trim(), client_id: clientId, category: f.category, sector: f.sector }).select('id').single()) as { id: string }
+      const p = must(await supabase.from('projects').insert({ number: f.number.trim(), name: f.name.trim(), client_id: clientId, categories: typeCodes(f.category), sector: f.sector }).select('id').single()) as { id: string }
       const ph = PHASES.filter(([c]) => fees[c] !== undefined && fees[c] !== '').map(([c]) => ({ project_id: p.id, code: c, fee: Number(fees[c]) || 0 }))
       if (ph.length) must(await supabase.from('phases').insert(ph))
       onDone()
@@ -221,7 +222,7 @@ function NewProject({ onDone }: { onDone: () => void }) {
         <div><label className="l" htmlFor="np-name">Name</label><input id="np-name" className="input" required value={f.name} onChange={set('name')} /></div>
         <div><label className="l" htmlFor="np-c">Client</label><select id="np-c" className="input" value={f.client} onChange={set('client')}>
           <option value="">—</option>{clients.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}<option value="new">+ New client…</option></select></div>
-        <div><label className="l" htmlFor="np-cat">Type</label><select id="np-cat" className="input" value={f.category} onChange={set('category')}><option value="S">Shell (S)</option><option value="FO">Interior Finish-Out (FO)</option><option value="CON">Consultation (CON)</option></select></div>
+        <div><label className="l" htmlFor="np-cat">Type</label><TypePicker id="np-cat" value={f.category} onChange={(v) => setF({ ...f, category: v })} /></div>
         <div><label className="l" htmlFor="np-sec">Building type</label><select id="np-sec" className="input" value={f.sector} onChange={set('sector')}><option value="commercial">Commercial / Retail</option><option value="residential">Residential</option><option value="medical">Medical</option><option value="consultation">Consultation</option><option value="civic">Civic</option><option value="internal">Internal</option></select></div>
       </div>
       {f.client === 'new' && <div style={{ maxWidth: 420 }}><label className="l" htmlFor="np-nc">New client name</label><input id="np-nc" className="input" required value={f.newClient} onChange={set('newClient')} /></div>}

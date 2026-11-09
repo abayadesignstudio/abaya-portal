@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
+import TypePicker, { typeCodes } from './TypePicker'
 import Avatar from '../components/Avatar'
 import { Link, useParams } from 'react-router-dom'
 import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASES, PHASE_NAME } from '../lib/supabase'
@@ -13,7 +14,7 @@ import { sortPhases, fmtDate, signedPhotoUrls, uid, extOf,
 
 type Phase = { id: string; code: string; fee: number; fee_pct: number | null; status: string; start_date: string | null; end_date: string | null; meetings_included: number | null }
 type Entry = { phase_id: string | null; profile_id: string; minutes: number; profiles: { full_name: string | null; bill_rate: number | null } | null }
-type Project = { id: string; number: string; name: string; status: string; category: string | null; sector: string | null; address: string | null; next_milestone: string | null; client_id: string | null; clients: { name: string } | null }
+type Project = { id: string; number: string; name: string; status: string; category: string | null; categories: string[] | null; sector: string | null; address: string | null; next_milestone: string | null; client_id: string | null; clients: { name: string } | null }
 type Inv = { id: string; number: string; status: string; total: number; amount_paid: number | null; issue_date: string | null; due_date: string | null }
 
 // Project sub-menu, Monograph-style: core pages, then client-facing content
@@ -29,7 +30,7 @@ export default function ProjectDetail() {
   const [teamOpen, setTeamOpen] = useState<string | null>(null) // phase whose team editor is open, right in the table
   useEffect(() => { setTab('budget') }, [id])
   const { data, error, reload } = useLoad(async () => {
-    const p = must(await supabase.from('projects').select('id, number, name, status, category, sector, address, next_milestone, client_id, clients(name)').eq('id', id!).single()) as unknown as Project
+    const p = must(await supabase.from('projects').select('id, number, name, status, category, categories, sector, address, next_milestone, client_id, clients(name)').eq('id', id!).single()) as unknown as Project
     const phases = sortPhases(must(await supabase.from('phases').select('id, code, fee, fee_pct, status, start_date, end_date, meetings_included').eq('project_id', id!)) as Phase[])
     const billed = must(await supabase.from('phase_billing').select('phase_id, billed').eq('project_id', id!)) as { phase_id: string; billed: number }[]
     const time = must(await supabase.from('time_entries').select('phase_id, profile_id, minutes, profiles(full_name, bill_rate)').eq('project_id', id!)) as unknown as Entry[]
@@ -83,7 +84,7 @@ export default function ProjectDetail() {
       <Link to="/projects" style={{ fontWeight: 700, textDecoration: 'none' }}>‹ All projects</Link>
       <div className="row between">
         <h1 className="row" style={{ gap: 12 }}><span className="tag" style={{ background: SECTOR_COLOR[p.sector ?? 'internal'], height: 30, fontSize: 16 }}>{p.number}</span>{p.name}
-          {p.category && <abbr className="pill" title={CATEGORY_NAME[p.category]}>{p.category}</abbr>}</h1>
+          {(p.categories ?? []).map((c) => <abbr key={c} className="pill" title={CATEGORY_NAME[c]}>{c}</abbr>)}</h1>
         <StatusSelect id={p.id} value={p.status} onSaved={reload} />
       </div>
       <p className="muted" style={{ margin: 0 }}>{p.clients?.name ?? 'No client'}{p.address ? ` · ${p.address}` : ''}</p>
@@ -171,12 +172,12 @@ export default function ProjectDetail() {
 /* ---------------- Settings ---------------- */
 function SettingsTab({ project, onSaved }: { project: Project; onSaved: () => void }) {
   const clients = useLoad(async () => must(await supabase.from('clients').select('id, name').order('name')) as { id: string; name: string }[])
-  const [f, setF] = useState({ number: project.number, name: project.name, client_id: project.client_id ?? '', category: project.category ?? '', sector: project.sector ?? '', status: project.status, address: project.address ?? '', next_milestone: project.next_milestone ?? '' })
+  const [f, setF] = useState({ number: project.number, name: project.name, client_id: project.client_id ?? '', category: (project.categories ?? []).join(','), sector: project.sector ?? '', status: project.status, address: project.address ?? '', next_milestone: project.next_milestone ?? '' })
   const [msg, setMsg] = useState(''); const [err, setErr] = useState('')
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => { setF({ ...f, [k]: e.target.value }); setMsg('') }
   const save = async (e: React.FormEvent) => {
     e.preventDefault(); setErr('')
-    const { error } = await supabase.from('projects').update({ number: f.number.trim(), name: f.name.trim(), client_id: f.client_id || null, category: f.category || null, sector: f.sector || null,
+    const { error } = await supabase.from('projects').update({ number: f.number.trim(), name: f.name.trim(), client_id: f.client_id || null, categories: typeCodes(f.category), sector: f.sector || null,
       status: f.status, address: f.address || null, next_milestone: f.next_milestone || null }).eq('id', project.id)
     if (error) setErr(error.message); else { setMsg('Saved.'); onSaved() }
   }
@@ -187,7 +188,7 @@ function SettingsTab({ project, onSaved }: { project: Project; onSaved: () => vo
         <div><label className="l" htmlFor="s-num">Number</label><input id="s-num" className="input" required value={f.number} onChange={set('number')} /></div>
         <div><label className="l" htmlFor="s-name">Name</label><input id="s-name" className="input" required value={f.name} onChange={set('name')} /></div>
         <div><label className="l" htmlFor="s-cl">Client</label><select id="s-cl" className="input" value={f.client_id} onChange={set('client_id')}><option value="">—</option>{clients.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-        <div><label className="l" htmlFor="s-cat">Type</label><select id="s-cat" className="input" value={f.category} onChange={set('category')}><option value="">—</option><option value="S">Shell (S)</option><option value="FO">Interior Finish-Out (FO)</option><option value="CON">Consultation (CON)</option></select></div>
+        <div><label className="l" htmlFor="s-cat">Type <span className="muted" style={{ fontWeight: 400 }}>(pick all that apply)</span></label><TypePicker id="s-cat" value={f.category} onChange={(v) => { setF({ ...f, category: v }); setMsg('') }} /></div>
         <div><label className="l" htmlFor="s-sec">Building type</label><select id="s-sec" className="input" value={f.sector} onChange={set('sector')}><option value="">—</option><option value="commercial">Commercial / Retail</option><option value="residential">Residential</option><option value="medical">Medical</option><option value="consultation">Consultation</option><option value="civic">Civic</option><option value="internal">Internal</option></select></div>
         <div><label className="l" htmlFor="s-st">Status</label><select id="s-st" className="input" value={f.status} onChange={set('status')}><option value="active">Active</option><option value="paused">Paused</option><option value="complete">Complete</option><option value="proposal">Proposal</option></select></div>
         <div style={{ gridColumn: 'span 2' }}><label className="l" htmlFor="s-ad">Address</label><input id="s-ad" className="input" value={f.address} onChange={set('address')} /></div>

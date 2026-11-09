@@ -9,14 +9,14 @@ import PhaseStepper from './PhaseStepper'
 import UpdateCard from './UpdateCard'
 import './client.css'
 
-type P = { id: string; number: string; name: string; sector: string | null; category: string | null; address: string | null; status: string }
+type P = { id: string; number: string; name: string; sector: string | null; category: string | null; categories: string[] | null; address: string | null; status: string }
 type Inv = { id: string; number: string; status: string; issue_date?: string | null; total: number; amount_paid: number; due_date: string | null }
 
 export default function ClientProject() {
   const { id } = useParams()
   const { profile } = useAuth()
   const d = useLoad(async () => ({
-    p: must(await supabase.from('projects').select('id, number, name, sector, category, address, status').eq('id', id!).single()) as P,
+    p: must(await supabase.from('projects').select('id, number, name, sector, category, categories, address, status').eq('id', id!).single()) as P,
     phases: sortPhases(must(await supabase.from('phases').select('id, code, fee, status, start_date, end_date, meetings_included').eq('project_id', id!)) as PhaseRow[]),
     updates: must(await supabase.from('updates').select('*').eq('project_id', id!).order('created_at', { ascending: false }).limit(30)) as Update[],
     drawings: must(await supabase.from('drawings').select('*').eq('project_id', id!).order('issued_on', { ascending: false })) as Drawing[],
@@ -51,7 +51,7 @@ export default function ClientProject() {
       <Link to="/" style={{ fontWeight: 700, textDecoration: 'none' }}>‹ All projects</Link>
       <div>
         <h1 className="row" style={{ gap: 10 }}><span className="tag" style={{ background: SECTOR_COLOR[p.sector ?? 'internal'], height: 28, fontSize: 15 }}>{p.number}</span>{p.name}
-          {p.category && <abbr className="pill" title={CATEGORY_NAME[p.category]}>{p.category}</abbr>}</h1>
+          {(p.categories ?? []).map((c) => <abbr key={c} className="pill" title={CATEGORY_NAME[c]}>{c}</abbr>)}</h1>
         {p.address && <p className="muted" style={{ margin: '6px 0 0' }}>{p.address}</p>}
       </div>
 
