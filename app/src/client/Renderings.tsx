@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 /** Client renderings gallery: fit-to-screen image, zoom (wheel / pinch / double-click), drag to pan,
- *  full-screen mode, arrows and thumbnails. */
+ *  full-screen mode, arrows and a counter (no thumbnails). */
 export default function Renderings({ images }: { images: { name: string; url: string }[] }) {
   const [i, setI] = useState(0)
   const [z, setZ] = useState({ s: 1, x: 0, y: 0 }) // scale and offset (px) relative to "fit"
@@ -76,7 +76,6 @@ export default function Renderings({ images }: { images: { name: string; url: st
         </div>
         <span className="rg-count">{i + 1} / {images.length}</span>
       </div>
-      {images.length > 1 && <div className="rg-thumbs">{images.map((im, k) => <button key={im.name} type="button" className={k === i ? 'on' : ''} onClick={() => setI(k)} aria-label={label(im.name)}><img src={im.url} alt="" draggable={false} loading="lazy" /></button>)}</div>}
     </div>
   )
 }
