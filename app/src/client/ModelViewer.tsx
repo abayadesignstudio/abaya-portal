@@ -58,16 +58,20 @@ export default function ModelViewer({ url }: { url: string }) {
       }
     }
     const up = () => setTool(leftTool)
-    const dbl = (e: MouseEvent) => { const p = hitAt(e); if (p) { const off = camera.position.clone().sub(controls.target); controls.target.copy(p); camera.position.copy(p).add(off); controls.update() } }
+    const dbl = (e: MouseEvent) => { const p = hitAt(e); if (p) { const off = camera.position.clone().sub(controls.target); controls.target.copy(p); camera.position.copy(p).add(off); controls.update(); draw() } }
     const el2 = renderer.domElement
     el2.addEventListener('pointerdown', down, { capture: true }); window.addEventListener('pointerup', up); el2.addEventListener('dblclick', dbl)
     const auxNoScroll = (e: MouseEvent) => { if (e.button === 1) e.preventDefault() }
     el2.addEventListener('mousedown', auxNoScroll)
     let cams: THREE.PerspectiveCamera[] = []
     let raf = 0, alive = true
-    const size = () => { const w = el.clientWidth, h = el.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix() }
+    // render on demand only (when the view changes), never in a constant loop —
+    // keeps the page smooth and stops the GPU working while the model is hidden
+    let queued = false
+    const draw = () => { if (!alive || queued) return; queued = true; raf = requestAnimationFrame(() => { queued = false; if (alive && el.clientWidth) renderer.render(scene, camera) }) }
+    controls.addEventListener('change', draw)
+    const size = () => { const w = el.clientWidth, h = el.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); draw() }
     const ro = new ResizeObserver(size); ro.observe(el); size()
-    const loop = () => { if (!alive) return; controls.update(); renderer.render(scene, camera); raf = requestAnimationFrame(loop) }
 
     const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder)
     loader.load(url, (g) => {
@@ -80,6 +84,7 @@ export default function ModelViewer({ url }: { url: string }) {
         controls.target.copy(c)
         camera.position.copy(c).add(new THREE.Vector3(1, 0.7, 1).normalize().multiplyScalar(r * 2.2))
         camera.near = r / 500; camera.far = r * 50; camera.fov = 45; camera.updateProjectionMatrix()
+        controls.update(); draw()
       }
       cams = g.cameras.filter((x): x is THREE.PerspectiveCamera => (x as THREE.PerspectiveCamera).isPerspectiveCamera)
       const go = (i: number) => {
@@ -90,14 +95,15 @@ export default function ModelViewer({ url }: { url: string }) {
         camera.position.copy(p); camera.fov = v.fov; camera.updateProjectionMatrix()
         const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(q)
         controls.target.copy(p).add(dir.multiplyScalar(Math.max(r * 0.3, p.distanceTo(c) * 0.5)))
+        controls.update(); draw()
       }
       api.current = { fit, go, tool: (t: 'orbit' | 'pan') => { leftTool = t; setTool(t) } }
       setViews(cams.map((x, i) => (x.name || x.parent?.name || `View ${i + 1}`).replace(/_/g, ' ')))
-      fit(); setState('ready'); loop()
+      fit(); setState('ready'); setTimeout(draw, 300); setTimeout(draw, 1500)
     }, (e) => { if (e.total) setPct(e.loaded / e.total) }, () => alive && setState('error'))
 
     return () => {
-      alive = false; cancelAnimationFrame(raf); ro.disconnect(); controls.dispose()
+      alive = false; cancelAnimationFrame(raf); ro.disconnect(); controls.removeEventListener('change', draw); controls.dispose()
       el2.removeEventListener('pointerdown', down, { capture: true }); window.removeEventListener('pointerup', up); el2.removeEventListener('dblclick', dbl); el2.removeEventListener('mousedown', auxNoScroll)
       scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.geometry.dispose(); (Array.isArray(m.material) ? m.material : [m.material]).forEach((x) => { Object.values(x).forEach((v) => (v as THREE.Texture)?.isTexture && (v as THREE.Texture).dispose()); x.dispose() }) } })
       renderer.dispose(); el.removeChild(renderer.domElement)
