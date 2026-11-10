@@ -10,6 +10,7 @@ import PhaseStepper from './PhaseStepper'
 import UpdateCard from './UpdateCard'
 import './client.css'
 const ModelViewer = lazy(() => import('./ModelViewer'))
+import Renderings from './Renderings'
 
 type P = { id: string; number: string; name: string; sector: string | null; category: string | null; categories: string[] | null; address: string | null; status: string }
 type Inv = { id: string; number: string; status: string; issue_date?: string | null; total: number; amount_paid: number; due_date: string | null }
@@ -41,7 +42,7 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
     meetings: must(await supabase.from('meetings').select('*').eq('project_id', id!)) as Meeting[],
     requests: must(await supabase.from('service_requests').select('*').eq('project_id', id!).order('created_at', { ascending: false })) as ServiceRequest[],
     invoices: must(await supabase.from('invoices').select('id, number, status, issue_date, total, amount_paid, due_date').eq('project_id', id!).order('issue_date', { ascending: false })) as Inv[],
-    models: ((await supabase.storage.from('models').list(id!)).data ?? []).filter((f) => f.name && !f.name.startsWith('.')),
+    models: ((await supabase.storage.from('models').list(id!)).data ?? []).filter((f) => f.id && f.name && !f.name.startsWith('.')),
   }), [id])
   const reloadKey = pv?.reloadKey ?? 0
   const first = useRef(true)
@@ -109,24 +110,37 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
 }
 
 function ModelPanel({ projectId, files }: { projectId: string; files: { name: string; at: string }[] }) {
-  // view-only: newest .glb is shown in the viewer; there is no download button
+  // view-only: newest .glb in the viewer, renderings in a gallery; no downloads
   const glb = [...files].filter((f) => /\.glb$/i.test(f.name)).sort((a, b) => b.at.localeCompare(a.at))[0]?.name
   const [url, setUrl] = useState<string | null>(null)
+  const [imgs, setImgs] = useState<{ name: string; url: string }[]>([])
+  const [tab, setTab] = useState<'model' | 'renderings' | null>(null)
   useEffect(() => {
     setUrl(null)
     // short-lived link: long enough for the viewer to load it, not worth sharing
     if (glb) supabase.storage.from('models').createSignedUrl(`${projectId}/${glb}`, 120).then(({ data }) => setUrl(data?.signedUrl ?? null))
   }, [projectId, glb])
-  if (glb) return (
-    <section className="card" aria-label="3D model" style={{ overflow: 'hidden' }} onContextMenu={(e) => e.preventDefault()}>
-      {url ? <Suspense fallback={<div className="mv"><div className="mv-msg">Loading viewer…</div></div>}><ModelViewer url={url} /></Suspense>
-        : <div className="mv"><div className="mv-msg">Loading model…</div></div>}
-    </section>
-  )
+  useEffect(() => {
+    let live = true
+    ;(async () => {
+      const dir = `${projectId}/renderings`
+      const list = ((await supabase.storage.from('models').list(dir, { sortBy: { column: 'name', order: 'asc' } })).data ?? []).filter((f) => f.id && !f.name.startsWith('.'))
+      if (!list.length) { if (live) setImgs([]); return }
+      const { data } = await supabase.storage.from('models').createSignedUrls(list.map((f) => `${dir}/${f.name}`), 3600)
+      if (live) setImgs((data ?? []).filter((d) => d.signedUrl).map((d) => ({ name: d.path?.split('/').pop() ?? '', url: d.signedUrl as string })))
+    })()
+    return () => { live = false }
+  }, [projectId])
+  const show = tab ?? (glb ? 'model' : imgs.length ? 'renderings' : 'model')
   return (
-    <section className="card" aria-label="3D model" style={{ overflow: 'hidden' }}>
-      <div style={{ height: 300, background: 'linear-gradient(160deg,#0b2f4a,#02253d)', color: '#ede6d6', display: 'grid', placeItems: 'center', textAlign: 'center', padding: 24 }}>
-        <div><strong style={{ fontSize: 18 }}>3D model</strong><p style={{ color: '#c5ccd8', margin: '8px 0 0' }}>Your project’s 3D model will appear here once it’s published, so you can orbit around it and step through saved views.</p></div>
+    <section className="card" aria-label="3D model and renderings" style={{ overflow: 'hidden' }} onContextMenu={(e) => e.preventDefault()}>
+      {show === 'renderings' ? <Renderings images={imgs} />
+        : glb ? (url ? <Suspense fallback={<div className="mv"><div className="mv-msg">Loading viewer…</div></div>}><ModelViewer url={url} /></Suspense>
+          : <div className="mv"><div className="mv-msg">Loading model…</div></div>)
+        : <div className="mv"><div className="mv-msg" style={{ textAlign: 'center', padding: 24 }}><div><strong style={{ fontSize: 18 }}>3D model</strong><p style={{ color: '#c5ccd8', margin: '8px 0 0', fontWeight: 400 }}>Your project’s 3D model will appear here once it’s published, so you can orbit around it and step through saved views.</p></div></div></div>}
+      <div className="vis-tabs" role="tablist" aria-label="Project visuals">
+        <button type="button" role="tab" aria-selected={show === 'model'} className={show === 'model' ? 'on' : ''} onClick={() => setTab('model')}>3D model</button>
+        <button type="button" role="tab" aria-selected={show === 'renderings'} className={show === 'renderings' ? 'on' : ''} onClick={() => setTab('renderings')}>Renderings{imgs.length ? ` (${imgs.length})` : ''}</button>
       </div>
     </section>
   )

@@ -8,7 +8,7 @@ import { bigUpload } from '../lib/bigUpload'
 const mb = (n: number) => `${(n / 1048576).toFixed(n < 10485760 ? 1 : 0)} MB`
 
 export default function ModelUpload({ projectId, onSaved }: { projectId: string; onSaved?: () => void }) {
-  const files = useLoad(async () => ((await supabase.storage.from('models').list(projectId)).data ?? []).filter((f) => f.name && !f.name.startsWith('.')), [projectId])
+  const files = useLoad(async () => ((await supabase.storage.from('models').list(projectId)).data ?? []).filter((f) => f.id && f.name && !f.name.startsWith('.')), [projectId])
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [pct, setPct] = useState(0); const [step, setStep] = useState(''); const [msg, setMsg] = useState('')
   const upload = async (f: File | undefined) => {
     if (!f) return

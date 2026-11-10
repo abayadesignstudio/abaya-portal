@@ -14,7 +14,7 @@ import './client-portal.css'
 
 type Section = EditSection | 'access'
 const SECTIONS: [Section, string][] = [['phases', 'Phases'], ['schedule', 'Schedule'], ['updates', 'Updates'], ['drawings', 'Drawings'], ['contract', 'Contract'],
-  ['requests', 'Requests'], ['model', '3D model'], ['invoices', 'Invoices'], ['access', 'Client access']]
+  ['requests', 'Requests'], ['model', '3D model & renderings'], ['invoices', 'Invoices'], ['access', 'Client access']]
 const TITLE = Object.fromEntries(SECTIONS) as Record<Section, string>
 const KEY = 'abaya.clientPortal.project'
 const read = (k: string) => { try { return localStorage.getItem(k) } catch { return null } }
@@ -156,7 +156,7 @@ function PhasesEditor({ projectId, phases, onSaved }: { projectId: string; phase
 function ModelEditor({ projectId }: { projectId: string }) {
   return (
     <div className="stack" style={{ gap: 10 }}>
-      <p className="muted" style={{ margin: 0, fontSize: 13 }}>Models are uploaded on the project page, under <strong>Files</strong>.</p>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}>The 3D model and renderings are uploaded on the project page, under <strong>Files</strong>.</p>
       <Link className="btn small" style={{ alignSelf: 'flex-start' }} to={`/projects/${projectId}`} state={{ tab: 'drawings' }}>Go to project Files ›</Link>
     </div>
   )

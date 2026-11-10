@@ -3,6 +3,7 @@ import TypePicker, { typeCodes } from './TypePicker'
 import Avatar from '../components/Avatar'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import ModelUpload from './ModelUpload'
+import RenderingsUpload from './RenderingsUpload'
 import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASES, PHASE_NAME } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import { useAuth } from '../lib/auth'
@@ -330,6 +331,7 @@ export function DrawingsTab({ projectId, phases, invoices }: { projectId: string
         </table>
       </section>
       <ModelUpload projectId={projectId} />
+      <RenderingsUpload projectId={projectId} />
     </div>
   )
 }
