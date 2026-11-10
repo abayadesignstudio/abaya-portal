@@ -363,7 +363,7 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
                       const s = parse(live.start_date), e = addDays(parse(live.end_date), 1)
                       const left = x(s), w = Math.max(px * 2, x(e) - left)
                       const label = `${r.number} ${p.code}`
-                      const tip = `${r.number} · ${PHASE_NAME[p.code] ?? p.code} (${p.code})\n${fmt(live.start_date)} – ${fmt(live.end_date)}\n${STATUS_WORD[p.status] ?? p.status}${Number(p.fee) ? ` · ${money(p.fee)}` : ''}${onDates && p.id ? '\nDrag either end to change the dates' : ''}`
+                      const tip = `${r.number} · ${(p as { name?: string | null }).name ?? PHASE_NAME[p.code] ?? p.code} (${p.code})\n${fmt(live.start_date)} – ${fmt(live.end_date)}\n${STATUS_WORD[p.status] ?? p.status}${Number(p.fee) ? ` · ${money(p.fee)}` : ''}${onDates && p.id ? '\nDrag either end to change the dates' : ''}`
                       const dragging = !!drag && drag.id === p.id && drag.moved
                       const handle = (edge: 'start' | 'end') => p.id && onDates ? (
                         <span role="slider" tabIndex={0} className={'gt-h ' + edge} aria-label={`${label} ${edge} date`} aria-valuetext={fmt(edge === 'start' ? live.start_date : live.end_date)}

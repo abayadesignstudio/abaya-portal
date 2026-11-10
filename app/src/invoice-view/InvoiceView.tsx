@@ -11,7 +11,7 @@ type PublicInvoice = {
 }
 
 const SECTOR_COLOR: Record<string, string> = { commercial: '#2b5c8a', residential: '#a32d2d', medical: '#2e7d4f', consultation: '#6b7280', civic: '#5b4b8a', internal: '#02253d' }
-const KIND_HEAD: Record<string, string> = { phase: 'Architecture Services', expense: 'Reimbursable Expenses', markup: 'Reimbursable Expenses' }
+const KIND_HEAD: Record<string, string> = { phase: 'Architecture Services', hourly: 'Hourly Services', expense: 'Reimbursable Expenses', markup: 'Reimbursable Expenses' }
 const round2 = (n: number) => Math.round(n * 100) / 100
 // same estimates as the portal's invoice builder and the payment function
 const cardFee = (t: number) => round2(t * 0.029 + 0.3)

@@ -142,7 +142,10 @@ export default function Time() {
       for (const { p, ph } of rows) out.push({ value: `${p.id}|${ph.id}`, chip: p.number, color: sectorColor(p.sector), label: p.name, group: `${code} · ${name}`,
         hint: ph.status === 'in_progress' ? '· in progress' : ph.status === 'complete' ? '· complete' : ph.status === 'paused' ? '· paused' : undefined, search: `${code} ${name}` })
     }
-    // approved additional services, each its own line
+    // custom phases, then approved additional services, each its own line
+    for (const { p, ph } of list.flatMap((p) => p.phases.filter((ph) => ph.code === 'CU').map((ph) => ({ p, ph }))))
+      out.push({ value: `${p.id}|${ph.id}`, chip: p.number, color: sectorColor(p.sector), label: `${p.name} — ${phaseLabel(ph)}`, group: 'Custom phases',
+        hint: ph.status === 'complete' ? '· complete' : undefined, search: `custom ${phaseLabel(ph)}` })
     const svc = list.flatMap((p) => p.phases.filter((ph) => ph.code === 'AS' && ph.status !== 'complete').map((ph) => ({ p, ph })))
     for (const { p, ph } of svc) out.push({ value: `${p.id}|${ph.id}`, chip: p.number, color: sectorColor(p.sector), label: `${p.name} — ${phaseLabel(ph)}`, group: 'Additional services',
       hint: ph.parent_phase_id ? `· under ${p.phases.find((x) => x.id === ph.parent_phase_id)?.code ?? ''}` : undefined, search: `AS additional ${phaseLabel(ph)}` })

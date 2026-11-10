@@ -1,11 +1,11 @@
-import { PHASES, PHASE_NAME } from '../lib/supabase'
+import { PHASES, PHASE_NAME, phaseLabel } from '../lib/supabase'
 import { PHASE_STYLE, BAR_COLOR, fmtDate, type PhaseRow } from '../lib/projectContent'
 
 /** Client view of the schedule: one row per phase in the contract, bars on a month timeline, today marked.
  *  Phases without dates yet show "Dates to come"; phases not in the contract are listed faintly at the end. */
 export default function ClientGantt({ phases }: { phases: PhaseRow[] }) {
   const by = Object.fromEntries(phases.map((p) => [p.code, p]))
-  const rows = PHASES.map(([code]) => by[code]).filter(Boolean) as PhaseRow[]
+  const rows = [...(PHASES.map(([code]) => by[code]).filter(Boolean) as PhaseRow[]), ...phases.filter((p) => p.code === 'CU')] // custom phases after the standard ones
   const notIn = PHASES.filter(([code]) => !by[code]).map(([code]) => code)
   const t = (s: string) => new Date(s + 'T12:00:00').getTime()
   const dated = rows.filter((p) => p.start_date && p.end_date)
@@ -39,13 +39,13 @@ export default function ClientGantt({ phases }: { phases: PhaseRow[] }) {
         return (
           <div key={p.id} className="cg-row">
             <div className="cg-lbl">
-              <span className="cg-code" style={{ background: st.bg, color: st.fg, borderColor: st.border }}>{p.code}</span>
-              <span className="cg-name"><strong>{PHASE_NAME[p.code]}</strong>
+              <span className="cg-code" style={{ background: st.bg, color: st.fg, borderColor: st.border }}>{p.code === 'CU' ? '•' : p.code}</span>
+              <span className="cg-name"><strong>{phaseLabel(p)}</strong>
                 <span className="muted">{has ? `${fmtDate(p.start_date)} – ${fmtDate(p.end_date)}` : 'Dates to come'} · {st.label}</span></span>
             </div>
             <div className="cg-track">
               {months.map((m) => <span key={m.at} className="cg-grid" style={{ left: `${pct(m.at)}%` }} />)}
-              {has && <span className={'cg-bar ' + p.status} title={`${PHASE_NAME[p.code]}: ${fmtDate(p.start_date)} – ${fmtDate(p.end_date)} (${st.label})`}
+              {has && <span className={'cg-bar ' + p.status} title={`${phaseLabel(p)}: ${fmtDate(p.start_date)} – ${fmtDate(p.end_date)} (${st.label})`}
                 style={{ left: `${pct(t(p.start_date!))}%`, width: `${Math.max(1.2, pct(t(p.end_date!) + 864e5) - pct(t(p.start_date!)))}%`, background: p.status === 'not_started' ? '#fff' : BAR_COLOR[p.status], borderColor: p.status === 'not_started' ? '#98a2b3' : BAR_COLOR[p.status] }} />}
               {todayIn && <span className="cg-today" style={{ left: `${pct(now)}%` }} />}
             </div>

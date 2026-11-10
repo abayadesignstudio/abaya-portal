@@ -1,6 +1,6 @@
 import { supabase, PHASES } from './supabase'
 
-export type PhaseRow = { id: string; code: string; fee: number; status: string; start_date: string | null; end_date: string | null; meetings_included: number | null }
+export type PhaseRow = { id: string; code: string; name?: string | null; fee: number; status: string; start_date: string | null; end_date: string | null; meetings_included: number | null }
 export type Update = { id: string; project_id: string; author: string | null; kind: string; title: string | null; body: string | null; items: string[]; photo_paths: string[]
   visible_to_client: boolean; notify: string; created_at: string; profiles?: { full_name: string | null } | null }
 export type Drawing = { id: string; project_id: string; phase_id: string | null; title: string; sheet_count: number | null; issued_on: string; storage_path: string; locked_until_invoice: string | null }

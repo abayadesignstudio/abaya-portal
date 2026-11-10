@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { supabase, money, PHASE_NAME } from '../lib/supabase'
+import { supabase, money, phaseLabel } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import { sortPhases, PHASE_STYLE } from '../lib/projectContent'
 import Combobox, { sectorColor } from '../components/Combobox'
@@ -137,7 +137,7 @@ function PhasesEditor({ projectId, phases, onSaved }: { projectId: string; phase
       <p className="muted" style={{ margin: 0, fontSize: 13 }}>The client sees each phase’s status in “Where we are” and its dates in the Schedule.</p>
       {phases.map((ph) => (
         <div key={ph.id} className="cp-phase">
-          <div className="row between"><strong>{ph.code} · {PHASE_NAME[ph.code] ?? ph.code}</strong>
+          <div className="row between"><strong>{ph.code} · {phaseLabel(ph)}</strong>
             <label className="sr" htmlFor={'ps' + ph.id}>Status</label>
             <select id={'ps' + ph.id} className="input" style={{ width: 150, minHeight: 34 }} value={ph.status} onChange={(e) => save(ph.id, { status: e.target.value })}>
               {Object.entries(PHASE_STYLE).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></div>

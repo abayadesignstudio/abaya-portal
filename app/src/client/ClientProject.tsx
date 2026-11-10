@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { CLink as Link } from './preview'
-import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASE_NAME } from '../lib/supabase'
+import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASE_NAME, phaseLabel } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import { sortPhases, fmtDate, signedPhotoUrls, drawingLink,
@@ -35,7 +35,7 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
   const { profile } = useAuth()
   const d = useLoad(async () => ({
     p: must(await supabase.from('projects').select('id, number, name, sector, category, categories, address, status').eq('id', id!).single()) as P,
-    phases: sortPhases(must(await supabase.from('phases').select('id, code, fee, status, start_date, end_date, meetings_included').eq('project_id', id!).neq('code', 'AS')) as PhaseRow[]),
+    phases: sortPhases(must(await supabase.from('phases').select('id, code, name, fee, status, start_date, end_date, meetings_included').eq('project_id', id!).neq('code', 'AS')) as PhaseRow[]),
     updates: must(await supabase.from('updates').select('*').eq('project_id', id!).order('created_at', { ascending: false }).limit(30)) as Update[],
     drawings: must(await supabase.from('drawings').select('*').eq('project_id', id!).order('issued_on', { ascending: false })) as Drawing[],
     items: must(await supabase.from('contract_items').select('*').eq('project_id', id!).order('sort')) as ContractItem[],
@@ -170,7 +170,7 @@ function Drawings({ phases, drawings, invById, onOpen }: { phases: PhaseRow[]; d
     <section className="card pad stack" aria-labelledby="dr-h">
       <h2 id="dr-h">Drawings</h2>
       {groups.map(({ ph, list }) => (
-        <div key={ph.id}><h3 style={{ margin: '4px 0', fontSize: 15 }}>{ph.code} · {PHASE_NAME[ph.code]}</h3>
+        <div key={ph.id}><h3 style={{ margin: '4px 0', fontSize: 15 }}>{ph.code === 'CU' ? phaseLabel(ph) : `${ph.code} · ${PHASE_NAME[ph.code]}`}</h3>
           <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{list.map((d, i) => <Row key={d.id} d={d} latest={i === 0} />)}</ul></div>))}
       {loose.length > 0 && <div><h3 style={{ margin: '4px 0', fontSize: 15 }}>Other</h3><ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{loose.map((d) => <Row key={d.id} d={d} />)}</ul></div>}
     </section>
@@ -188,7 +188,7 @@ function ContractPanel({ phases, items, meetings }: { phases: PhaseRow[]; items:
         {withMeetings.length === 0 && <p className="muted" style={{ margin: 0 }}><em>Not set yet.</em></p>}
         {withMeetings.map((p) => { const held = meetings.filter((m) => m.phase_id === p.id).length; const inc = p.meetings_included ?? 0; const over = held > inc
           return <div key={p.id} style={{ margin: '0 0 10px' }}>
-            <div className="row between" style={{ fontSize: 14 }}><span><strong>{p.code}</strong> {PHASE_NAME[p.code]}</span><span className="num" style={{ fontWeight: 700, color: over ? 'var(--red)' : 'var(--text)' }}>{held} of {inc}</span></div>
+            <div className="row between" style={{ fontSize: 14 }}><span><strong>{p.code === 'CU' ? '' : p.code}</strong> {phaseLabel(p)}</span><span className="num" style={{ fontWeight: 700, color: over ? 'var(--red)' : 'var(--text)' }}>{held} of {inc}</span></div>
             <div aria-hidden="true" style={{ display: 'flex', gap: 4, marginTop: 4 }}>{Array.from({ length: Math.max(inc, held) }, (_, i) => <span key={i} style={{ flex: 1, height: 8, borderRadius: 4, background: i < held ? (i >= inc ? 'var(--red)' : 'var(--navy)') : '#ece9e3' }} />)}</div>
             {over && <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--red)' }}>Meetings beyond the contract are billed as additional services.</p>}
           </div> })}

@@ -7,7 +7,8 @@ import { useLoad, must } from '../lib/useQuery'
 import { todayIso, addDays, fmtDate, num, round2, cardFee, achFee, CARD_FEE_MAX, nextInvoiceNumber, displayStatus, emailInvoice } from '../lib/invoices'
 import './invoices.css'
 
-type Phase = { id: string; code: string; name?: string | null; parent_phase_id?: string | null; fee: number; status: string }
+type Phase = { id: string; code: string; name?: string | null; parent_phase_id?: string | null; fee: number; status: string; billing?: string }
+type HourEntry = { id: string; phase_id: string; profile_id: string; work_date: string; minutes: number; bill_rate: number | null; role_label: string | null; invoice_id: string | null; profiles: { full_name: string | null; bill_rate: number | null } | null }
 type Expense = { id: string; description: string; amount: number; spent_on: string; invoice_id: string | null }
 type Item = { kind: string; description: string; amount: string }
 type Project = { id: string; number: string; name: string; sector: string | null; client_id: string | null; clients: { name: string; billing_email: string | null; address: string | null } | null }
@@ -43,16 +44,21 @@ export default function InvoiceBuilder() {
   const ctx = useLoad(async () => {
     if (!projectId) return null
     const p = must(await supabase.from('projects').select('id, number, name, sector, client_id, clients(name, billing_email, address)').eq('id', projectId).single()) as unknown as Project
-    const phases = sortPhases(must(await supabase.from('phases').select('id, code, name, parent_phase_id, fee, status').eq('project_id', projectId)) as Phase[])
+    const phases = sortPhases(must(await supabase.from('phases').select('id, code, name, parent_phase_id, fee, status, billing').eq('project_id', projectId)) as Phase[])
     const billedLines = phases.length ? must(await supabase.from('invoice_lines').select('phase_id, amount, invoice_id, invoices!inner(status)').eq('kind', 'phase').in('phase_id', phases.map((x) => x.id))) as unknown as { phase_id: string; amount: number; invoice_id: string; invoices: { status: string } }[] : []
     const billedBefore: Record<string, number> = {}
     billedLines.filter((l) => l.invoice_id !== id && ['open', 'paid'].includes(l.invoices.status)).forEach((l) => { billedBefore[l.phase_id] = (billedBefore[l.phase_id] ?? 0) + Number(l.amount) })
+    // hourly phases: hours not billed yet (or on this invoice), at each person's rate for the entry
+    const hourlyIds = phases.filter((x) => x.billing === 'hourly').map((x) => x.id)
+    const hours = hourlyIds.length ? (must(await supabase.from('time_entries').select('id, phase_id, profile_id, work_date, minutes, bill_rate, role_label, invoice_id, profiles(full_name, bill_rate)')
+      .in('phase_id', hourlyIds).order('work_date')) as unknown as HourEntry[]).filter((t) => !t.invoice_id || t.invoice_id === id) : []
+    const memberRates = Object.fromEntries((must(await supabase.from('project_members').select('profile_id, bill_rate').eq('project_id', projectId).not('bill_rate', 'is', null)) as { profile_id: string; bill_rate: number }[]).map((m) => [m.profile_id, Number(m.bill_rate)]))
     const expenses = must(await supabase.from('expenses').select('id, description, amount, spent_on, invoice_id').eq('project_id', projectId).eq('reimbursable', true).or('planned.is.null,planned.eq.false').order('spent_on')) as Expense[]
     const contacts = p.client_id ? must(await supabase.from('client_contacts').select('email, receives_invoices').eq('client_id', p.client_id)) as { email: string; receives_invoices: boolean }[] : []
     const pastDue = p.client_id ? (must(await supabase.from('invoices').select('id, number, total, amount_paid, due_date').eq('client_id', p.client_id).eq('status', 'open').lt('due_date', todayIso()).lte('issue_date', addDays(todayIso(), -15))) as { id: string; number: string; total: number; amount_paid: number; due_date: string }[]).filter((x) => x.id !== id) : []
     const settings = must(await supabase.from('firm_settings').select('late_rate_monthly, wire_routing, wire_account').maybeSingle()) as { late_rate_monthly: number; wire_routing: string | null; wire_account: string | null } | null
     const agreements = must(await supabase.from('agreements').select('id, title, status').eq('project_id', projectId).in('status', ['sent', 'signed'])) as { id: string; title: string; status: string }[]
-    return { p, phases, billedBefore, expenses: expenses.filter((e) => !e.invoice_id || e.invoice_id === id), contacts, pastDue, lateRate: Number(settings?.late_rate_monthly ?? 1.5), wireReady: !!(settings?.wire_routing && settings?.wire_account), agreements }
+    return { p, phases, billedBefore, hours, memberRates, expenses: expenses.filter((e) => !e.invoice_id || e.invoice_id === id), contacts, pastDue, lateRate: Number(settings?.late_rate_monthly ?? 1.5), wireReady: !!(settings?.wire_routing && settings?.wire_account), agreements }
   }, [projectId, id])
 
   // ---- editable state
@@ -61,6 +67,7 @@ export default function InvoiceBuilder() {
   const [from, setFrom] = useState(''); const [to, setTo] = useState(todayIso())
   const [due, setDue] = useState<Record<string, string>>({})
   const [exOn, setExOn] = useState<Record<string, boolean>>({}); const [markup, setMarkup] = useState(true)
+  const [hrOn, setHrOn] = useState<Record<string, boolean>>({})
   const [items, setItems] = useState<Item[]>([])
   const [toList, setToList] = useState<string[]>([]); const [ccList, setCcList] = useState<string[]>([]); const [newTo, setNewTo] = useState(''); const [newCc, setNewCc] = useState('')
   const [subject, setSubject] = useState(''); const [message, setMessage] = useState(''); const [note, setNote] = useState('')
@@ -82,9 +89,10 @@ export default function InvoiceBuilder() {
       setSubject(i.email_subject ?? `Invoice ${i.number} — ${c.p.name}`); setMessage(i.email_message ?? defaultMessage(c.p, profile?.full_name))
       setOpts({ allow_card: i.allow_card, allow_ach: i.allow_ach, allow_wire: i.allow_wire ?? true, pass_card_fee: i.pass_card_fee, pass_ach_fee: i.pass_ach_fee, reminders: i.reminders, hold_drawings: i.hold_drawings, show_prior_balance: i.show_prior_balance, agreement_mode: i.agreement_mode, billing_basis: i.billing_basis ?? 'progress' })
       const d: Record<string, string> = {}; e.lines.filter((l) => l.kind === 'phase' && l.phase_id).forEach((l) => { d[l.phase_id!] = String(l.amount) }); setDue(d)
-      setItems(e.lines.filter((l) => !['phase', 'expense', 'markup'].includes(l.kind)).map((l) => ({ kind: l.kind, description: l.description, amount: String(l.amount) })))
+      setItems(e.lines.filter((l) => !['phase', 'hourly', 'expense', 'markup'].includes(l.kind)).map((l) => ({ kind: l.kind, description: l.description, amount: String(l.amount) })))
       setMarkup(e.lines.some((l) => l.kind === 'markup') || !e.lines.some((l) => l.kind === 'expense'))
       const on: Record<string, boolean> = {}; c.expenses.forEach((x) => { on[x.id] = x.invoice_id === id }); setExOn(on)
+      const ho: Record<string, boolean> = {}; c.hours.forEach((t) => { ho[t.id] = t.invoice_id === id }); setHrOn(ho)
       setToList(e.rc.filter((r) => r.kind === 'to').map((r) => r.email)); setCcList(e.rc.filter((r) => r.kind === 'cc').map((r) => r.email))
     } else {
       const inv = c.contacts.filter((x) => x.receives_invoices).map((x) => x.email)
@@ -92,6 +100,7 @@ export default function InvoiceBuilder() {
       setCcList(profile?.email ? [profile.email] : [])
       setSubject(`Invoice — ${c.p.number} ${c.p.name}`); setMessage(defaultMessage(c.p, profile?.full_name))
       const on: Record<string, boolean> = {}; c.expenses.forEach((x) => { on[x.id] = true }); setExOn(on)
+      const ho: Record<string, boolean> = {}; c.hours.forEach((t) => { ho[t.id] = true }); setHrOn(ho)
       setDue({}); setItems([]); setFrom('')
     }
     setHydrated(key)
@@ -102,16 +111,28 @@ export default function InvoiceBuilder() {
   const c = ctx.data
 
   // ---- math
-  const phaseRows = useMemo(() => (c?.phases ?? []).map((ph) => {
+  const phaseRows = useMemo(() => (c?.phases ?? []).filter((ph) => ph.billing !== 'hourly').map((ph) => {
     const prev = c!.billedBefore[ph.id] ?? 0
     const d = num(due[ph.id]); const cum = prev + d; const fee = Number(ph.fee)
     return { ph, prev, d, cum, fee, pct: fee ? cum / fee * 100 : 0, over: cum > fee + 0.005, remain: fee - cum }
   }), [c, due])
   const fixed = round2(phaseRows.reduce((a, r) => a + r.d, 0))
+  // hourly phases: chosen entries × rate (entry's own rate, else the person's rate on this project, else their standard rate)
+  const rateOf = (t: HourEntry) => Number(t.bill_rate ?? c?.memberRates[t.profile_id] ?? t.profiles?.bill_rate ?? 0)
+  const hourlyRows = useMemo(() => (c?.phases ?? []).filter((ph) => ph.billing === 'hourly').map((ph) => {
+    const all = (c?.hours ?? []).filter((t) => t.phase_id === ph.id)
+    const sel = all.filter((t) => hrOn[t.id])
+    const groups = new Map<string, { who: string; rate: number; hrs: number }>()
+    sel.forEach((t) => { const rate = rateOf(t); const who = t.profiles?.full_name ?? 'Staff'; const k = who + '|' + rate; const g = groups.get(k) ?? { who, rate, hrs: 0 }; g.hrs += t.minutes / 60; groups.set(k, g) })
+    const amt = round2([...groups.values()].reduce((a, g) => a + g.hrs * g.rate, 0))
+    const hrs = sel.reduce((a, t) => a + t.minutes / 60, 0)
+    return { ph, all, sel, groups: [...groups.values()], amt, hrs }
+  }), [c, hrOn]) // eslint-disable-line react-hooks/exhaustive-deps
+  const hourly = round2(hourlyRows.reduce((a, r) => a + r.amt, 0))
   const exSel = (c?.expenses ?? []).filter((x) => exOn[x.id])
   const exBase = round2(exSel.reduce((a, x) => a + Number(x.amount), 0)); const exMark = markup ? round2(exBase * 0.1) : 0
   const extra = round2(items.reduce((a, x) => a + num(x.amount), 0))
-  const total = round2(fixed + exBase + exMark + extra)
+  const total = round2(fixed + hourly + exBase + exMark + extra)
   const prior = round2((c?.pastDue ?? []).reduce((a, x) => a + Number(x.total) - Number(x.amount_paid), 0))
   const warn = [
     ...phaseRows.filter((r) => r.over).map((r) => `${phaseLabel(r.ph)} would be billed past 100% of its fee.`),
@@ -128,6 +149,8 @@ export default function InvoiceBuilder() {
   // ---- persistence
   const buildLines = (): Omit<Line, 'sort'>[] => [
     ...phaseRows.filter((r) => r.d !== 0).map((r) => ({ kind: 'phase', phase_id: r.ph.id, description: `${r.ph.code} · ${phaseLabel(r.ph)}${advance ? ' — billed in advance' : ''}`, pct_to_date: round2(r.pct), amount: round2(r.d) })),
+    ...hourlyRows.filter((r) => r.amt).map((r) => ({ kind: 'hourly', phase_id: r.ph.id, pct_to_date: null, amount: r.amt,
+      description: `${r.ph.code === 'CU' ? '' : r.ph.code + ' · '}${phaseLabel(r.ph)} — ${r.hrs.toFixed(2).replace(/\.?0+$/, '')} h (${r.groups.map((g) => `${g.who} ${g.hrs.toFixed(2).replace(/\.?0+$/, '')} h × ${money(g.rate)}`).join('; ')})` })),
     ...exSel.map((x) => ({ kind: 'expense', phase_id: null, description: x.description, pct_to_date: null, amount: Number(x.amount) })),
     ...(exMark ? [{ kind: 'markup', phase_id: null, description: 'Service fee on reimbursables, 10% (Agreement §8.2)', pct_to_date: null, amount: exMark }] : []),
     ...items.filter((x) => x.description.trim() || num(x.amount)).map((x) => ({ kind: x.kind, phase_id: null, description: x.description.trim() || (ITEM_LABEL[x.kind] || 'Other'), pct_to_date: null, amount: round2(num(x.amount)) })),
@@ -154,6 +177,8 @@ export default function InvoiceBuilder() {
       must(await supabase.from('invoice_recipients').delete().eq('invoice_id', invId))
       const rc = [...toList.map((e) => ({ invoice_id: invId, email: e, kind: 'to' })), ...ccList.map((e) => ({ invoice_id: invId, email: e, kind: 'cc' }))]
       if (rc.length) must(await supabase.from('invoice_recipients').insert(rc))
+      // tie the chosen hours to this invoice (so they're billed once), release the rest
+      must(await supabase.rpc('bill_hours', { p_invoice: invId, p_entries: hourlyRows.flatMap((r) => r.sel.map((t) => t.id)) }))
       // attach chosen reimbursables to this invoice, release the rest
       const onIds = exSel.map((x) => x.id); const offIds = c.expenses.filter((x) => !exOn[x.id] && x.invoice_id === invId).map((x) => x.id)
       if (onIds.length) must(await supabase.from('expenses').update({ invoice_id: invId }).in('id', onIds))
@@ -270,6 +295,19 @@ export default function InvoiceBuilder() {
             : <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Type the percent complete to date, or the dollar amount — the other fills in. A phase can’t be billed past 100% of its fee.</em></p>}
           {warn.length > 0 && <div role="alert" className="err">{warn.map((w) => <p key={w} style={{ margin: 0 }}>{w}</p>)}</div>}
         </section>
+        {hourlyRows.length > 0 && <section className="card stack" style={sec}>
+          <div className="row between"><h2>Hourly phases</h2><strong className="num">{money(hourly)}</strong></div>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>Hours logged to hourly phases that haven’t been billed yet, at each person’s rate. Untick any you don’t want on this invoice; they stay available for the next one.</p>
+          {hourlyRows.map((r) => <div key={r.ph.id} className="stack" style={{ gap: 4, borderTop: '1px solid #efece6', paddingTop: 8 }}>
+            <div className="row between"><strong>{phaseLabel(r.ph)}</strong><span className="num">{r.hrs.toFixed(2)} h · <strong>{money(r.amt)}</strong>{Number(r.ph.fee) > 0 && <span className="muted"> · budget {money(Number(r.ph.fee))}</span>}</span></div>
+            {r.all.length === 0 && <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>No unbilled hours on this phase.</em></p>}
+            {r.all.length > 0 && <div style={{ maxHeight: 220, overflow: 'auto' }}><table className="tbl" style={{ fontSize: 13 }}><tbody>
+              {r.all.map((t) => <tr key={t.id}><td style={{ width: 28 }}><input type="checkbox" aria-label={`Bill ${t.work_date} ${t.profiles?.full_name ?? ''}`} disabled={locked} checked={!!hrOn[t.id]} onChange={(e) => setHrOn({ ...hrOn, [t.id]: e.target.checked })} /></td>
+                <td>{t.work_date}</td><td>{t.profiles?.full_name ?? ''}{t.role_label ? <span className="muted"> · {t.role_label}</span> : null}</td>
+                <td className="num" style={{ textAlign: 'right' }}>{(t.minutes / 60).toFixed(2)} h</td><td className="num" style={{ textAlign: 'right' }}>{money(rateOf(t))}/h</td><td className="num" style={{ textAlign: 'right' }}>{money(t.minutes / 60 * rateOf(t))}</td></tr>)}
+            </tbody></table></div>}
+          </div>)}
+        </section>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 16 }}>
           <section className="card stack" style={sec}>
             <div className="row between"><h2>Reimbursable expenses</h2><strong className="num">{money(exBase + exMark)}</strong></div>

@@ -15,7 +15,7 @@ import { linkedAgreements, contractFee, syncPctPhases, round2 } from '../lib/fee
 import { sortPhases, fmtDate, signedPhotoUrls, uid, extOf,
   type Update, type Drawing, type ContractItem, type Meeting, type ServiceRequest } from '../lib/projectContent'
 
-export type Phase = { id: string; code: string; name?: string | null; parent_phase_id?: string | null; service_id?: string | null; fee: number; fee_pct: number | null; status: string; start_date: string | null; end_date: string | null; meetings_included: number | null }
+export type Phase = { id: string; code: string; name?: string | null; billing?: string; parent_phase_id?: string | null; service_id?: string | null; fee: number; fee_pct: number | null; status: string; start_date: string | null; end_date: string | null; meetings_included: number | null }
 type Entry = { phase_id: string | null; profile_id: string; minutes: number; profiles: { full_name: string | null; bill_rate: number | null } | null }
 export type Project = { id: string; number: string; name: string; status: string; category: string | null; categories: string[] | null; sector: string | null; address: string | null; next_milestone: string | null; client_id: string | null; clients: { name: string } | null; outside_firm?: boolean }
 export type Inv = { id: string; number: string; status: string; total: number; amount_paid: number | null; issue_date: string | null; due_date: string | null }
@@ -36,7 +36,7 @@ export default function ProjectDetail() {
   useEffect(() => { setTab(startTab) }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
   const { data, error, reload } = useLoad(async () => {
     const p = must(await supabase.from('projects').select('id, number, name, status, category, categories, sector, address, next_milestone, client_id, clients(name), outside_firm').eq('id', id!).single()) as unknown as Project
-    const phases = sortPhases(must(await supabase.from('phases').select('id, code, name, parent_phase_id, service_id, fee, fee_pct, status, start_date, end_date, meetings_included').eq('project_id', id!)) as Phase[])
+    const phases = sortPhases(must(await supabase.from('phases').select('id, code, name, parent_phase_id, service_id, billing, fee, fee_pct, status, start_date, end_date, meetings_included').eq('project_id', id!)) as Phase[])
     const billed = must(await supabase.from('phase_billing').select('phase_id, billed').eq('project_id', id!)) as { phase_id: string; billed: number }[]
     const time = must(await supabase.from('time_entries').select('phase_id, profile_id, minutes, profiles(full_name, bill_rate)').eq('project_id', id!)) as unknown as Entry[]
     const invoices = must(await supabase.from('invoices').select('id, number, status, total, amount_paid, issue_date, due_date').eq('project_id', id!).order('issue_date', { ascending: false, nullsFirst: true })) as Inv[]
@@ -165,7 +165,7 @@ export default function ProjectDetail() {
           <button className="btn small" onClick={async () => { await supabase.from('phases').insert(fromAgreement.map((code) => ({ project_id: p.id, code, fee: 0 }))); reload() }}>
             + Add {fromAgreement.join(', ')} from the agreement</button>
           <span className="muted" style={{ fontSize: 13 }}>Phases included in the linked agreement{agreements.length > 1 ? 's' : ''} but not set up here yet.</span></div>}
-        {missing.length > 0 && <AddPhase projectId={p.id} codes={missing.map(([c]) => c)} total={cf} onSaved={reload} />}
+        {<AddPhase projectId={p.id} codes={missing.map(([c]) => c)} total={cf} onSaved={reload} />}
         <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>A phase fee is a fixed amount ($) or a percentage of the total fee (%); percentage phases update automatically when the agreement’s fee changes. Fee used = hours × each person’s billable rate. The bar turns orange at 75% and red at 90%. Phase start and end dates drive the client’s schedule. Assign the team and hours on the Budget page.</em></p>
       </section>
       </>}
@@ -547,14 +547,15 @@ function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSa
   const remove = async () => {
     const hrs = used.hrs ? ` Its ${used.hrs.toFixed(1)} logged hours stay on the project but become “no phase”.` : ''
     const bill = billed ? ' Invoice lines billed to it keep their amounts but lose the phase link.' : ''
-    if (!window.confirm(`Delete ${ph.code} · ${PHASE_NAME[ph.code] ?? ph.code}? Its fee, dates and team allocations are removed.${hrs}${bill} This can’t be undone.`)) return
+    if (!window.confirm(`Delete ${ph.code} · ${phaseLabel(ph)}? Its fee, dates and team allocations are removed.${hrs}${bill} This can’t be undone.`)) return
     const { error } = await supabase.from('phases').delete().eq('id', ph.id)
     if (error) return setMsg(error.message)
     onSaved()
   }
   return (
     <tr>
-      <td>{ph.code === 'AS' ? <span style={{ paddingLeft: 14, display: 'inline-block' }}><span className="muted">↳ </span><strong>AS</strong> <span className="muted">{phaseLabel(ph)}</span><div className="muted" style={{ fontSize: 12 }}>Additional service</div></span> : <><strong>{ph.code}</strong> <span className="muted">{PHASE_NAME[ph.code]}</span></>}{msg && <div className="err">{msg}</div>}</td>
+      <td>{ph.code === 'AS' ? <span style={{ paddingLeft: 14, display: 'inline-block' }}><span className="muted">↳ </span><strong>AS</strong> <span className="muted">{phaseLabel(ph)}</span><div className="muted" style={{ fontSize: 12 }}>Additional service</div></span> : ph.code === 'CU' ? <><strong>{ph.name}</strong> <span className="muted">· custom</span></> : <><strong>{ph.code}</strong> <span className="muted">{PHASE_NAME[ph.code]}</span></>}
+        {ph.billing === 'hourly' && <span className="pill" style={{ marginLeft: 6, fontSize: 11 }} title="Billed for hours logged, at each person’s rate">Hourly</span>}{msg && <div className="err">{msg}</div>}</td>
       <td><label className="sr" htmlFor={'st' + ph.id}>Status</label><select id={'st' + ph.id} className="input" style={{ minWidth: 140 }} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
         <option value="not_started">Not started</option><option value="in_progress">In progress</option><option value="paused">Paused</option><option value="complete">Complete</option></select></td>
       <td><label className="sr" htmlFor={'sd' + ph.id}>Start</label><input id={'sd' + ph.id} type="date" className="input" value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} /></td>
@@ -573,6 +574,8 @@ function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSa
         <RowMenu label={`${ph.code} actions`} items={[
           { label: teamOpen ? 'Close team' : team.length ? 'Edit team' : 'Assign team', onSelect: onTeam },
           ...(['not_started', 'in_progress', 'paused', 'complete'] as const).filter((st) => st !== ph.status).map((st) => ({ label: `Mark ${({ not_started: 'not started', in_progress: 'in progress', paused: 'paused', complete: 'complete' })[st]}`, onSelect: () => setStatus(st) })),
+          { label: ph.billing === 'hourly' ? 'Bill as a fixed fee' : 'Bill hourly', onSelect: async () => { const { error } = await supabase.from('phases').update({ billing: ph.billing === 'hourly' ? 'fixed' : 'hourly' }).eq('id', ph.id); setMsg(error ? error.message : ''); if (!error) onSaved() } },
+          ...(ph.code === 'CU' ? [{ label: 'Rename…', onSelect: async () => { const n = window.prompt('Phase name', ph.name ?? ''); if (!n?.trim()) return; const { error } = await supabase.from('phases').update({ name: n.trim() }).eq('id', ph.id); setMsg(error ? error.message : ''); if (!error) onSaved() } }] : []),
           'divider',
           { label: 'Delete phase…', danger: true, onSelect: remove },
         ]} /></div></td>
@@ -580,17 +583,28 @@ function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSa
 }
 
 function AddPhase({ projectId, codes, total, onSaved }: { projectId: string; codes: string[]; total: number | null; onSaved: () => void }) {
-  const [code, setCode] = useState(codes[0]); const [fee, setFee] = useState(''); const [pct, setPct] = useState('')
+  // standard phases not on the project yet, plus "Custom phase…" (any name, as many as needed)
+  const [code, setCode] = useState(codes[0] ?? 'CU'); const [fee, setFee] = useState(''); const [pct, setPct] = useState('')
+  const [name, setName] = useState(''); const [billing, setBilling] = useState<'fixed' | 'hourly'>('fixed'); const [err, setErr] = useState('')
   const [mode, setMode] = useState<'amt' | 'pct'>(total !== null ? 'pct' : 'amt')
-  useEffect(() => { if (!codes.includes(code)) setCode(codes[0]) }, [codes.join()]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (code !== 'CU' && !codes.includes(code)) setCode(codes[0] ?? 'CU') }, [codes.join()]) // eslint-disable-line react-hooks/exhaustive-deps
   const add = async () => {
+    setErr('')
+    if (code === 'CU' && !name.trim()) return setErr('Name the custom phase.')
     const p = Number(pct)
-    await supabase.from('phases').insert({ project_id: projectId, code, fee: mode === 'pct' ? round2((total ?? 0) * (p || 0) / 100) : Number(fee) || 0, fee_pct: mode === 'pct' ? p || 0 : null })
-    setFee(''); setPct(''); onSaved()
+    const { error } = await supabase.from('phases').insert({ project_id: projectId, code, name: code === 'CU' ? name.trim() : null, billing,
+      fee: mode === 'pct' ? round2((total ?? 0) * (p || 0) / 100) : Number(fee) || 0, fee_pct: mode === 'pct' ? p || 0 : null })
+    if (error) return setErr(error.message)
+    setFee(''); setPct(''); setName(''); setBilling('fixed'); onSaved()
   }
-  return <div className="row" style={{ alignItems: 'flex-start' }}>
-    <label className="sr" htmlFor="ap-c">Phase</label><select id="ap-c" className="input" style={{ width: 260 }} value={code} onChange={(e) => setCode(e.target.value)}>{codes.map((c) => <option key={c} value={c}>{c} · {PHASE_NAME[c]}</option>)}</select>
+  return <div className="stack" style={{ gap: 6 }}><div className="row" style={{ alignItems: 'flex-start' }}>
+    <label className="sr" htmlFor="ap-c">Phase</label><select id="ap-c" className="input" style={{ width: 260 }} value={code} onChange={(e) => setCode(e.target.value)}>
+      {codes.map((c) => <option key={c} value={c}>{c} · {PHASE_NAME[c]}</option>)}<option value="CU">Custom phase…</option></select>
+    {code === 'CU' && <><label className="sr" htmlFor="ap-n">Custom phase name</label><input id="ap-n" className="input" style={{ width: 220 }} placeholder="e.g. Site visits, Interior design" value={name} onChange={(e) => setName(e.target.value)} /></>}
+    <label className="sr" htmlFor="ap-b">Billing</label><select id="ap-b" className="input" style={{ width: 150 }} value={billing} onChange={(e) => setBilling(e.target.value as 'fixed' | 'hourly')}>
+      <option value="fixed">Fixed fee</option><option value="hourly">Hourly</option></select>
     <FeeInput id="ap" mode={mode} amt={fee} pct={pct} total={total} onMode={setMode} onAmt={setFee} onPct={setPct} />
     <button className="btn small secondary" onClick={add}>+ Add phase</button>
-  </div>
+  </div>{billing === 'hourly' && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Hourly: invoices bill the hours logged to it at each person’s rate. The fee is the budget (leave it 0 if there isn’t one).</p>}
+  {err && <p className="err" role="alert" style={{ margin: 0 }}>{err}</p>}</div>
 }
