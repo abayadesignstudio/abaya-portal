@@ -29,7 +29,7 @@ function dragProps(on: boolean, d: DragItem) {
   }
 }
 
-export type Person = { id: string; full_name: string | null; email: string; initials: string | null; role: string; avatar_url?: string | null }
+export type Person = { id: string; full_name: string | null; email: string; initials: string | null; role: string; avatar_url?: string | null; color?: string | null }
 export type Task = { id: string; title: string; notes: string | null; assignee: string; created_by: string | null; due_on: string; due_time: string | null; done_at: string | null
   project_id: string | null; projects: { number: string; name: string; sector: string | null } | null }
 type Ev = { id: string; profile_id: string; project_id?: string | null; title: string; starts_on: string; ends_on: string; start_time: string | null; projects: { number: string; name: string; sector: string | null } | null }
@@ -82,7 +82,7 @@ function useCalendarChanges(on: (kind: Kind) => void) {
 }
 
 export function useStaff() {
-  return useLoad(async () => must(await supabase.from('profiles').select('id, full_name, email, initials, role, avatar_url').in('role', ['admin', 'staff']).order('full_name')) as Person[])
+  return useLoad(async () => must(await supabase.from('profiles').select('id, full_name, email, initials, role, avatar_url, color').in('role', ['admin', 'staff']).order('full_name')) as Person[])
 }
 export function useTasks(from: string, to: string, assignee?: string) {
   return useLoad(async () => {
@@ -259,6 +259,8 @@ async function fnError(error: unknown, fallback: string) {
 }
 
 /** A Google Calendar meeting on the month grid. Click it for details (like Google Calendar). */
+/** A person's own color (Settings → People) marks events they organize or that sit on their calendar. */
+const ownerColor = (e: GEv, people: Person[]) => people.find((p) => p.id === (e.organizer ?? e.profile_id))?.color ?? null
 function GEventItem({ e, people, project, onOpen }: { e: GM; people: Person[]; me: string; project?: Proj; onOpen: (e: GM, el: HTMLElement) => void }) {
   const [open, setOpen] = useState(false)
   const canDrag = useContext(CanDrag)
@@ -268,7 +270,7 @@ function GEventItem({ e, people, project, onOpen }: { e: GM; people: Person[]; m
     <Faces ids={e.people} people={people} /><span className="tk-title">{e.title}</span>{e.personal && <span className="tk-personal" title="From your personal calendar">{e.personal}</span>}
   </>
   return (
-    <li className={'tk tk-g' + (e.all_day ? ' allday' : '') + (e.id.startsWith('pc:') ? ' tk-pers' : '')} style={{ borderLeftColor: project ? sectorColor(project.sector) : '#9aa4b2' }}
+    <li className={'tk tk-g' + (e.all_day ? ' allday' : '') + (e.personal ? ' tk-pers' : '')} style={{ borderLeftColor: ownerColor(e, people) ?? (project ? sectorColor(project.sector) : '#9aa4b2') }}
       {...dragProps(canDrag && e.can_edit, { kind: 'g', id: e.id, from: e.all_day ? e.start.slice(0, 10) : isoDate(new Date(e.start)) })}>
       <div className="tk-main">
         <span className="tk-ico tk-ico-static" aria-hidden="true"><Mark kind="event" done={false} color={project ? sectorColor(project.sector) : undefined} /></span>

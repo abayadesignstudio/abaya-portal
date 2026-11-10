@@ -9,7 +9,7 @@ import './admin.css'
 
 type FS = { digest_time: string; digest_enabled: boolean; reminder_days: number[]; late_rate_monthly: number; firm_name: string | null; address: string | null; phone: string | null; billing_email: string | null; check_payee: string | null
   wire_bank_name: string | null; wire_bank_address: string | null; wire_account_name: string | null; wire_routing: string | null; wire_account: string | null; wire_swift: string | null; wire_notes: string | null }
-type Person = { id: string; email: string; full_name: string | null; initials: string | null; title: string | null; role: 'admin' | 'staff' | 'client' | 'none'; util_target: number | null; bill_rate: number | null; rate_id?: string | null }
+type Person = { id: string; email: string; full_name: string | null; initials: string | null; title: string | null; role: 'admin' | 'staff' | 'client' | 'none'; util_target: number | null; bill_rate: number | null; rate_id?: string | null; color?: string | null }
 type Invite = { email: string; role: string; full_name: string | null; created_at: string }
 
 export default function Settings() {
@@ -176,7 +176,7 @@ function People({ me }: { me: string }) {
   const rates = useRates()
   const [customFor, setCustomFor] = useState<string | null>(null)
   const { data, error, reload } = useLoad(async () => {
-    const people = must(await supabase.from('profiles').select('id, email, full_name, initials, title, role, util_target, bill_rate, rate_id').in('role', ['admin', 'staff']).order('full_name')) as Person[]
+    const people = must(await supabase.from('profiles').select('id, email, full_name, initials, title, role, util_target, bill_rate, rate_id, color').in('role', ['admin', 'staff']).order('full_name')) as Person[]
     const invites = must(await supabase.from('invites').select('email, role, full_name, created_at').in('role', ['admin', 'staff']).order('created_at', { ascending: false })) as Invite[]
     return { people, invites: invites.filter((i) => !people.some((p) => p.email.toLowerCase() === i.email.toLowerCase())) }
   })
@@ -204,13 +204,16 @@ function People({ me }: { me: string }) {
       {error && <p className="err" role="alert">{error}</p>}
       <div className="tablewrap">
         <table className="table" style={{ minWidth: 760 }}>
-          <thead><tr><th>Name</th><th>Role</th><th className="r">Utilization target (%)</th><th>Billable rate</th></tr></thead>
+          <thead><tr><th>Name</th><th>Role</th><th>Calendar color</th><th className="r">Utilization target (%)</th><th>Billable rate</th></tr></thead>
           <tbody>{data?.people.map((p) => (
             <tr key={p.id}>
               <td><strong>{p.full_name || p.email}</strong><div className="muted" style={{ fontSize: 13 }}>{p.title ? `${p.title} · ` : ''}{p.email}</div></td>
               <td><label className="sr" htmlFor={`r-${p.id}`}>Role for {p.email}</label>
                 <select id={`r-${p.id}`} className="input inline-select" value={p.role} onChange={(e) => update(p, { role: e.target.value as Person['role'] })}>
                   <option value="staff">Staff</option><option value="admin">Admin</option><option value="none">No access</option></select></td>
+              <td><div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}><label className="sr" htmlFor={`c-${p.id}`}>Calendar color for {p.email}</label>
+                <input id={`c-${p.id}`} type="color" value={p.color ?? '#9aa4b2'} onChange={(e) => update(p, { color: e.target.value })} style={{ width: 40, height: 32, padding: 2, border: '1px solid var(--line)', borderRadius: 6, background: '#fff' }} />
+                {p.color && <button type="button" className="linkish" style={{ fontSize: 12 }} onClick={() => update(p, { color: null })}>Clear</button>}</div></td>
               <td className="r"><label className="sr" htmlFor={`u-${p.id}`}>Utilization target for {p.email}</label>
                 <input id={`u-${p.id}`} className="input num" style={{ width: 90, textAlign: 'right' }} inputMode="decimal" defaultValue={p.util_target ?? ''} onBlur={(e) => { const v = num(e.target.value); if (v !== p.util_target) update(p, { util_target: v }) }} /></td>
               <td><label className="sr" htmlFor={`b-${p.id}`}>Billable rate for {p.email}</label>
