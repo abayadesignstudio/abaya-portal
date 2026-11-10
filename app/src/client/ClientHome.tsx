@@ -14,7 +14,7 @@ export default function ClientHome() {
   const cid = pv?.clientId ?? null
   const { data, error } = useLoad(async () => {
     // staff can read every project; the preview narrows to this client's, as RLS does for the client
-    let pq = supabase.from('projects').select('id, number, name, sector, category, categories, status, next_milestone, phases(id, code, fee, status, start_date, end_date, meetings_included)').order('number', { ascending: false })
+    let pq = supabase.from('projects').select('id, number, name, sector, category, categories, status, next_milestone, phases(id, code, sort, fee, status, start_date, end_date, meetings_included)').order('number', { ascending: false })
     let iq = supabase.from('invoices').select('id, number, total, amount_paid, status, due_date').eq('status', 'open')
     if (pv) { pq = pq.eq('client_id', cid ?? '00000000-0000-0000-0000-000000000000'); iq = iq.eq('client_id', cid ?? '00000000-0000-0000-0000-000000000000') }
     return { projects: must(await pq) as unknown as P[], invoices: must(await iq) as I[] }

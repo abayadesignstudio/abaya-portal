@@ -339,7 +339,7 @@ function QuickCreate({ me, admin, people, projects, day, connected, edit, linkPr
   const setStart = (v: string) => setF((o) => ({ ...o, start_time: v, end_time: v && o.start_time && o.end_time ? fromMinutes(minutes(o.end_time) + minutes(v) - minutes(o.start_time)) : o.end_time })) // keeps the length, like Google
   const projectMark = f.kind === 'milestone' || f.kind === 'deliverable'
   const phases = useLoad(async () => f.project_id && projectMark
-    ? must(await supabase.from('phases').select('id, code, name, parent_phase_id').eq('project_id', f.project_id)) as { id: string; code: string; name: string | null; parent_phase_id: string | null }[]
+    ? must(await supabase.from('phases').select('id, code, sort, name, parent_phase_id').eq('project_id', f.project_id)) as { id: string; code: string; name: string | null; parent_phase_id: string | null }[]
     : [], [f.project_id, projectMark])
   const save = async (e: React.FormEvent) => {
     e.preventDefault(); setErr(null)

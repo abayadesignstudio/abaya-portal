@@ -9,10 +9,12 @@ export type Meeting = { id: string; project_id: string; phase_id: string | null;
 export type ServiceRequest = { id: string; project_id: string; description: string; status: string; quote: number | null; created_at: string; phase_id?: string | null }
 
 /** Standard phases in CE→CA order; additional-service lines (AS) right after the phase they belong to, unassigned ones last. */
-export const sortPhases = <T extends { code: string; id?: string; parent_phase_id?: string | null }>(list: T[]) => {
-  const idx = (c: string) => { const i = PHASES.findIndex(([x]) => x === c); return i < 0 ? 98 : i }
+/** Phases in project order: the order set by dragging on the project page (sort), else the standard order by code.
+ *  Additional services (AS) follow their parent phase. */
+export const sortPhases = <T extends { code: string; id?: string; parent_phase_id?: string | null; sort?: number | null }>(list: T[]) => {
+  const idx = (p: T) => { if (p.sort != null) return p.sort; const i = PHASES.findIndex(([x]) => x === p.code); return (i < 0 ? 98 : i) * 10 }
   const byId = new Map(list.map((p) => [p.id, p]))
-  const key = (p: T) => p.code !== 'AS' ? idx(p.code) : (p.parent_phase_id && byId.get(p.parent_phase_id) ? idx(byId.get(p.parent_phase_id)!.code) : 98) + 0.5
+  const key = (p: T) => p.code !== 'AS' ? idx(p) : (p.parent_phase_id && byId.get(p.parent_phase_id) ? idx(byId.get(p.parent_phase_id)!) : 980) + 0.5
   return [...list].sort((a, b) => key(a) - key(b))
 }
 /** Client-facing phases: the standard ones only (services show in their own list). */

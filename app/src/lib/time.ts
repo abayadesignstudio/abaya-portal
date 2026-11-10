@@ -8,7 +8,7 @@ export const ROLES = ['Principal', 'Project Architect', 'Designer']
 
 export type Proj = { id: string; number: string; name: string; sector: string | null; status: string; phases: { id: string; code: string; name?: string | null; parent_phase_id?: string | null; status?: string; start_date?: string | null; end_date?: string | null }[] }
 export const loadProjects = async () =>
-  (must(await supabase.from('projects').select('id, number, name, sector, status, phases(id, code, name, parent_phase_id, status, start_date, end_date)').in('status', ['active', 'paused']).order('number', { ascending: false })) as unknown as Proj[]).map((p) => ({ ...p, phases: sortPhases(p.phases) }))
+  (must(await supabase.from('projects').select('id, number, name, sector, status, phases(id, code, sort, name, parent_phase_id, status, start_date, end_date)').in('status', ['active', 'paused']).order('number', { ascending: false })) as unknown as Proj[]).map((p) => ({ ...p, phases: sortPhases(p.phases) }))
 
 export const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 export const mondayOf = (d: Date) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x }

@@ -15,7 +15,7 @@ import { linkedAgreements, contractFee, syncPctPhases, round2 } from '../lib/fee
 import { sortPhases, fmtDate, signedPhotoUrls, uid, extOf,
   type Update, type Drawing, type ContractItem, type Meeting, type ServiceRequest } from '../lib/projectContent'
 
-export type Phase = { id: string; code: string; name?: string | null; billing?: string; parent_phase_id?: string | null; service_id?: string | null; fee: number; fee_pct: number | null; status: string; start_date: string | null; end_date: string | null; meetings_included: number | null }
+export type Phase = { id: string; code: string; sort?: number | null; name?: string | null; billing?: string; parent_phase_id?: string | null; service_id?: string | null; fee: number; fee_pct: number | null; status: string; start_date: string | null; end_date: string | null; meetings_included: number | null }
 type Entry = { phase_id: string | null; profile_id: string; minutes: number; profiles: { full_name: string | null; bill_rate: number | null } | null }
 export type Project = { id: string; number: string; name: string; status: string; category: string | null; categories: string[] | null; sector: string | null; address: string | null; next_milestone: string | null; client_id: string | null; clients: { name: string } | null; outside_firm?: boolean }
 export type Inv = { id: string; number: string; status: string; total: number; amount_paid: number | null; issue_date: string | null; due_date: string | null }
@@ -37,10 +37,14 @@ export default function ProjectDetail() {
   const [tab, setTab] = useState<Tab>(startTab)
   const [teamErr, setTeamErr] = useState('')
   const [teamOpen, setTeamOpen] = useState<string | null>(null) // phase whose team editor is open, right in the table
+  // phase reordering: grab the ⠿ handle and drag (or arrow keys on the handle)
+  const [armed, setArmed] = useState<string | null>(null)
+  const [dragOver, setDragOver] = useState<string | null>(null)
+  const [reorderErr, setReorderErr] = useState('')
   useEffect(() => { setTab(startTab) }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
   const { data, error, reload } = useLoad(async () => {
     const p = must(await supabase.from('projects').select('id, number, name, status, category, categories, sector, address, next_milestone, client_id, clients(name), outside_firm').eq('id', id!).single()) as unknown as Project
-    const phases = sortPhases(must(await supabase.from('phases').select('id, code, name, parent_phase_id, service_id, billing, fee, fee_pct, status, start_date, end_date, meetings_included').eq('project_id', id!)) as Phase[])
+    const phases = sortPhases(must(await supabase.from('phases').select('id, code, sort, name, parent_phase_id, service_id, billing, fee, fee_pct, status, start_date, end_date, meetings_included').eq('project_id', id!)) as Phase[])
     const billed = must(await supabase.from('phase_billing').select('phase_id, billed').eq('project_id', id!)) as { phase_id: string; billed: number }[]
     const time = must(await supabase.from('time_entries').select('phase_id, profile_id, minutes, profiles(full_name, bill_rate)').eq('project_id', id!)) as unknown as Entry[]
     const invoices = must(await supabase.from('invoices').select('id, number, status, total, amount_paid, issue_date, due_date').eq('project_id', id!).order('issue_date', { ascending: false, nullsFirst: true })) as Inv[]
@@ -64,6 +68,32 @@ export default function ProjectDetail() {
   if (error) return <p className="err">{error}</p>
   if (!data) return <p>Loading…</p>
   const { p, phases, billed, time, invoices, agreements, allocs, people, members } = data
+  const mains = phases.filter((x) => x.code !== 'AS')
+  const reorder = async (fromId: string, toId: string) => {
+    const ids = mains.map((x) => x.id), from = ids.indexOf(fromId), to = ids.indexOf(toId)
+    if (from < 0 || to < 0 || from === to) return
+    ids.splice(from, 1); ids.splice(to, 0, fromId)
+    const res = await Promise.all(ids.map((pid, i) => supabase.from('phases').update({ sort: (i + 1) * 10 }).eq('id', pid)))
+    const bad = res.find((r) => r.error); setReorderErr(bad?.error ? bad.error.message : ''); reload()
+  }
+  const dragFor = (ph: Phase): PhaseDrag | undefined => {
+    if (ph.code === 'AS' || mains.length < 2) return undefined
+    const i = mains.findIndex((x) => x.id === ph.id)
+    return {
+      handle: <button type="button" className="ph-grip" aria-label={`Reorder ${ph.code === 'CU' ? ph.name : ph.code}: drag, or use the arrow keys`} title="Drag to reorder"
+        onMouseDown={() => setArmed(ph.id)} onMouseUp={() => setArmed(null)} onTouchStart={() => setArmed(ph.id)}
+        onKeyDown={(e) => { const j = e.key === 'ArrowUp' ? i - 1 : e.key === 'ArrowDown' ? i + 1 : -1; if (j >= 0 && j < mains.length) { e.preventDefault(); reorder(ph.id, mains[j].id) } }}>
+        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="3" cy="3" r="1.6" /><circle cx="9" cy="3" r="1.6" /><circle cx="3" cy="9" r="1.6" /><circle cx="9" cy="9" r="1.6" /></svg></button>,
+      row: {
+        draggable: armed === ph.id,
+        className: dragOver === ph.id && armed && armed !== ph.id ? (mains.findIndex((x) => x.id === armed) < i ? 'ph-drop below' : 'ph-drop') : armed === ph.id ? 'ph-dragging' : undefined,
+        onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/x-phase', ph.id) },
+        onDragOver: (e) => { if (armed) { e.preventDefault(); if (dragOver !== ph.id) setDragOver(ph.id) } },
+        onDrop: (e) => { e.preventDefault(); const from = e.dataTransfer.getData('text/x-phase'); setDragOver(null); setArmed(null); if (from) reorder(from, ph.id) },
+        onDragEnd: () => { setArmed(null); setDragOver(null) },
+      },
+    }
+  }
   const roleOf = (pid: string) => members.find((m) => m.profile_id === pid)?.role_label ?? people.find((x) => x.id === pid)?.title ?? ''
   const runTeam = async (fn: () => Promise<unknown>) => { try { await fn(); setTeamErr(''); reload() } catch (e) { setTeamErr(errText(e)) } }
   const rateOf = (pid: string) => Number(members.find((m) => m.profile_id === pid)?.bill_rate ?? people.find((x) => x.id === pid)?.bill_rate ?? 0)
@@ -147,11 +177,11 @@ export default function ProjectDetail() {
       </section>
       </div>
       <section className="card pad stack">
-        <h2>Phases</h2>
+        <h2>Phases</h2>{reorderErr && <p className="err" role="alert" style={{ margin: 0 }}>{reorderErr}</p>}
         <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 1150 }}>
           <thead><tr><th>Phase</th><th>Status</th><th>Start</th><th>End</th><th className="r">Fee</th><th>Team</th><th className="r">Billed</th><th className="r">Hours</th><th>Fee used (labor at rates)</th><th></th></tr></thead>
           <tbody>{phases.map((ph) => <Fragment key={ph.id}>
-            <PhaseRow key={ph.id + ph.fee + (ph.fee_pct ?? '')} ph={ph} total={cf} team={teamOf(ph)} teamOpen={teamOpen === ph.id} onTeam={() => setTeamOpen(teamOpen === ph.id ? null : ph.id)} billed={billedBy[ph.id] ?? 0} ahead={aheadOf(ph)} used={used(ph.id)} onSaved={reload} />
+            <PhaseRow key={ph.id + ph.fee + (ph.fee_pct ?? '')} drag={dragFor(ph)} ph={ph} total={cf} team={teamOf(ph)} teamOpen={teamOpen === ph.id} onTeam={() => setTeamOpen(teamOpen === ph.id ? null : ph.id)} billed={billedBy[ph.id] ?? 0} ahead={aheadOf(ph)} used={used(ph.id)} onSaved={reload} />
             {teamOpen === ph.id && <tr className="ph-team-row"><td colSpan={10}>
               <div className="ph-team-edit">
                 <div className="row between"><strong>{ph.code} team</strong><button type="button" className="linkbtn" onClick={() => setTeamOpen(null)}>Done</button></div>
@@ -613,7 +643,8 @@ function FeeInput({ id, mode, amt, pct, total, onMode, onAmt, onPct }: { id: str
 }
 
 type TeamMember = { id: string; name: string; initials: string; avatar: string | null; hours: number; pct: number }
-function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSaved }: { ph: Phase; total: number | null; team: TeamMember[]; teamOpen: boolean; onTeam: () => void; billed: number; ahead: number; used: { hrs: number; cost: number }; onSaved: () => void }) {
+type PhaseDrag = { handle: React.ReactNode; row: React.HTMLAttributes<HTMLTableRowElement> & { draggable?: boolean } }
+function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSaved, drag }: { ph: Phase; total: number | null; team: TeamMember[]; teamOpen: boolean; onTeam: () => void; billed: number; ahead: number; used: { hrs: number; cost: number }; onSaved: () => void; drag?: PhaseDrag }) {
   const startMode = ph.fee_pct != null && total !== null ? 'pct' : 'amt'
   const [f, setF] = useState({ mode: startMode as 'amt' | 'pct', fee: String(ph.fee), pct: ph.fee_pct != null ? String(Number(ph.fee_pct)) : total ? String(Math.round(Number(ph.fee) / total * 10000) / 100) : '',
     status: ph.status, start_date: ph.start_date ?? '', end_date: ph.end_date ?? '' })
@@ -640,9 +671,9 @@ function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSa
     onSaved()
   }
   return (
-    <tr>
-      <td>{ph.code === 'AS' ? <span style={{ paddingLeft: 14, display: 'inline-block' }}><span className="muted">↳ </span><strong>AS</strong> <span className="muted">{phaseLabel(ph)}</span><div className="muted" style={{ fontSize: 12 }}>Additional service</div></span> : ph.code === 'CU' ? <><strong>{ph.name}</strong> <span className="muted">· custom</span></> : <><strong>{ph.code}</strong> <span className="muted">{PHASE_NAME[ph.code]}</span></>}
-        {ph.billing === 'hourly' && <span className="pill" style={{ marginLeft: 6, fontSize: 11 }} title="Billed for hours logged, at each person’s rate">Hourly</span>}{msg && <div className="err">{msg}</div>}</td>
+    <tr {...drag?.row}>
+      <td><span className="ph-cell">{drag?.handle ?? <span className="ph-grip-sp" />}<span>{ph.code === 'AS' ? <span style={{ paddingLeft: 14, display: 'inline-block' }}><span className="muted">↳ </span><strong>AS</strong> <span className="muted">{phaseLabel(ph)}</span><div className="muted" style={{ fontSize: 12 }}>Additional service</div></span> : ph.code === 'CU' ? <><strong>{ph.name}</strong> <span className="muted">· custom</span></> : <><strong>{ph.code}</strong> <span className="muted">{PHASE_NAME[ph.code]}</span></>}
+        {ph.billing === 'hourly' && <span className="pill" style={{ marginLeft: 6, fontSize: 11 }} title="Billed for hours logged, at each person’s rate">Hourly</span>}{msg && <div className="err">{msg}</div>}</span></span></td>
       <td><label className="sr" htmlFor={'st' + ph.id}>Status</label><select id={'st' + ph.id} className="input" style={{ minWidth: 140 }} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
         <option value="not_started">Not started</option><option value="in_progress">In progress</option><option value="paused">Paused</option><option value="complete">Complete</option></select></td>
       <td><label className="sr" htmlFor={'sd' + ph.id}>Start</label><input id={'sd' + ph.id} type="date" className="input" value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} /></td>

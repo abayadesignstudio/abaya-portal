@@ -45,7 +45,7 @@ export default function InvoiceBuilder() {
   const ctx = useLoad(async () => {
     if (!projectId) return null
     const p = must(await supabase.from('projects').select('id, number, name, sector, client_id, clients(name, billing_email, address)').eq('id', projectId).single()) as unknown as Project
-    const phases = sortPhases(must(await supabase.from('phases').select('id, code, name, parent_phase_id, fee, status, billing').eq('project_id', projectId)) as Phase[])
+    const phases = sortPhases(must(await supabase.from('phases').select('id, code, sort, name, parent_phase_id, fee, status, billing').eq('project_id', projectId)) as Phase[])
     const billedLines = phases.length ? must(await supabase.from('invoice_lines').select('phase_id, amount, invoice_id, invoices!inner(status)').eq('kind', 'phase').in('phase_id', phases.map((x) => x.id))) as unknown as { phase_id: string; amount: number; invoice_id: string; invoices: { status: string } }[] : []
     const billedBefore: Record<string, number> = {}
     billedLines.filter((l) => l.invoice_id !== id && ['open', 'paid'].includes(l.invoices.status)).forEach((l) => { billedBefore[l.phase_id] = (billedBefore[l.phase_id] ?? 0) + Number(l.amount) })

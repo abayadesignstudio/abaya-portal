@@ -62,7 +62,7 @@ export default function BudgetTab({ projectId }: { projectId: string }) {
   const [sub, setSub] = useState<'pay' | 'consultants' | 'expenses'>('pay')
   const [err, setErr] = useState('')
   const { data, error, reload } = useLoad(async () => {
-    const phases = sortPhases(must(await supabase.from('phases').select('id, code, name, parent_phase_id, fee, status, start_date, end_date').eq('project_id', projectId)) as Phase[])
+    const phases = sortPhases(must(await supabase.from('phases').select('id, code, sort, name, parent_phase_id, fee, status, start_date, end_date').eq('project_id', projectId)) as Phase[])
     const ids = phases.map((p) => p.id)
     const people = must(await supabase.from('profiles').select('id, full_name, email, initials, title, bill_rate, avatar_url').in('role', ['admin', 'staff']).order('full_name')) as Person[]
     const members = must(await supabase.from('project_members').select('profile_id, role_label, bill_rate').eq('project_id', projectId)) as Member[]
