@@ -22,7 +22,7 @@ export type Inv = { id: string; number: string; status: string; total: number; a
 
 // Project sub-menu, Monograph-style: core pages, then client-facing content
 const NAV_MAIN = [['overview', 'Overview'], ['budget', 'Budget'], ['settings', 'Details'], ['drawings', 'Files']] as const
-const NAV_CLIENT = [['updates', 'Updates'], ['contract', 'Contract'], ['requests', 'Additional services'], ['client', 'Client access']] as const
+const NAV_CLIENT = [['updates', 'Updates'], ['contacts', 'Contacts'], ['contract', 'Contract'], ['requests', 'Additional services'], ['client', 'Client access']] as const
 type Tab = typeof NAV_MAIN[number][0] | typeof NAV_CLIENT[number][0]
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -172,6 +172,7 @@ export default function ProjectDetail() {
       {tab === 'budget' && <BudgetTab key={p.id + phases.map((x) => x.id + x.fee + x.status).join()} projectId={p.id} />}
       {tab === 'updates' && <UpdatesTab projectId={p.id} />}
       {tab === 'drawings' && <DrawingsTab projectId={p.id} phases={phases} invoices={invoices} />}
+      {tab === 'contacts' && <ContactsTab project={p} />}
       {tab === 'contract' && <ContractTab projectId={p.id} phases={phases} onSaved={reload} />}
       {tab === 'requests' && <RequestsTab projectId={p.id} phases={phases} onChanged={reload} />}
       {tab === 'client' && <ClientAccessTab project={p} />}
@@ -459,6 +460,79 @@ export function RequestsTab({ projectId, phases: allPhases = [], onChanged }: { 
 }
 
 /* ---------------- Client access ---------------- */
+const TRADES = ['General Contractor', 'Structural Engineer', 'MEP Engineer', 'Civil Engineer', 'Landscape Architect', 'Interior Designer', 'Surveyor', 'Geotechnical Engineer', 'Consultant', 'Owner’s Rep', 'Other']
+type PContact = { id: string; trade: string; name: string | null; company: string | null; email: string | null; phone: string | null; notes: string | null; show_to_client: boolean }
+const BLANK_PC = { trade: 'General Contractor', name: '', company: '', email: '', phone: '', notes: '', show_to_client: true }
+
+/** Everyone on the project: the client (from Clients) and the trades/consultants added here.
+ *  Emails and Google Calendar meetings with any of these people are logged to Updates automatically. */
+export function ContactsTab({ project }: { project: Project }) {
+  const d = useLoad(async () => {
+    const client = project.client_id ? (must(await supabase.from('clients').select('name, billing_email, phone, address, client_contacts(id, name, email)').eq('id', project.client_id).maybeSingle()) as
+      { name: string; billing_email: string | null; phone: string | null; address: string | null; client_contacts: { id: string; name: string | null; email: string }[] } | null) : null
+    const trades = must(await supabase.from('project_contacts').select('*').eq('project_id', project.id).order('created_at')) as PContact[]
+    return { client, trades }
+  }, [project.id, project.client_id])
+  const [f, setF] = useState(BLANK_PC); const [edit, setEdit] = useState<string | null>(null); const [open, setOpen] = useState(false); const [err, setErr] = useState('')
+  const save = async (e: React.FormEvent) => { e.preventDefault(); setErr('')
+    const row = { trade: f.trade, name: f.name.trim() || null, company: f.company.trim() || null, email: f.email.trim().toLowerCase() || null, phone: f.phone.trim() || null, notes: f.notes.trim() || null, show_to_client: f.show_to_client }
+    if (!row.name && !row.company) { setErr('Add a name or a company.'); return }
+    const { error } = edit ? await supabase.from('project_contacts').update(row).eq('id', edit) : await supabase.from('project_contacts').insert({ ...row, project_id: project.id })
+    if (error) setErr(error.message); else { setF(BLANK_PC); setEdit(null); setOpen(false); d.reload() } }
+  const startEdit = (c: PContact) => { setEdit(c.id); setOpen(true); setF({ trade: c.trade, name: c.name ?? '', company: c.company ?? '', email: c.email ?? '', phone: c.phone ?? '', notes: c.notes ?? '', show_to_client: c.show_to_client }) }
+  const del = async (c: PContact) => {
+    if (!window.confirm(`Remove ${c.name || c.company} (${c.trade}) from this project? Updates already logged stay. This can’t be undone.`)) return
+    await supabase.from('project_contacts').delete().eq('id', c.id); d.reload() }
+  const toggleShow = async (c: PContact) => { await supabase.from('project_contacts').update({ show_to_client: !c.show_to_client }).eq('id', c.id); d.reload() }
+  const cl = d.data?.client
+  const set = (k: keyof typeof BLANK_PC) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value })
+  return (
+    <div className="stack">
+      <section className="card pad stack">
+        <div className="row between"><h2 style={{ margin: 0 }}>Client</h2><Link className="btn small secondary" to="/clients">Edit in Clients</Link></div>
+        {!project.client_id ? <p className="muted" style={{ margin: 0 }}>No client set — choose one on the Details tab.</p> : cl && <>
+          <div className="pc-grid">
+            <div><div className="l">Name</div><strong>{cl.name}</strong></div>
+            <div><div className="l">Billing email</div>{cl.billing_email ? <a href={`mailto:${cl.billing_email}`}>{cl.billing_email}</a> : '—'}</div>
+            <div><div className="l">Phone</div>{cl.phone ? <a href={`tel:${cl.phone}`}>{cl.phone}</a> : '—'}</div>
+            <div><div className="l">Address</div>{cl.address || '—'}</div>
+          </div>
+          <table className="table"><thead><tr><th>Contact</th><th>Email</th></tr></thead><tbody>
+            {cl.client_contacts.map((c) => <tr key={c.id}><td>{c.name ?? '—'}</td><td><a href={`mailto:${c.email}`}>{c.email}</a></td></tr>)}
+            {cl.client_contacts.length === 0 && <tr><td colSpan={2} className="muted"><em>No client contacts yet — add them on Client access.</em></td></tr>}
+          </tbody></table></>}
+      </section>
+      <section className="card pad stack">
+        <div className="row between"><h2 style={{ margin: 0 }}>Trades &amp; consultants</h2>
+          {!open && <button type="button" className="btn small" onClick={() => { setEdit(null); setF(BLANK_PC); setOpen(true) }}>+ Add contact</button>}</div>
+        <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>Emails and Google Calendar meetings with anyone listed here (with an email address) show up in Updates automatically.</p>
+        <table className="table"><thead><tr><th>Trade</th><th>Name</th><th>Company</th><th>Email</th><th>Phone</th><th>Client sees</th><th /></tr></thead><tbody>
+          {d.data?.trades.map((c) => <tr key={c.id}>
+            <td><strong>{c.trade}</strong></td><td>{c.name ?? '—'}</td><td>{c.company ?? '—'}</td>
+            <td>{c.email ? <a href={`mailto:${c.email}`}>{c.email}</a> : '—'}</td><td>{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : '—'}</td>
+            <td><input type="checkbox" aria-label={`Client sees ${c.name || c.company}`} checked={c.show_to_client} onChange={() => toggleShow(c)} style={{ width: 18, height: 18 }} /></td>
+            <td><RowMenu label={`Actions for ${c.name || c.company}`} items={[{ label: 'Edit', onSelect: () => startEdit(c) }, { label: 'Remove', danger: true, onSelect: () => del(c) }]} /></td></tr>)}
+          {d.data?.trades.length === 0 && <tr><td colSpan={7} className="muted"><em>No trades yet — add the general contractor, engineers and other consultants.</em></td></tr>}
+        </tbody></table>
+        {open && <form onSubmit={save} className="stack pc-form">
+          <div className="pc-grid">
+            <div><label className="l" htmlFor="pc-t">Trade</label><select id="pc-t" className="input" value={f.trade} onChange={set('trade')}>
+              {[...new Set([...TRADES, f.trade])].map((t) => <option key={t}>{t}</option>)}</select></div>
+            <div><label className="l" htmlFor="pc-n">Name</label><input id="pc-n" className="input" value={f.name} onChange={set('name')} /></div>
+            <div><label className="l" htmlFor="pc-c">Company</label><input id="pc-c" className="input" value={f.company} onChange={set('company')} /></div>
+            <div><label className="l" htmlFor="pc-e">Email</label><input id="pc-e" type="email" className="input" value={f.email} onChange={set('email')} /></div>
+            <div><label className="l" htmlFor="pc-p">Phone</label><input id="pc-p" type="tel" className="input" value={f.phone} onChange={set('phone')} /></div>
+            <div><label className="l" htmlFor="pc-o">Notes</label><input id="pc-o" className="input" value={f.notes} onChange={set('notes')} /></div>
+          </div>
+          <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={f.show_to_client} onChange={(e) => setF({ ...f, show_to_client: e.target.checked })} style={{ width: 18, height: 18 }} /> Show in the client portal</label>
+          <div className="row"><button className="btn">{edit ? 'Save' : 'Add contact'}</button><button type="button" className="btn secondary" onClick={() => { setOpen(false); setEdit(null); setErr('') }}>Cancel</button></div>
+        </form>}
+        {err && <p className="err" role="alert">{err}</p>}
+      </section>
+    </div>
+  )
+}
+
 export function ClientAccessTab({ project }: { project: Project }) {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'

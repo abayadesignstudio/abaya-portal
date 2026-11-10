@@ -42,6 +42,7 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
     meetings: must(await supabase.from('meetings').select('*').eq('project_id', id!)) as Meeting[],
     requests: must(await supabase.from('service_requests').select('*').eq('project_id', id!).order('created_at', { ascending: false })) as ServiceRequest[],
     invoices: must(await supabase.from('invoices').select('id, number, status, issue_date, total, amount_paid, due_date').eq('project_id', id!).order('issue_date', { ascending: false })) as Inv[],
+    team: must(await supabase.from('project_contacts').select('id, trade, name, company, email, phone').eq('project_id', id!).eq('show_to_client', true).order('created_at')) as Team[],
     models: ((await supabase.storage.from('models').list(id!)).data ?? []).filter((f) => f.id && f.name && !f.name.startsWith('.')),
   }), [id])
   const reloadKey = pv?.reloadKey ?? 0
@@ -54,7 +55,7 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
 
   if (d.error) return <p className="err">{d.error}</p>
   if (!d.data) return <p>Loading…</p>
-  const { p, phases, drawings, items, meetings, requests, invoices, models } = d.data
+  const { p, phases, drawings, items, meetings, requests, invoices, models, team } = d.data
   // staff can read hidden updates; the preview shows only what the client sees
   const updates = d.data.updates.filter((u) => u.visible_to_client)
   const invById = Object.fromEntries(invoices.map((i) => [i.id, i]))
@@ -98,6 +99,7 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
         <div className="stack">
           <Ed pv={pv} s="invoices"><InvoicesMini invoices={invoices} /></Ed>
           <Ed pv={pv} s="contract"><ContractPanel phases={phases} items={items} meetings={meetings} /></Ed>
+          {team.length > 0 && <TeamPanel team={team} />}
           <Ed pv={pv} s="requests"><RequestPanel projectId={p.id} me={profile!.id} requests={requests} onSent={d.reload} preview={!!pv} /></Ed>
         </div>
       </div>
@@ -230,6 +232,21 @@ function RequestPanel({ projectId, me, requests, onSent, preview }: { projectId:
 }
 
 const INV_ST: Record<string, [string, string]> = { open: ['Open', 'var(--amber)'], paid: ['Paid', 'var(--green)'], void: ['Void', 'var(--muted)'], uncollectible: ['Closed', 'var(--muted)'] }
+type Team = { id: string; trade: string; name: string | null; company: string | null; email: string | null; phone: string | null }
+/** The trades and consultants on the project (only the ones staff marked "Client sees"). */
+function TeamPanel({ team }: { team: Team[] }) {
+  return (
+    <section className="card pad stack" aria-labelledby="tm-h" style={{ gap: 10 }}>
+      <h2 id="tm-h">Project team</h2>
+      {team.map((c) => <div key={c.id} className="cp-team">
+        <div className="muted" style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase' }}>{c.trade}</div>
+        <div><strong>{c.name || c.company}</strong>{c.name && c.company && <span className="muted"> · {c.company}</span>}</div>
+        <div style={{ fontSize: 13.5 }}>{c.email && <a href={`mailto:${c.email}`}>{c.email}</a>}{c.email && c.phone && ' · '}{c.phone && <a href={`tel:${c.phone}`}>{c.phone}</a>}</div>
+      </div>)}
+    </section>
+  )
+}
+
 function InvoicesMini({ invoices }: { invoices: Inv[] }) {
   const today = new Date().toISOString().slice(0, 10)
   const shown = invoices.filter((i) => i.status !== 'draft')
