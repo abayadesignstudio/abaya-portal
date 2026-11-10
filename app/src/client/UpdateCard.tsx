@@ -26,7 +26,8 @@ export default function UpdateCard({ u, urls, onDelete }: { u: Update; urls: Rec
 /** A logged project email: category on top, who wrote to whom, the subject as an email "RE:" line, then the preview. */
 function EmailCard({ u, onDelete }: { u: Update; onDelete?: () => void }) {
   const [subject, ...rest] = (u.body ?? '').split('\n')
-  const preview = rest.join(' ').trim()
+  // Gmail's preview runs into the quoted earlier message ("From: … Sent: …", "On … wrote:") — cut it there
+  const preview = rest.join(' ').trim().replace(/^“|”$/g, '').split(/\s(?:From:|Sent:|-{2,}\s*Original Message|On [^:]{4,80} wrote:)/)[0].trim()
   // staff only (clients can't read email_log): open the email in Gmail, found by its Message-ID in whichever mailbox has it
   const { session } = useAuth()
   const [href, setHref] = useState<string | null>(null)
@@ -52,7 +53,7 @@ function EmailCard({ u, onDelete }: { u: Update; onDelete?: () => void }) {
       <div className="row" style={{ gap: 8 }}>{u.title && <strong>{u.title}</strong>}
         {!u.visible_to_client && <span className="pill" style={{ borderColor: '#e4b4ad', color: 'var(--red)' }}>Staff only</span>}</div>
       {subject && <p className="up-email-re"><span>RE:</span> {subject.replace(/^\s*(re|fwd?|aw)\s*:\s*/i, '')}</p>}
-      {preview && <p className="up-email-prev">{preview}</p>}
+      {preview && <p className="up-email-prev">“{preview}”</p>}
       {onDelete && <div><button type="button" className="btn small danger" onClick={onDelete}>Delete</button></div>}
     </article>
   )

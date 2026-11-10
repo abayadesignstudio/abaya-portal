@@ -1,12 +1,12 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { CLink as Link } from './preview'
 import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASE_NAME } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
-import { sortPhases, fmtDate, signedPhotoUrls, drawingLink, BAR_COLOR, PHASE_STYLE,
+import { sortPhases, fmtDate, signedPhotoUrls, drawingLink,
   type PhaseRow, type Update, type Drawing, type ContractItem, type Meeting, type ServiceRequest } from '../lib/projectContent'
-import PhaseStepper from './PhaseStepper'
+import ClientGantt from './ClientGantt'
 import UpdateCard from './UpdateCard'
 import './client.css'
 const ModelViewer = lazy(() => import('./ModelViewer'))
@@ -81,9 +81,8 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
       <Ed pv={pv} s="model"><ModelPanel projectId={p.id} files={models.map((m) => ({ name: m.name, at: m.updated_at ?? m.created_at ?? '' }))} /></Ed>
 
       <Ed pv={pv} s="phases"><section className="card pad stack" aria-label="Phases">
-        <h2>Where we are</h2>
-        {phases.length ? <PhaseStepper phases={phases} /> : <p className="muted" style={{ margin: 0 }}><em>Phases will appear here once the schedule is set.</em></p>}
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}>Gray = complete · green = in progress · red = paused · outline = not started · dashed = not in your contract</p>
+        <h2>Schedule</h2>
+        <ClientGantt phases={phases} />
       </section></Ed>
 
       <div className="cl-grid">
@@ -99,7 +98,6 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
         <div className="stack">
           <Ed pv={pv} s="invoices"><InvoicesMini invoices={invoices} /></Ed>
           <Ed pv={pv} s="contract"><ContractPanel phases={phases} items={items} meetings={meetings} /></Ed>
-          <Ed pv={pv} s="schedule"><Schedule phases={phases} /></Ed>
           <Ed pv={pv} s="requests"><RequestPanel projectId={p.id} me={profile!.id} requests={requests} onSent={d.reload} preview={!!pv} /></Ed>
         </div>
       </div>
@@ -201,32 +199,6 @@ function ContractPanel({ phases, items, meetings }: { phases: PhaseRow[]; items:
           <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{items.map((it) => { const [l, c] = ST[it.status] ?? ST.not_started
             return <li key={it.id} className="row between" style={{ padding: '6px 0', borderTop: '1px solid #efece6', fontSize: 14 }}><span>{phases.find((p) => p.id === it.phase_id)?.code && <span className="muted">{phases.find((p) => p.id === it.phase_id)?.code} · </span>}{it.title}</span><strong style={{ color: c }}>{l}</strong></li> })}</ul>}
       </div>
-    </section>
-  )
-}
-
-function Schedule({ phases }: { phases: PhaseRow[] }) {
-  const dated = phases.filter((p) => p.start_date && p.end_date)
-  const span = useMemo(() => {
-    if (!dated.length) return null
-    const t = (s: string) => new Date(s + 'T12:00:00').getTime()
-    const min = Math.min(...dated.map((p) => t(p.start_date!)), Date.now()), max = Math.max(...dated.map((p) => t(p.end_date!)), Date.now())
-    return { min, max, t }
-  }, [dated])
-  return (
-    <section className="card pad stack" aria-labelledby="sc-h">
-      <h2 id="sc-h">Schedule</h2>
-      {!span ? <p className="muted" style={{ margin: 0 }}><em>Dates will appear once the schedule is set.</em></p> : (
-        <div className="gantt">
-          {dated.map((p) => { const left = (span.t(p.start_date!) - span.min) / (span.max - span.min) * 100; const w = Math.max(1.5, (span.t(p.end_date!) - span.t(p.start_date!)) / (span.max - span.min) * 100)
-            return <div key={p.id} className="gantt-row">
-              <span style={{ fontSize: 13 }}><strong>{p.code}</strong> <span className="muted">{fmtDate(p.start_date)}–{fmtDate(p.end_date)}</span></span>
-              <div className="gantt-track" aria-label={`${PHASE_NAME[p.code]}: ${PHASE_STYLE[p.status]?.label ?? ''}`}>
-                <span className="gantt-bar" style={{ left: `${left}%`, width: `${w}%`, background: BAR_COLOR[p.status] ?? '#98a2b3' }} />
-                <span aria-hidden="true" style={{ position: 'absolute', top: -4, bottom: -4, left: `${(Date.now() - span.min) / (span.max - span.min) * 100}%`, width: 2, background: 'var(--navy)' }} />
-              </div></div> })}
-          <p className="muted" style={{ margin: '6px 0 0', fontSize: 12 }}>Navy line = today</p>
-        </div>)}
     </section>
   )
 }
