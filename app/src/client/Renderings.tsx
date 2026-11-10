@@ -34,8 +34,9 @@ export default function Renderings({ images }: { images: { name: string; url: st
     const r = box.current!.getBoundingClientRect()
     const px = cx - (r.left + r.width / 2), py = cy - (r.top + r.height / 2)
     setZ((o) => {
-      const s = Math.min(8, Math.max(1, o.s * f)); const k = s / o.s
-      if (s === 1) return { s: 1, x: 0, y: 0 }
+      const s = Math.min(8, Math.max(0.4, o.s * f)); const k = s / o.s
+      // at or below fit, keep it centred (zooming out leaves space around the whole image)
+      if (s <= 1) return { s, x: 0, y: 0 }
       return { s, x: px - (px - o.x) * k, y: py - (py - o.y) * k }
     })
   }
@@ -64,13 +65,13 @@ export default function Renderings({ images }: { images: { name: string; url: st
     <div ref={root} className={'rg' + (full ? ' full' : '')} tabIndex={0} onContextMenu={(e) => e.preventDefault()}
       onKeyDown={(e) => { if (e.key === 'ArrowRight') go(1); if (e.key === 'ArrowLeft') go(-1); if (e.key === 'f' || e.key === 'F') toggleFull(); if (e.key === '0') fit() }}>
       <div ref={box} className={'rg-main' + (z.s > 1 ? ' zoomed' : '')} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
-        onDoubleClick={(e) => (z.s > 1 ? fit() : zoomAt(e.clientX, e.clientY, 2.5))}>
+        onDoubleClick={(e) => (Math.abs(z.s - 1) > 0.01 ? fit() : zoomAt(e.clientX, e.clientY, 2.5))}>
         <img src={cur.url} alt={label(cur.name)} draggable={false} style={{ transform: `translate(${z.x}px, ${z.y}px) scale(${z.s})` }} />
         {images.length > 1 && <><button type="button" className="rg-nav l" onPointerDown={(e) => e.stopPropagation()} onClick={() => go(-1)} aria-label="Previous rendering">‹</button>
           <button type="button" className="rg-nav r" onPointerDown={(e) => e.stopPropagation()} onClick={() => go(1)} aria-label="Next rendering">›</button></>}
         <div className="rg-tools" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-          <button type="button" onClick={() => zoomAt(innerWidth / 2, innerHeight / 2, 1 / 1.5)} aria-label="Zoom out" disabled={z.s <= 1}>−</button>
-          <button type="button" onClick={fit} className={z.s === 1 ? 'on' : ''}>Fit</button>
+          <button type="button" onClick={() => zoomAt(innerWidth / 2, innerHeight / 2, 1 / 1.5)} aria-label="Zoom out" disabled={z.s <= 0.4}>−</button>
+          <button type="button" onClick={fit} className={Math.abs(z.s - 1) < 0.01 ? 'on' : ''}>Fit</button>
           <button type="button" onClick={() => { const r = box.current!.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1.5) }} aria-label="Zoom in">+</button>
           <button type="button" onClick={toggleFull} aria-label={full ? 'Exit full screen' : 'Full screen'} title="Full screen (F)">{full ? '⤡' : '⤢'}</button>
         </div>
