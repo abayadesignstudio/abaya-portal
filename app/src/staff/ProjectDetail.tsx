@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import TypePicker, { typeCodes } from './TypePicker'
 import Avatar from '../components/Avatar'
+import RowMenu from '../components/RowMenu'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import ModelUpload from './ModelUpload'
 import RenderingsUpload from './RenderingsUpload'
@@ -494,6 +495,18 @@ function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSa
     const { error } = await supabase.from('phases').update({ fee, fee_pct: f.mode === 'pct' ? p : null, status: f.status, start_date: f.start_date || null, end_date: f.end_date || null }).eq('id', ph.id)
     setMsg(error ? error.message : ''); if (!error) onSaved()
   }
+  const setStatus = async (status: string) => {
+    const { error } = await supabase.from('phases').update({ status }).eq('id', ph.id)
+    setMsg(error ? error.message : ''); if (!error) { setF({ ...f, status }); onSaved() }
+  }
+  const remove = async () => {
+    const hrs = used.hrs ? ` Its ${used.hrs.toFixed(1)} logged hours stay on the project but become “no phase”.` : ''
+    const bill = billed ? ' Invoice lines billed to it keep their amounts but lose the phase link.' : ''
+    if (!window.confirm(`Delete ${ph.code} · ${PHASE_NAME[ph.code] ?? ph.code}? Its fee, dates and team allocations are removed.${hrs}${bill} This can’t be undone.`)) return
+    const { error } = await supabase.from('phases').delete().eq('id', ph.id)
+    if (error) return setMsg(error.message)
+    onSaved()
+  }
   return (
     <tr>
       <td><strong>{ph.code}</strong> <span className="muted">{PHASE_NAME[ph.code]}</span>{msg && <div className="err">{msg}</div>}</td>
@@ -511,7 +524,13 @@ function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSa
       <td className="r num">{used.hrs.toFixed(1)}</td>
       <td style={{ minWidth: 160 }}><div style={{ height: 8, borderRadius: 999, background: '#ece9e3', overflow: 'hidden' }}><span style={{ display: 'block', height: '100%', width: Math.min(100, pct) + '%', background: pct >= 90 ? '#d92d20' : pct >= 75 ? '#dc6803' : 'var(--navy)' }} /></div>
         <div className="muted num" style={{ fontSize: 12, marginTop: 4 }}>{money(used.cost)} · {pct.toFixed(0)}%</div></td>
-      <td>{dirty && <button className="btn small" onClick={save}>Save</button>}</td>
+      <td><div className="row" style={{ gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>{dirty && <button className="btn small" onClick={save}>Save</button>}
+        <RowMenu label={`${ph.code} actions`} items={[
+          { label: teamOpen ? 'Close team' : team.length ? 'Edit team' : 'Assign team', onSelect: onTeam },
+          ...(['not_started', 'in_progress', 'paused', 'complete'] as const).filter((st) => st !== ph.status).map((st) => ({ label: `Mark ${({ not_started: 'not started', in_progress: 'in progress', paused: 'paused', complete: 'complete' })[st]}`, onSelect: () => setStatus(st) })),
+          'divider',
+          { label: 'Delete phase…', danger: true, onSelect: remove },
+        ]} /></div></td>
     </tr>)
 }
 
