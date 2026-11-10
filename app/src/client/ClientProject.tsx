@@ -109,32 +109,24 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
 }
 
 function ModelPanel({ projectId, files }: { projectId: string; files: { name: string; at: string }[] }) {
-  // newest .glb wins (a .gltf with separate files can't be streamed, so it's download-only)
+  // view-only: newest .glb is shown in the viewer; there is no download button
   const glb = [...files].filter((f) => /\.glb$/i.test(f.name)).sort((a, b) => b.at.localeCompare(a.at))[0]?.name
-  const any = glb ?? files.find((f) => /\.(gltf|skp)$/i.test(f.name))?.name
   const [url, setUrl] = useState<string | null>(null)
   useEffect(() => {
     setUrl(null)
-    if (glb) supabase.storage.from('models').createSignedUrl(`${projectId}/${glb}`, 3600).then(({ data }) => setUrl(data?.signedUrl ?? null))
+    // short-lived link: long enough for the viewer to load it, not worth sharing
+    if (glb) supabase.storage.from('models').createSignedUrl(`${projectId}/${glb}`, 120).then(({ data }) => setUrl(data?.signedUrl ?? null))
   }, [projectId, glb])
-  const download = async () => {
-    if (!any) return
-    const { data } = await supabase.storage.from('models').createSignedUrl(`${projectId}/${any}`, 600, { download: any })
-    if (data) window.open(data.signedUrl, '_blank', 'noopener')
-  }
   if (glb) return (
-    <section className="card" aria-label="3D model" style={{ overflow: 'hidden' }}>
+    <section className="card" aria-label="3D model" style={{ overflow: 'hidden' }} onContextMenu={(e) => e.preventDefault()}>
       {url ? <Suspense fallback={<div className="mv"><div className="mv-msg">Loading viewer…</div></div>}><ModelViewer url={url} /></Suspense>
         : <div className="mv"><div className="mv-msg">Loading model…</div></div>}
-      <div className="row between" style={{ padding: '10px 14px' }}><strong>3D model</strong><button className="btn small secondary" onClick={download}>Download model</button></div>
     </section>
   )
   return (
     <section className="card" aria-label="3D model" style={{ overflow: 'hidden' }}>
       <div style={{ height: 300, background: 'linear-gradient(160deg,#0b2f4a,#02253d)', color: '#ede6d6', display: 'grid', placeItems: 'center', textAlign: 'center', padding: 24 }}>
-        {any ? <div className="stack" style={{ alignItems: 'center' }}><strong style={{ fontSize: 18 }}>3D model ready</strong><span style={{ color: '#c5ccd8' }}>This model can be downloaded and opened on your computer.</span>
-          <button className="btn secondary" onClick={download}>Download model</button></div>
-          : <div><strong style={{ fontSize: 18 }}>3D model</strong><p style={{ color: '#c5ccd8', margin: '8px 0 0' }}>Your project’s 3D model will appear here once it’s published, so you can orbit around it and step through saved views.</p></div>}
+        <div><strong style={{ fontSize: 18 }}>3D model</strong><p style={{ color: '#c5ccd8', margin: '8px 0 0' }}>Your project’s 3D model will appear here once it’s published, so you can orbit around it and step through saved views.</p></div>
       </div>
     </section>
   )
