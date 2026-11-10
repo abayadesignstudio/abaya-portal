@@ -1,12 +1,20 @@
 import { supabase, money, SECTOR_COLOR } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import { fmtDate } from '../lib/projectContent'
+import { usePreviewNav } from './preview'
 
 type I = { id: string; number: string; status: string; issue_date: string | null; due_date: string | null; total: number; amount_paid: number; projects: { number: string; name: string; sector: string | null } | null }
 const ST: Record<string, [string, string]> = { open: ['Open', 'var(--amber)'], paid: ['Paid', 'var(--green)'], void: ['Void', 'var(--muted)'], uncollectible: ['Closed', 'var(--muted)'] }
 
 export default function ClientInvoices() {
-  const { data, error } = useLoad(async () => must(await supabase.from('invoices').select('id, number, status, issue_date, due_date, total, amount_paid, projects(number, name, sector)').order('issue_date', { ascending: false })) as unknown as I[])
+  const pv = usePreviewNav()
+  const cid = pv?.clientId ?? null
+  const { data, error } = useLoad(async () => {
+    let q = supabase.from('invoices').select('id, number, status, issue_date, due_date, total, amount_paid, projects(number, name, sector)').order('issue_date', { ascending: false })
+    // the preview shows what this client sees: their invoices, never drafts
+    if (pv) q = q.eq('client_id', cid ?? '00000000-0000-0000-0000-000000000000').neq('status', 'draft')
+    return must(await q) as unknown as I[]
+  }, [cid])
   const today = new Date().toISOString().slice(0, 10)
   const open = (data ?? []).filter((i) => i.status === 'open')
   const owed = open.reduce((a, i) => a + Number(i.total) - Number(i.amount_paid), 0)

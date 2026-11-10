@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
+import { CLink as Link } from './preview'
 import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASE_NAME } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
@@ -68,7 +69,7 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
 
   return (
     <div className="stack">
-      {pv ? <span style={{ fontWeight: 700, color: 'var(--navy)' }}>‹ All projects</span> : <Link to="/" style={{ fontWeight: 700, textDecoration: 'none' }}>‹ All projects</Link>}
+      <Link to="/" style={{ fontWeight: 700, textDecoration: 'none' }}>‹ All projects</Link>
       <div>
         <h1 className="row" style={{ gap: 10 }}><span className="tag" style={{ background: SECTOR_COLOR[p.sector ?? 'internal'], height: 28, fontSize: 15 }}>{p.number}</span>{p.name}
           {(p.categories ?? []).map((c) => <abbr key={c} className="pill" title={CATEGORY_NAME[c]}>{c}</abbr>)}</h1>

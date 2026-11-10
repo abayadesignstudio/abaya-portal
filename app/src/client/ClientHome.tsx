@@ -1,4 +1,5 @@
-import { Link, Navigate } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
+import { CLink as Link, usePreviewNav } from './preview'
 import { supabase, money, SECTOR_COLOR, CATEGORY_NAME } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import { sortPhases, fmtDate, type PhaseRow } from '../lib/projectContent'
@@ -9,17 +10,23 @@ type P = { id: string; number: string; name: string; sector: string | null; cate
 type I = { id: string; number: string; total: number; amount_paid: number; status: string; due_date: string | null }
 
 export default function ClientHome() {
-  const { data, error } = useLoad(async () => ({
-    projects: must(await supabase.from('projects').select('id, number, name, sector, category, categories, status, next_milestone, phases(id, code, fee, status, start_date, end_date, meetings_included)').order('number', { ascending: false })) as unknown as P[],
-    invoices: must(await supabase.from('invoices').select('id, number, total, amount_paid, status, due_date').eq('status', 'open')) as I[],
-  }))
+  const pv = usePreviewNav()
+  const cid = pv?.clientId ?? null
+  const { data, error } = useLoad(async () => {
+    // staff can read every project; the preview narrows to this client's, as RLS does for the client
+    let pq = supabase.from('projects').select('id, number, name, sector, category, categories, status, next_milestone, phases(id, code, fee, status, start_date, end_date, meetings_included)').order('number', { ascending: false })
+    let iq = supabase.from('invoices').select('id, number, total, amount_paid, status, due_date').eq('status', 'open')
+    if (pv) { pq = pq.eq('client_id', cid ?? '00000000-0000-0000-0000-000000000000'); iq = iq.eq('client_id', cid ?? '00000000-0000-0000-0000-000000000000') }
+    return { projects: must(await pq) as unknown as P[], invoices: must(await iq) as I[] }
+  }, [cid])
   const owed = (data?.invoices ?? []).reduce((a, i) => a + Number(i.total) - Number(i.amount_paid), 0)
   const today = new Date().toISOString().slice(0, 10)
   const late = (data?.invoices ?? []).filter((i) => i.due_date && i.due_date < today)
   // a client with a single project goes straight to its dashboard
-  if (data?.projects.length === 1) return <Navigate to={`/projects/${data.projects[0].id}`} replace />
+  if (!pv && data?.projects.length === 1) return <Navigate to={`/projects/${data.projects[0].id}`} replace />
   return (
     <div className="stack">
+      {pv && data?.projects.length === 1 && <p className="cp-note">Preview note: a client with one project skips this page and opens the project directly.</p>}
       <h1>Your projects</h1>
       {error && <p className="err">{error}</p>}
       {owed > 0 && <div className="card pad row between" style={{ borderLeft: `4px solid ${late.length ? 'var(--red)' : 'var(--amber)'}` }}>

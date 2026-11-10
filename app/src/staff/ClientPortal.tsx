@@ -6,6 +6,9 @@ import { sortPhases, fmtDate, PHASE_STYLE } from '../lib/projectContent'
 import Combobox, { sectorColor } from '../components/Combobox'
 import { ClientProjectView, type EditSection } from '../client/ClientProject'
 import ClientHeader from '../client/ClientHeader'
+import ClientHome from '../client/ClientHome'
+import ClientInvoices from '../client/ClientInvoices'
+import { PreviewNav, type PreviewNavT } from '../client/preview'
 import { UpdatesTab, DrawingsTab, ContractTab, RequestsTab, ClientAccessTab, type Phase, type Project, type Inv } from './ProjectDetail'
 import './client-portal.css'
 
@@ -25,7 +28,10 @@ export default function ClientPortal() {
   const [pid, setPid] = useState<string | null>(read(KEY))
   const list = projects.data ?? []
   const p = list.find((x) => x.id === pid) ?? list.find((x) => x.number === '2610A') ?? list.find((x) => x.status === 'active') ?? list[0]
-  const pick = (id: string) => { setPid(id); write(KEY, id); setEdit(null) }
+  const pick = (id: string) => { setPid(id); write(KEY, id); setEdit(null); setPath('/projects') }
+  // where the client is inside the preview: '/', '/invoices' or '/projects' (the picked project)
+  const [path, setPath] = useState('/projects')
+  const bodyRef = useRef<HTMLDivElement>(null)
 
   const [edit, setEdit] = useState<Section | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
@@ -34,6 +40,12 @@ export default function ClientPortal() {
   const soon = () => { window.clearTimeout(t.current); t.current = window.setTimeout(() => setReloadKey((k) => k + 1), 900) }
   useEffect(() => () => window.clearTimeout(t.current), [])
 
+  const go = (to: string) => {
+    const m = to.match(/^\/projects\/(.+)$/)
+    if (m) { setPid(m[1]); write(KEY, m[1]); setPath('/projects') } else setPath(to)
+    if (to !== '/projects' && !m) setEdit((e) => (e === 'invoices' || e === 'access' ? e : null))
+    bodyRef.current?.scrollIntoView({ block: 'nearest' })
+  }
   if (projects.error) return <p className="err">{projects.error}</p>
   if (!projects.data) return <p>Loading…</p>
   if (!p) return <p className="card pad muted">No projects yet.</p>
@@ -42,6 +54,7 @@ export default function ClientPortal() {
     search: `${x.number} ${x.name} ${x.clients?.name ?? ''}`, hint: x.clients?.name ?? 'No client', group: x.status === 'active' ? 'Active' : x.status === 'proposal' ? 'Proposal' : x.status === 'paused' ? 'Paused' : 'Complete' }))
     .sort((a, b) => ['Active', 'Proposal', 'Paused', 'Complete'].indexOf(a.group) - ['Active', 'Proposal', 'Paused', 'Complete'].indexOf(b.group))
 
+  const nav: PreviewNavT = { go, path, clientId: p.client_id }
   return (
     <div className="stack cp-page">
       <div className="row between" style={{ flexWrap: 'wrap', gap: 12 }}>
@@ -62,10 +75,14 @@ export default function ClientPortal() {
         <div className="cp-frame" aria-label="Client view preview">
           <div className="cp-chrome"><span /><span /><span /><em>Client view · {p.clients?.name ?? 'no client yet'}</em>
             <button type="button" className="cp-access" onClick={() => setEdit('access')}>Client access</button></div>
-          <ClientHeader preview email={p.clients?.name ?? null} />
-          <div className="cp-body">
-            <ClientProjectView key={p.id} projectId={p.id} preview={{ onEdit: setEdit, active: edit === 'access' ? null : edit, reloadKey }} />
-          </div>
+          <PreviewNav.Provider value={nav}>
+            <ClientHeader preview={nav} email={p.clients?.name ?? null} />
+            <div className="cp-body" ref={bodyRef}>
+              {path === '/' ? <ClientHome key={'h' + reloadKey} />
+                : path.startsWith('/invoices') ? <ClientInvoices key={'i' + reloadKey} />
+                : <ClientProjectView key={p.id} projectId={p.id} preview={{ onEdit: setEdit, active: edit === 'access' ? null : edit, reloadKey }} />}
+            </div>
+          </PreviewNav.Provider>
         </div>
 
         {edit && <aside className="cp-panel card" aria-label={`Edit ${TITLE[edit]}`}
