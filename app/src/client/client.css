@@ -41,3 +41,6 @@
 .mv-bar button:hover{background:rgba(2,37,61,.92)}
 .mv-hint{margin-left:auto;color:#c5ccd8;font-size:12px}
 @media (max-width:640px){.mv-hint{display:none}}
+.mv:focus{outline:none}
+.mv-bar button.on{background:#ede6d6;color:var(--navy);border-color:#ede6d6}
+.mv-sep{width:1px;height:20px;background:rgba(237,230,214,.35);margin:0 4px}
