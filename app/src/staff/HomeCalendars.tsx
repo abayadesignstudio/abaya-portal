@@ -115,7 +115,7 @@ export function TaskItem({ t, me, admin, people, showWho, prefixName, onChange, 
     await supabase.from('tasks').delete().eq('id', t.id); setBusy(false); onChange()
   }
   return (
-    <li className={'tk' + (done ? ' done' : '')} style={{ borderLeftColor: t.projects ? sectorColor(t.projects.sector) : '#9aa4b2' }} {...dragProps(canDrag && mine, { kind: 'task', id: t.id, from: t.due_on })}>
+    <li className={'tk' + (done ? ' done' : '')} style={{ borderLeftColor: colorOf(t.assignee, people) ?? (t.projects ? sectorColor(t.projects.sector) : '#9aa4b2') }} {...dragProps(canDrag && mine, { kind: 'task', id: t.id, from: t.due_on })}>
       <div className="tk-main">
         <button type="button" className="tk-ico" role="checkbox" aria-checked={done} disabled={!mine} onClick={(ev) => { ev.stopPropagation(); if (!busy) toggle() }} aria-label={`${done ? 'Mark not done' : 'Mark done'}: ${t.title}`} title={done ? 'Done — click to undo' : 'Mark done'}>
           <Mark kind="task" done={done} color={t.projects ? sectorColor(t.projects.sector) : undefined} /></button>
@@ -156,7 +156,7 @@ export function EventItem({ e, me, admin, people, onChange }: { e: Ev; me: strin
     setBusy(false); onChange()
   }
   return (
-    <li className="tk" style={{ borderLeftColor: e.projects ? sectorColor(e.projects.sector) : '#9aa4b2' }} {...dragProps(canDrag && mine, { kind: 'ev', id: e.id, from: e.starts_on })}>
+    <li className="tk" style={{ borderLeftColor: colorOf(e.profile_id, people) ?? (e.projects ? sectorColor(e.projects.sector) : '#9aa4b2') }} {...dragProps(canDrag && mine, { kind: 'ev', id: e.id, from: e.starts_on })}>
       <div className="tk-main">
         <button type="button" className="tk-ico" role="checkbox" aria-checked={checked} disabled={!mine} onClick={(ev) => { ev.stopPropagation(); if (!busy && !checked) complete() }} aria-label={`Mark done: ${e.title}`} title="Mark done">
           <Mark kind="event" done={checked} color={e.projects ? sectorColor(e.projects.sector) : undefined} /></button>
@@ -212,7 +212,7 @@ function ProjMarkItem({ m, people, onChange }: { m: ProjMark; people: Person[]; 
   const word = m.kind === 'milestone' ? (done ? 'reached' : 'not reached') : (done ? 'delivered' : 'not delivered')
   const [open, setOpen] = useState(false)
   return (
-    <li className={'tk tk-pm' + (done ? ' done' : '') + (late ? ' late' : '')} style={{ borderLeftColor: m.projects ? sectorColor(m.projects.sector) : '#9aa4b2' }} {...dragProps(canDrag, { kind: m.kind === 'milestone' ? 'ms' : 'dl', id: m.id, from: m.date })}>
+    <li className={'tk tk-pm' + (done ? ' done' : '') + (late ? ' late' : '')} style={{ borderLeftColor: (m.kind === 'deliverable' ? colorOf(m.assignee, people) : null) ?? (m.projects ? sectorColor(m.projects.sector) : '#9aa4b2') }} {...dragProps(canDrag, { kind: m.kind === 'milestone' ? 'ms' : 'dl', id: m.id, from: m.date })}>
       <div className="tk-main">
         <button type="button" className="tk-ico" role="checkbox" aria-checked={done} disabled={busy} onClick={(ev) => { ev.stopPropagation(); toggle() }}
           aria-label={`${m.kind === 'milestone' ? 'Milestone' : 'Deliverable'} ${m.title}: ${word}. Click to change.`} title={m.kind === 'milestone' ? (done ? 'Reached — click to undo' : 'Mark reached') : (done ? 'Delivered — click to undo' : 'Mark delivered')}>
@@ -260,7 +260,8 @@ async function fnError(error: unknown, fallback: string) {
 
 /** A Google Calendar meeting on the month grid. Click it for details (like Google Calendar). */
 /** A person's own color (Settings → People) marks events they organize or that sit on their calendar. */
-const ownerColor = (e: GEv, people: Person[]) => people.find((p) => p.id === (e.organizer ?? e.profile_id))?.color ?? null
+const colorOf = (id: string | null | undefined, people: Person[]) => (id ? people.find((p) => p.id === id)?.color : null) ?? null
+const ownerColor = (e: GEv, people: Person[]) => colorOf(e.organizer ?? e.profile_id, people)
 function GEventItem({ e, people, project, onOpen }: { e: GM; people: Person[]; me: string; project?: Proj; onOpen: (e: GM, el: HTMLElement) => void }) {
   const [open, setOpen] = useState(false)
   const canDrag = useContext(CanDrag)
