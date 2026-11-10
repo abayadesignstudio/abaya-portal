@@ -16,7 +16,9 @@ export type GPhase = { id?: string; code: string; status: string; fee: number; s
 export type GRow = { id: string; number: string; name: string; status: string; sector: string | null; clients: { name: string } | null; phases: GPhase[] }
 
 const DAY = 86400000
-const LEFT = 330 // project column width (px)
+const LEFT = 330 // default project column width (px); each person can widen it (saved on this device)
+const LEFT_KEY = 'abaya.gantt.leftWidth'
+const LEFT_MIN = 240, LEFT_MAX = 760
 const ZOOMS = [2, 3, 4.5, 7, 10, 13, 18, 26] // px per day
 const parse = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d) }
 const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
@@ -159,6 +161,19 @@ export function Grip({ id, name, r }: { id: string; name: string; r: Reorder }) 
 
 export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { rows: GRow[]; feeUsed: Record<string, number | null>
   onDates?: (phaseId: string, d: Dates) => Promise<string | null>; reorder?: Reorder }) {
+  const [left, setLeft] = useState(() => { try { const n = Number(localStorage.getItem(LEFT_KEY)); return n >= LEFT_MIN && n <= LEFT_MAX ? n : LEFT } catch { return LEFT } })
+  const saveLeft = (n: number) => { const v = Math.round(Math.min(LEFT_MAX, Math.max(LEFT_MIN, n))); setLeft(v); try { localStorage.setItem(LEFT_KEY, String(v)) } catch { /* private mode */ } }
+  /** Drag the line between the project names and the timeline to widen or narrow the names column. */
+  const resizer = <div className="gt-resize" role="separator" aria-orientation="vertical" aria-label="Project column width" aria-valuenow={left} aria-valuemin={LEFT_MIN} aria-valuemax={LEFT_MAX} tabIndex={0}
+    title="Drag to widen the project names · double-click to reset"
+    onDoubleClick={() => saveLeft(LEFT)}
+    onKeyDown={(e) => { if (e.key === 'ArrowRight') { e.preventDefault(); saveLeft(left + 20) } else if (e.key === 'ArrowLeft') { e.preventDefault(); saveLeft(left - 20) } }}
+    onPointerDown={(e) => {
+      e.preventDefault(); const x0 = e.clientX, w0 = left
+      const move = (ev: PointerEvent) => setLeft(Math.round(Math.min(LEFT_MAX, Math.max(LEFT_MIN, w0 + ev.clientX - x0))))
+      const up = (ev: PointerEvent) => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); saveLeft(w0 + ev.clientX - x0); document.body.classList.remove('gt-resizing') }
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); document.body.classList.add('gt-resizing')
+    }} />
   // date changes: live preview while dragging, kept until the saved data comes back
   const [over, setOver] = useState<Record<string, Dates>>({})
   const [drag, setDrag] = useState<Drag | null>(null)
@@ -259,7 +274,7 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
     return out
   }, [start.getTime(), end.getTime(), px]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const view = () => (scroller.current?.clientWidth ?? 800) - LEFT // visible timeline width
+  const view = () => (scroller.current?.clientWidth ?? 800) - left // visible timeline width
   const toToday = (smooth = true) => { const el = scroller.current; if (el) el.scrollTo({ left: Math.max(0, x(today) - view() * 0.3), behavior: smooth ? 'smooth' : 'auto' }) }
   // keep the same date in view when zooming; start on today
   const centerDay = useRef<number | null>(null)
@@ -297,9 +312,9 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
       </div>
       {/* one scroll area: header sticks to the top, project names stick to the left */}
       <div className="gt-scroll" ref={scroller}>
-        <div className="gt-canvas" style={{ width: LEFT + width }}>
+        <div className="gt-canvas" style={{ width: left + width }}>
           <div className="gt-headrow">
-            <div className="gt-corner" style={{ width: LEFT }} />
+            <div className="gt-corner" style={{ width: left }}>{resizer}</div>
             <div className="gt-head" style={{ width }}>
               <div className="gt-months">{months.map((m) => <div key={m.left} className="gt-month" style={{ left: m.left, width: m.w }}>{m.label}</div>)}</div>
               <div className="gt-weeks">{weekly
@@ -309,7 +324,8 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
             </div>
           </div>
           <div className="gt-bodyrow">
-            <div className="gt-left" style={{ width: LEFT }}>
+            <div className="gt-left" style={{ width: left }}>
+              {resizer}
               {rows.map((r) => (
                 <div key={r.id} className={'gt-proj' + (reorder?.dragId === r.id ? ' gt-dragrow' : '')}
                   {...(reorder ? { onDragOver: (e: React.DragEvent) => { e.preventDefault(); reorder.over(r.id) }, onDrop: (e: React.DragEvent) => e.preventDefault() } : {})}>

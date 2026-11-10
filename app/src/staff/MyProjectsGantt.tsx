@@ -30,7 +30,7 @@ export default function MyProjectsGantt({ me }: { me: string }) {
   const rows = useMemo(() => data.data?.rows ?? [], [data.data])
 
   return (
-    <section className="stack" aria-labelledby="hm-gantt-h" style={{ gap: 8, minWidth: 0 }}>
+    <section className="stack hm-gantt" aria-labelledby="hm-gantt-h" style={{ gap: 8, minWidth: 0 }}>
       <div className="row between" style={{ padding: '0 4px' }}>
         <h2 id="hm-gantt-h">My projects <span className="muted" style={{ fontWeight: 400 }}>· {rows.length}</span></h2>
         <Link to="/projects" style={{ fontSize: 14, fontWeight: 700 }}>All projects ›</Link>

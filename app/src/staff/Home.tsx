@@ -130,8 +130,8 @@ export default function StaffHome() {
           {admin && <BillsPanel />}
         </div>
         <div className="stack" style={{ minWidth: 0 }}>
-          <MonthCalendar me={me} admin={admin} people={staff.data ?? []} projects={projects.data ?? []} />
           <MyProjectsGantt me={me} />
+          <MonthCalendar me={me} admin={admin} people={staff.data ?? []} projects={projects.data ?? []} />
 
           <section className="card pad stack" aria-labelledby="hm-dl">
             <div className="row between">
