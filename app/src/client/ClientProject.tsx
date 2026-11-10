@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASE_NAME } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -12,8 +12,23 @@ import './client.css'
 type P = { id: string; number: string; name: string; sector: string | null; category: string | null; categories: string[] | null; address: string | null; status: string }
 type Inv = { id: string; number: string; status: string; issue_date?: string | null; total: number; amount_paid: number; due_date: string | null }
 
+export type EditSection = 'model' | 'phases' | 'drawings' | 'updates' | 'contract' | 'schedule' | 'requests' | 'invoices'
+type Preview = { onEdit: (s: EditSection) => void; active: EditSection | null; reloadKey: number }
+
 export default function ClientProject() {
   const { id } = useParams()
+  return <ClientProjectView projectId={id!} />
+}
+
+// Staff "Client portal" page renders this same view with edit handles on each section
+function Ed({ pv, s, children }: { pv?: Preview; s: EditSection; children: React.ReactNode }) {
+  if (!pv) return <>{children}</>
+  return <div className={'cp-ed' + (pv.active === s ? ' on' : '')}>{children}
+    <button type="button" className="cp-ed-btn" onClick={() => pv.onEdit(s)} aria-label={`Edit ${s}`}>✎ Edit</button></div>
+}
+
+export function ClientProjectView({ projectId, preview: pv }: { projectId: string; preview?: Preview }) {
+  const id = projectId
   const { profile } = useAuth()
   const d = useLoad(async () => ({
     p: must(await supabase.from('projects').select('id, number, name, sector, category, categories, address, status').eq('id', id!).single()) as P,
@@ -26,6 +41,9 @@ export default function ClientProject() {
     invoices: must(await supabase.from('invoices').select('id, number, status, issue_date, total, amount_paid, due_date').eq('project_id', id!).order('issue_date', { ascending: false })) as Inv[],
     models: ((await supabase.storage.from('models').list(id!)).data ?? []).filter((f) => f.name && !f.name.startsWith('.')),
   }), [id])
+  const reloadKey = pv?.reloadKey ?? 0
+  const first = useRef(true)
+  useEffect(() => { if (first.current) { first.current = false; return } d.reload() }, [reloadKey]) // eslint-disable-line react-hooks/exhaustive-deps
   const [urls, setUrls] = useState<Record<string, string>>({})
   useEffect(() => { signedPhotoUrls((d.data?.updates ?? []).flatMap((u) => u.photo_paths)).then(setUrls) }, [d.data])
   const [lock, setLock] = useState<{ title: string; invoice: string | null } | null>(null)
@@ -33,7 +51,9 @@ export default function ClientProject() {
 
   if (d.error) return <p className="err">{d.error}</p>
   if (!d.data) return <p>Loading…</p>
-  const { p, phases, updates, drawings, items, meetings, requests, invoices, models } = d.data
+  const { p, phases, drawings, items, meetings, requests, invoices, models } = d.data
+  // staff can read hidden updates; the preview shows only what the client sees
+  const updates = d.data.updates.filter((u) => u.visible_to_client)
   const invById = Object.fromEntries(invoices.map((i) => [i.id, i]))
 
   const openDrawing = async (dr: Drawing, download = false) => {
@@ -48,36 +68,36 @@ export default function ClientProject() {
 
   return (
     <div className="stack">
-      <Link to="/" style={{ fontWeight: 700, textDecoration: 'none' }}>‹ All projects</Link>
+      {pv ? <span style={{ fontWeight: 700, color: 'var(--navy)' }}>‹ All projects</span> : <Link to="/" style={{ fontWeight: 700, textDecoration: 'none' }}>‹ All projects</Link>}
       <div>
         <h1 className="row" style={{ gap: 10 }}><span className="tag" style={{ background: SECTOR_COLOR[p.sector ?? 'internal'], height: 28, fontSize: 15 }}>{p.number}</span>{p.name}
           {(p.categories ?? []).map((c) => <abbr key={c} className="pill" title={CATEGORY_NAME[c]}>{c}</abbr>)}</h1>
         {p.address && <p className="muted" style={{ margin: '6px 0 0' }}>{p.address}</p>}
       </div>
 
-      <ModelPanel projectId={p.id} files={models.map((m) => m.name)} />
+      <Ed pv={pv} s="model"><ModelPanel projectId={p.id} files={models.map((m) => m.name)} /></Ed>
 
-      <section className="card pad stack" aria-label="Phases">
+      <Ed pv={pv} s="phases"><section className="card pad stack" aria-label="Phases">
         <h2>Where we are</h2>
         {phases.length ? <PhaseStepper phases={phases} /> : <p className="muted" style={{ margin: 0 }}><em>Phases will appear here once the schedule is set.</em></p>}
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>Gray = complete · green = in progress · red = paused · outline = not started · dashed = not in your contract</p>
-      </section>
+      </section></Ed>
 
       <div className="cl-grid">
         <div className="stack">
-          <Drawings phases={phases} drawings={drawings} invById={invById} onOpen={openDrawing} />
+          <Ed pv={pv} s="drawings"><Drawings phases={phases} drawings={drawings} invById={invById} onOpen={openDrawing} /></Ed>
           {err && <p className="err" role="alert">{err}</p>}
-          <section className="stack" aria-labelledby="feed-h">
+          <Ed pv={pv} s="updates"><section className="stack" aria-labelledby="feed-h">
             <h2 id="feed-h">Project updates</h2>
             {updates.length === 0 && <p className="muted card pad"><em>No updates yet.</em></p>}
             {updates.map((u) => <UpdateCard key={u.id} u={u} urls={urls} />)}
-          </section>
+          </section></Ed>
         </div>
         <div className="stack">
-          <ContractPanel phases={phases} items={items} meetings={meetings} />
-          <Schedule phases={phases} />
-          <RequestPanel projectId={p.id} me={profile!.id} requests={requests} onSent={d.reload} />
-          <InvoicesMini invoices={invoices} />
+          <Ed pv={pv} s="contract"><ContractPanel phases={phases} items={items} meetings={meetings} /></Ed>
+          <Ed pv={pv} s="schedule"><Schedule phases={phases} /></Ed>
+          <Ed pv={pv} s="requests"><RequestPanel projectId={p.id} me={profile!.id} requests={requests} onSent={d.reload} preview={!!pv} /></Ed>
+          <Ed pv={pv} s="invoices"><InvoicesMini invoices={invoices} /></Ed>
         </div>
       </div>
 
@@ -188,10 +208,11 @@ function Schedule({ phases }: { phases: PhaseRow[] }) {
   )
 }
 
-function RequestPanel({ projectId, me, requests, onSent }: { projectId: string; me: string; requests: ServiceRequest[]; onSent: () => void }) {
+function RequestPanel({ projectId, me, requests, onSent, preview }: { projectId: string; me: string; requests: ServiceRequest[]; onSent: () => void; preview?: boolean }) {
   const [text, setText] = useState(''); const [err, setErr] = useState(''); const [ok, setOk] = useState('')
   const send = async (e: React.FormEvent) => {
     e.preventDefault(); setErr(''); setOk('')
+    if (preview) return setOk('Preview only — clients send requests from here.')
     if (!text.trim()) return setErr('Describe what you need.')
     const { error } = await supabase.from('service_requests').insert({ project_id: projectId, requested_by: me, description: text.trim() })
     if (error) return setErr(error.message)

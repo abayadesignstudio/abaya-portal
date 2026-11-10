@@ -11,7 +11,7 @@ import './admin.css'
 
 // Time stays last, right above the timer
 const LINKS: [string, string][] = [['/', 'Home'], ['/projects', 'Projects'], ['/employees', 'Employees'], ['/proposals', 'Proposals/Agreements'], ['/invoices', 'Invoices'],
-  ['/bills', 'Bills'], ['/expenses', 'Expenses'], ['/clients', 'Clients'], ['/notifications', 'Notifications'], ['/site', 'Website'], ['/time', 'Time']]
+  ['/bills', 'Bills'], ['/expenses', 'Expenses'], ['/clients', 'Clients'], ['/notifications', 'Notifications'], ['/site', 'Website'], ['/client-portal', 'Client portal'], ['/time', 'Time']]
 
 export default function StaffLayout() {
   const { profile, signOut } = useAuth()

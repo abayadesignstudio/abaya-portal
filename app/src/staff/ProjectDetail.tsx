@@ -12,10 +12,10 @@ import { linkedAgreements, contractFee, syncPctPhases, round2 } from '../lib/fee
 import { sortPhases, fmtDate, signedPhotoUrls, uid, extOf,
   type Update, type Drawing, type ContractItem, type Meeting, type ServiceRequest } from '../lib/projectContent'
 
-type Phase = { id: string; code: string; fee: number; fee_pct: number | null; status: string; start_date: string | null; end_date: string | null; meetings_included: number | null }
+export type Phase = { id: string; code: string; fee: number; fee_pct: number | null; status: string; start_date: string | null; end_date: string | null; meetings_included: number | null }
 type Entry = { phase_id: string | null; profile_id: string; minutes: number; profiles: { full_name: string | null; bill_rate: number | null } | null }
-type Project = { id: string; number: string; name: string; status: string; category: string | null; categories: string[] | null; sector: string | null; address: string | null; next_milestone: string | null; client_id: string | null; clients: { name: string } | null }
-type Inv = { id: string; number: string; status: string; total: number; amount_paid: number | null; issue_date: string | null; due_date: string | null }
+export type Project = { id: string; number: string; name: string; status: string; category: string | null; categories: string[] | null; sector: string | null; address: string | null; next_milestone: string | null; client_id: string | null; clients: { name: string } | null }
+export type Inv = { id: string; number: string; status: string; total: number; amount_paid: number | null; issue_date: string | null; due_date: string | null }
 
 // Project sub-menu, Monograph-style: core pages, then client-facing content
 const NAV_MAIN = [['overview', 'Overview'], ['budget', 'Budget'], ['settings', 'Details'], ['drawings', 'Files']] as const
@@ -201,7 +201,7 @@ function SettingsTab({ project, onSaved }: { project: Project; onSaved: () => vo
 }
 
 /* ---------------- Updates feed ---------------- */
-function UpdatesTab({ projectId }: { projectId: string }) {
+export function UpdatesTab({ projectId }: { projectId: string }) {
   const { profile } = useAuth()
   const list = useLoad(async () => must(await supabase.from('updates').select('*, profiles:author(full_name)').eq('project_id', projectId).order('created_at', { ascending: false })) as unknown as Update[], [projectId])
   const [urls, setUrls] = useState<Record<string, string>>({})
@@ -264,7 +264,7 @@ function UpdatesTab({ projectId }: { projectId: string }) {
 }
 
 /* ---------------- Drawings ---------------- */
-function DrawingsTab({ projectId, phases, invoices }: { projectId: string; phases: Phase[]; invoices: Inv[] }) {
+export function DrawingsTab({ projectId, phases, invoices }: { projectId: string; phases: Phase[]; invoices: Inv[] }) {
   const { profile } = useAuth()
   const list = useLoad(async () => must(await supabase.from('drawings').select('*').eq('project_id', projectId).order('issued_on', { ascending: false })) as Drawing[], [projectId])
   const [f, setF] = useState({ title: '', phase_id: '', sheet_count: '', issued_on: new Date().toISOString().slice(0, 10), lock: '' })
@@ -331,7 +331,7 @@ function DrawingsTab({ projectId, phases, invoices }: { projectId: string; phase
 }
 
 /* ---------------- Contract scope ---------------- */
-function ContractTab({ projectId, phases, onSaved }: { projectId: string; phases: Phase[]; onSaved: () => void }) {
+export function ContractTab({ projectId, phases, onSaved }: { projectId: string; phases: Phase[]; onSaved: () => void }) {
   const d = useLoad(async () => ({
     items: must(await supabase.from('contract_items').select('*').eq('project_id', projectId).order('sort')) as ContractItem[],
     meetings: must(await supabase.from('meetings').select('*').eq('project_id', projectId).order('held_on', { ascending: false })) as Meeting[],
@@ -388,7 +388,7 @@ function ContractTab({ projectId, phases, onSaved }: { projectId: string; phases
 }
 
 /* ---------------- Requests ---------------- */
-function RequestsTab({ projectId }: { projectId: string }) {
+export function RequestsTab({ projectId }: { projectId: string }) {
   const list = useLoad(async () => must(await supabase.from('service_requests').select('*').eq('project_id', projectId).order('created_at', { ascending: false })) as ServiceRequest[], [projectId])
   const save = async (r: ServiceRequest, patch: Partial<ServiceRequest>) => { await supabase.from('service_requests').update(patch).eq('id', r.id); list.reload() }
   return (
@@ -407,7 +407,7 @@ function RequestsTab({ projectId }: { projectId: string }) {
 }
 
 /* ---------------- Client access ---------------- */
-function ClientAccessTab({ project }: { project: Project }) {
+export function ClientAccessTab({ project }: { project: Project }) {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const d = useLoad(async () => {

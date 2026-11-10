@@ -1,0 +1,47 @@
+/* Staff → Client portal preview */
+.cp-wrap{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;align-items:start}
+.cp-wrap.editing{grid-template-columns:minmax(0,1fr) 440px}
+.cp-frame{border:1px solid #d9d4c7;border-radius:14px;overflow:hidden;background:var(--bg);box-shadow:0 10px 30px rgba(2,37,61,.10)}
+.cp-chrome{display:flex;align-items:center;gap:6px;padding:8px 12px;background:#efece4;border-bottom:1px solid #d9d4c7;font-size:12px}
+.cp-chrome > span{width:10px;height:10px;border-radius:50%;background:#d0cabb}
+.cp-chrome em{margin-left:8px;font-style:normal;color:#5b6472;font-weight:600}
+.cp-access{margin-left:auto;border:1px solid #c9c2b0;background:#fff;border-radius:999px;padding:3px 10px;font:inherit;font-weight:700;color:var(--navy);cursor:pointer}
+.cp-head{background:var(--navy);color:#ede6d6;padding:12px 24px;display:flex;justify-content:space-between;align-items:center;gap:16px}
+.cp-logo{font-family:'EB Garamond',Georgia,serif;letter-spacing:.18em;font-size:20px}
+.cp-logo span{font-size:10px;letter-spacing:.3em}
+.cp-nav{display:flex;gap:20px;font-weight:700;color:#c5ccd8}
+.cp-nav b{color:#fff;border-bottom:2px solid #9a8f63;padding-bottom:4px}
+.cp-btn{border:1px solid rgba(237,230,214,.5);border-radius:8px;padding:4px 10px;font-size:13px;font-weight:700}
+.cp-body{padding:22px clamp(14px,2vw,28px) 40px;max-width:1200px;margin:0 auto}
+@media (max-width:1500px){.cp-wrap.editing .cp-body .cl-grid{grid-template-columns:minmax(0,1fr)}}
+
+/* edit handles on each client section */
+.cp-ed{position:relative;border-radius:14px;outline:2px dashed transparent;outline-offset:4px;transition:outline-color .15s}
+.cp-ed:hover{outline-color:#c9c2b0}
+.cp-ed.on{outline:2px solid #9a8f63}
+.cp-ed-btn{position:absolute;top:8px;right:8px;z-index:2;border:1px solid #c9c2b0;background:#fff;color:var(--navy);border-radius:999px;padding:4px 11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;opacity:.0;transition:opacity .15s;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.cp-ed:hover .cp-ed-btn,.cp-ed.on .cp-ed-btn,.cp-ed-btn:focus-visible{opacity:1}
+@media (hover:none){.cp-ed-btn{opacity:1}}
+
+/* editor panel */
+.cp-panel{position:sticky;top:16px;max-height:calc(100vh - 32px);display:flex;flex-direction:column;overflow:hidden;padding:0}
+.cp-panel-h{display:flex;justify-content:space-between;align-items:center;padding:14px 16px 8px}
+.cp-panel-h strong{font-size:17px;color:var(--navy)}
+.cp-x{border:0;background:none;font-size:24px;line-height:1;cursor:pointer;color:#667085;padding:0 4px}
+.cp-tabs{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 10px;border-bottom:1px solid #ece8de}
+.cp-tabs button{border:1px solid #ddd7c8;background:#fff;border-radius:999px;padding:3px 10px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;color:#344054}
+.cp-tabs button[aria-current="page"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.cp-panel-b{overflow:auto;padding:14px 16px 18px;min-height:0}
+.cp-panel-b .card{box-shadow:none}
+.cp-panel-b .grid2,.cp-panel-b .grid3{grid-template-columns:minmax(0,1fr)!important}
+.cp-panel-b table{font-size:13px}
+.cp-phase{border:1px solid #ece8de;border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.cp-date{display:flex;flex-direction:column;font-size:12px;font-weight:700;color:#475467;flex:1}
+.cp-files{list-style:none;margin:0;padding:0}
+.cp-files li{display:flex;gap:10px;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px solid #efece6;font-size:14px}
+.linkish{border:0;background:none;padding:0;font:inherit;color:var(--navy);font-weight:700;text-decoration:underline;cursor:pointer}
+
+@media (max-width:1100px){
+  .cp-wrap.editing{grid-template-columns:minmax(0,1fr)}
+  .cp-panel{position:static;max-height:none}
+}
