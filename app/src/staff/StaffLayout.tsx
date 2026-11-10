@@ -31,7 +31,7 @@ export default function StaffLayout() {
             {LINKS.map(([to, label]) => <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>{label}</NavLink>)}
           </nav>
         </div>
-        <div>
+        <div className="side-bottom">
           <SidebarTimer me={profile!.id} />
           <div className="me">
             <Avatar url={profile?.avatar_url} initials={ini} size={38} ring="var(--pat)" />

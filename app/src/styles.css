@@ -92,7 +92,7 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .stimer-end:focus-visible{outline:3px solid #7aa2c2;outline-offset:2px}
 .stoday{margin-bottom:8px;border-radius:10px;background:rgba(237,230,214,.05);border:1px solid rgba(154,143,99,.25);overflow:hidden}
 .stoday-h{display:flex;justify-content:space-between;padding:7px 10px 4px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#c8bf9f}
-.stoday ul{list-style:none;margin:0;padding:0 4px 4px;max-height:176px;overflow-y:auto;scrollbar-width:thin}
+.stoday ul{list-style:none;margin:0;padding:0 4px 4px;overflow-y:auto}
 .stoday li{display:flex;align-items:center;gap:6px;padding:4px 4px 4px 6px;border-radius:6px;font-size:13px;color:#ede6d6}
 .stoday li:hover,.stoday li.on{background:rgba(237,230,214,.08)}
 .stoday-chip{flex:none;padding:1px 5px;border-radius:4px;font-size:10.5px;font-weight:700;color:#fff}
@@ -171,3 +171,17 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .stoday-now{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#32d583}
 .ts-svc{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .ts-svc legend{padding:0;margin-bottom:6px}
+/* sidebar: Today's list grows upward until it meets the nav, then scrolls (slim pill scrollbar, no arrows) */
+.side > div:first-child{flex:none}
+.side-bottom{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;justify-content:flex-end;padding-top:12px}
+.side-bottom > .stimer{flex:0 1 auto;min-height:0;display:flex;flex-direction:column}
+.side-bottom .me{flex:none}
+.stimer > .stoday{flex:0 1 auto;min-height:0;display:flex;flex-direction:column}
+.stoday > .stoday-h,.stimer > .stimer-bar{flex:none}
+.stoday > ul{flex:1 1 auto;min-height:0;max-height:none}
+.stoday ul::-webkit-scrollbar{width:6px}
+.stoday ul::-webkit-scrollbar-track{background:transparent;margin:4px 0}
+.stoday ul::-webkit-scrollbar-thumb{background:rgba(200,191,159,.38);border-radius:999px}
+.stoday ul::-webkit-scrollbar-thumb:hover{background:rgba(200,191,159,.6)}
+.stoday ul::-webkit-scrollbar-button{display:none;height:0}
+@supports not selector(::-webkit-scrollbar){.stoday ul{scrollbar-width:thin;scrollbar-color:rgba(200,191,159,.45) transparent}}
