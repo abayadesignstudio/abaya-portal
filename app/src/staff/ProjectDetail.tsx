@@ -22,14 +22,14 @@ export type Inv = { id: string; number: string; status: string; total: number; a
 
 // Project sub-menu, Monograph-style: core pages, then client-facing content
 const NAV_MAIN = [['overview', 'Overview'], ['budget', 'Budget'], ['settings', 'Details'], ['drawings', 'Files']] as const
-const NAV_CLIENT = [['updates', 'Updates'], ['contacts', 'Contacts'], ['contract', 'Contract'], ['requests', 'Additional services'], ['client', 'Client access']] as const
-type Tab = typeof NAV_MAIN[number][0] | typeof NAV_CLIENT[number][0]
+const NAV_CLIENT = [['updates', 'Updates'], ['contacts', 'Contacts'], ['contract', 'Contract'], ['requests', 'Additional services']] as const
+type Tab = typeof NAV_MAIN[number][0] | typeof NAV_CLIENT[number][0] | 'client'
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 export default function ProjectDetail() {
   const { id } = useParams()
   const loc = useLocation()
-  const startTab = ((loc.state as { tab?: Tab } | null)?.tab) ?? 'budget'
+  const startTab = ((s: Tab) => s === 'client' ? 'contacts' : s)(((loc.state as { tab?: Tab } | null)?.tab) ?? 'budget') // Client access now lives in Contacts
   const [tab, setTab] = useState<Tab>(startTab)
   const [teamErr, setTeamErr] = useState('')
   const [teamOpen, setTeamOpen] = useState<string | null>(null) // phase whose team editor is open, right in the table
@@ -175,7 +175,6 @@ export default function ProjectDetail() {
       {tab === 'contacts' && <ContactsTab project={p} />}
       {tab === 'contract' && <ContractTab projectId={p.id} phases={phases} onSaved={reload} />}
       {tab === 'requests' && <RequestsTab projectId={p.id} phases={phases} onChanged={reload} />}
-      {tab === 'client' && <ClientAccessTab project={p} />}
       {tab === 'settings' && <SettingsTab project={p} onSaved={reload} />}
         </div>
       </div>
@@ -497,10 +496,7 @@ export function ContactsTab({ project }: { project: Project }) {
             <div><div className="l">Phone</div>{cl.phone ? <a href={`tel:${cl.phone}`}>{cl.phone}</a> : '—'}</div>
             <div><div className="l">Address</div>{cl.address || '—'}</div>
           </div>
-          <table className="table"><thead><tr><th>Contact</th><th>Email</th></tr></thead><tbody>
-            {cl.client_contacts.map((c) => <tr key={c.id}><td>{c.name ?? '—'}</td><td><a href={`mailto:${c.email}`}>{c.email}</a></td></tr>)}
-            {cl.client_contacts.length === 0 && <tr><td colSpan={2} className="muted"><em>No client contacts yet — add them on Client access.</em></td></tr>}
-          </tbody></table></>}
+          <ClientAccessTab project={project} embedded /></>}
       </section>
       <section className="card pad stack">
         <div className="row between"><h2 style={{ margin: 0 }}>Trades &amp; consultants</h2>
@@ -533,7 +529,7 @@ export function ContactsTab({ project }: { project: Project }) {
   )
 }
 
-export function ClientAccessTab({ project }: { project: Project }) {
+export function ClientAccessTab({ project, embedded }: { project: Project; embedded?: boolean }) {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const d = useLoad(async () => {
@@ -555,9 +551,9 @@ export function ClientAccessTab({ project }: { project: Project }) {
     if (error) setErr(error.message); else { setMsg(`${email} can now sign in at the portal with their email.`); d.reload() } }
   const toggle = async (id: string, k: 'receives_invoices' | 'receives_updates', v: boolean) => { await supabase.from('client_contacts').update({ [k]: v }).eq('id', id); d.reload() }
   return (
-    <section className="card pad stack">
-      <h2>Client access — {project.clients?.name}</h2>
-      <p className="muted" style={{ margin: 0 }}>Contacts belong to the client, so they see every project for {project.clients?.name}.</p>
+    <section className={embedded ? 'stack' : 'card pad stack'}>
+      {!embedded && <h2>Client access — {project.clients?.name}</h2>}
+      <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>Client contacts belong to {project.clients?.name}, so they see every project for this client. Emails with them are logged to Updates.</p>
       <table className="table"><thead><tr><th>Name</th><th>Email</th><th>Invoices</th><th>Updates</th><th>Portal</th></tr></thead><tbody>
         {d.data?.contacts.map((c) => <tr key={c.id}><td>{c.name ?? '—'}</td><td>{c.email}</td>
           <td><input type="checkbox" aria-label={`${c.email} receives invoices`} checked={c.receives_invoices} onChange={(e) => toggle(c.id, 'receives_invoices', e.target.checked)} style={{ width: 18, height: 18 }} /></td>
