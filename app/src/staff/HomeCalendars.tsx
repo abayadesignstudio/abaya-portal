@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { supabase, SECTOR_COLOR, money } from '../lib/supabase'
+import { supabase, SECTOR_COLOR, money, phaseLabel } from '../lib/supabase'
+import { sortPhases } from '../lib/projectContent'
 import { useLoad, must } from '../lib/useQuery'
 import { isoDate, parseDate } from './workload'
 import Avatar from '../components/Avatar'
@@ -313,14 +314,16 @@ const plusHour = (t: string) => { const [h, m] = t.split(':').map(Number); retur
 const minutes = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
 const fromMinutes = (n: number) => { const x = ((n % 1440) + 1440) % 1440; return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}` }
 
-/** Google-style quick create: a title, Event / Task tabs, then the few fields each needs. Also edits an event. */
+/** Google-style quick create: a title, Event / Task / Milestone / Deliverable tabs, then the few fields each needs. Also edits an event.
+ *  Milestones and deliverables belong to a project, so they also show on the project's gantt (Projects page and Home). */
 function QuickCreate({ me, admin, people, projects, day, connected, edit, linkProject, onDone, onCancel }: {
   me: string; admin: boolean; people: Person[]; projects: Proj[]; day: string; connected: boolean; edit?: GM; linkProject?: string | null
-  onDone: (msg: string, kind: 'event' | 'task') => void; onCancel: () => void }) {
+  onDone: (msg: string, kind: 'event' | 'task' | 'milestone' | 'deliverable') => void; onCancel: () => void }) {
   const today = isoDate(new Date())
   const st = edit && !edit.all_day ? hhmm(edit.start) : day === today ? nextHour() : '09:00'
   const [f, setF] = useState(() => ({
-    kind: (edit ? 'event' : connected ? 'event' : 'task') as 'event' | 'task',
+    kind: (edit ? 'event' : connected ? 'event' : 'task') as 'event' | 'task' | 'milestone' | 'deliverable',
+    phase_id: '', dl_assignee: '',
     title: edit?.title ?? '', date: edit ? (edit.all_day ? edit.start : isoDate(new Date(edit.start))) : day,
     end_date: edit ? (edit.all_day ? isoDate(addDays(parseDate(edit.end), -1)) : isoDate(new Date(edit.end))) : day,
     all_day: edit?.all_day ?? false, start_time: st, end_time: edit && !edit.all_day ? hhmm(edit.end) : plusHour(st),
@@ -330,9 +333,24 @@ function QuickCreate({ me, admin, people, projects, day, connected, edit, linkPr
   const [err, setErr] = useState<{ msg: string; code: string } | null>(null); const [busy, setBusy] = useState(false)
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((o) => ({ ...o, [k]: v }))
   const setStart = (v: string) => setF((o) => ({ ...o, start_time: v, end_time: v && o.start_time && o.end_time ? fromMinutes(minutes(o.end_time) + minutes(v) - minutes(o.start_time)) : o.end_time })) // keeps the length, like Google
+  const projectMark = f.kind === 'milestone' || f.kind === 'deliverable'
+  const phases = useLoad(async () => f.project_id && projectMark
+    ? must(await supabase.from('phases').select('id, code, name, parent_phase_id').eq('project_id', f.project_id)) as { id: string; code: string; name: string | null; parent_phase_id: string | null }[]
+    : [], [f.project_id, projectMark])
   const save = async (e: React.FormEvent) => {
     e.preventDefault(); setErr(null)
     if (!f.title.trim()) return setErr({ msg: 'Add a title.', code: '' })
+    if (projectMark) {
+      if (!f.project_id) return setErr({ msg: `Choose the project this ${f.kind} belongs to.`, code: '' })
+      setBusy(true)
+      const { error } = f.kind === 'milestone'
+        ? await supabase.from('milestones').insert({ project_id: f.project_id, phase_id: f.phase_id || null, title: f.title.trim(), date: f.date })
+        : await supabase.from('deliverables').insert({ project_id: f.project_id, phase_id: f.phase_id || null, title: f.title.trim(), due_date: f.date, assignee: f.dl_assignee || null })
+      setBusy(false)
+      if (error) return setErr({ msg: error.message, code: '' })
+      calendarChanged('tasks') // reloads the calendar and the project gantts
+      return onDone(`${f.kind === 'milestone' ? 'Milestone' : 'Deliverable'} added to ${projects.find((p) => p.id === f.project_id)?.number ?? 'the project'}.`, f.kind)
+    }
     setBusy(true)
     if (f.kind === 'event') {
       const { data, error } = await supabase.functions.invoke('calendar-event', { body: {
@@ -355,7 +373,7 @@ function QuickCreate({ me, admin, people, projects, day, connected, edit, linkPr
     <form onSubmit={save} className="qp-form">
       <input className="qp-title" aria-label="Title" placeholder="Add title" autoFocus value={f.title} onChange={(e) => set('title', e.target.value)} />
       {!edit && <div className="qp-tabs" role="tablist" aria-label="Type">
-        {(['event', 'task'] as const).map((k) => <button key={k} type="button" role="tab" aria-selected={f.kind === k} className={'qp-tab' + (f.kind === k ? ' on' : '')} onClick={() => { set('kind', k); setErr(null) }}>{k === 'event' ? 'Event' : 'Task'}</button>)}
+        {(['event', 'task', 'milestone', 'deliverable'] as const).map((k) => <button key={k} type="button" role="tab" aria-selected={f.kind === k} className={'qp-tab' + (f.kind === k ? ' on' : '')} onClick={() => { set('kind', k); setErr(null) }}>{({ event: 'Event', task: 'Task', milestone: 'Milestone', deliverable: 'Deliverable' })[k]}</button>)}
       </div>}
       {f.kind === 'event' ? <>
         {!connected && <p className="qp-note">Events are saved in your Google Calendar. <a href="#/account">Connect Google on My account</a> first.</p>}
@@ -373,6 +391,14 @@ function QuickCreate({ me, admin, people, projects, day, connected, edit, linkPr
             onChange={(e) => set('guests', e.target.checked ? [...f.guests, p.id] : f.guests.filter((g) => g !== p.id))} />{firstName(p)}</label>)}
         </fieldset>}
         <input className="input" aria-label="Location" placeholder="Add location" value={f.location} onChange={(e) => set('location', e.target.value)} />
+      </> : projectMark ? <>
+        <div className="qp-row">
+          <input type="date" className="input" aria-label={f.kind === 'milestone' ? 'Date' : 'Due date'} value={f.date} onChange={(e) => set('date', e.target.value)} required />
+        </div>
+        {f.kind === 'deliverable' && <label className="qp-lab">Assign to
+          <select className="input" value={f.dl_assignee} onChange={(e) => set('dl_assignee', e.target.value)}>
+            <option value="">Nobody yet</option>{people.map((p) => <option key={p.id} value={p.id}>{p.id === me ? `Me (${nameOf(p)})` : nameOf(p)}</option>)}
+          </select></label>}
       </> : <>
         <div className="qp-row">
           <input type="date" className="input" aria-label="Date" value={f.date} onChange={(e) => set('date', e.target.value)} required />
@@ -383,11 +409,14 @@ function QuickCreate({ me, admin, people, projects, day, connected, edit, linkPr
             {(admin ? people : people.filter((p) => p.id === me)).map((p) => <option key={p.id} value={p.id}>{p.id === me ? `Me (${nameOf(p)})` : nameOf(p)}</option>)}
           </select></label>
       </>}
-      <select className="input" aria-label="Project" value={f.project_id} onChange={(e) => set('project_id', e.target.value)}>
-        <option value="">No project</option>
+      <select className="input" aria-label="Project" value={f.project_id} onChange={(e) => setF((o) => ({ ...o, project_id: e.target.value, phase_id: '' }))} required={projectMark}>
+        <option value="">{projectMark ? 'Choose a project…' : 'No project'}</option>
         {projects.filter((p) => p.number !== 'OH').map((p) => <option key={p.id} value={p.id}>{p.number} · {p.name}</option>)}
       </select>
-      <textarea className="input" rows={2} aria-label="Description" placeholder="Add description" value={f.notes} onChange={(e) => set('notes', e.target.value)} />
+      {projectMark && f.project_id && <select className="input" aria-label="Phase" value={f.phase_id} onChange={(e) => set('phase_id', e.target.value)}>
+        <option value="">No phase</option>{sortPhases(phases.data ?? []).map((ph) => <option key={ph.id} value={ph.id}>{ph.code} · {phaseLabel(ph)}</option>)}
+      </select>}
+      {!projectMark && <textarea className="input" rows={2} aria-label="Description" placeholder="Add description" value={f.notes} onChange={(e) => set('notes', e.target.value)} />}
       {err && <p className="err" role="alert" style={{ margin: 0 }}>{err.msg}{err.code === 'reconnect' || err.code === 'not_connected' ? <> <a href="#/account">Open My account</a></> : null}</p>}
       <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
         <button type="button" className="btn secondary small" onClick={onCancel}>Cancel</button>
@@ -629,7 +658,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
       if (!error) calendarChanged('tasks')
     } else if (d.kind === 'ms' || d.kind === 'dl') {
       ;({ error } = d.kind === 'ms' ? await supabase.from('milestones').update({ date: to }).eq('id', d.id) : await supabase.from('deliverables').update({ due_date: to }).eq('id', d.id))
-      if (!error) marks.reload()
+      if (!error) calendarChanged('tasks')
     } else {
       setMsg('Moving the event in Google Calendar…')
       const { data, error: fe } = await supabase.functions.invoke('calendar-event', { body: { op: 'move', id: d.id, days: n, time_zone: tz() } })

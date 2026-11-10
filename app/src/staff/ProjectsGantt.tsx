@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { supabase, SECTOR_COLOR, PHASE_NAME, money } from '../lib/supabase'
 import { useLoad } from '../lib/useQuery'
+import { calendarChanged } from './HomeCalendars'
 import './gantt.css'
 
 // Projects as a Gantt chart (like Monograph): one row per project, one bar per phase (from its start/end dates).
@@ -293,6 +294,8 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
   const todayX = x(today)
   const [showMarks, setShowMarks] = useState(() => { try { return localStorage.getItem('abaya:gantt-marks') !== '0' } catch { return true } })
   const marks = useMarks(useMemo(() => rows.map((r) => r.id), [rows]))
+  // milestones / deliverables / tasks added or moved on the calendar show up here straight away
+  useEffect(() => { const h = () => marks.reload(); window.addEventListener('abaya:calendar-changed', h); return () => window.removeEventListener('abaya:calendar-changed', h) }, [marks.reload]) // eslint-disable-line react-hooks/exhaustive-deps
   const [item, setItem] = useState<ItemEdit | null>(null) // adding or editing a milestone / deliverable
   const time12 = (t?: string | null) => { if (!t) return ''; const [h, m] = t.split(':').map(Number); return ` · ${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')}${h < 12 ? 'am' : 'pm'}` }
   return (
@@ -429,7 +432,7 @@ export default function ProjectsGantt({ rows, feeUsed, onDates, reorder }: { row
           <span className="gt-mark k-task"><MarkIcon kind="task" done={false} /></span>Task
           <span className="gt-mark k-event"><MarkIcon kind="event" done={false} /></span>Event · grey task / filled = done, red outline = overdue</span>}
         <em className="gt-howto">Add a milestone or deliverable with the + beside a project, or double-click its row on the timeline. Click one to edit it.</em></p>
-      {item && <ItemPop item={item} onClose={() => setItem(null)} onSaved={() => { setItem(null); marks.reload() }} />}
+      {item && <ItemPop item={item} onClose={() => setItem(null)} onSaved={() => { setItem(null); calendarChanged('tasks') }} />}
     </div>
   )
 }
