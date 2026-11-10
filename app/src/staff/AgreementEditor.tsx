@@ -42,6 +42,7 @@ function diff(a: string, b: string): Run[] {
   return out
 }
 
+type SigRow = { signer_name: string; signer_title: string | null; signer_email: string; signature: string; initials_img: string; initials: Record<string, string>; signed_at: string; ip: string | null; user_agent: string | null; doc_hash: string; method: string }
 type UI = { fillable: boolean; pages: boolean; mode: 'draft' | 'final'; changesIn: 'text' | 'report'; check: boolean; openSec: number; openCl: string; editing: string; draft: string; addFor: string; nTitle: string; nBody: string; newSecTitle: string; exNew: string }
 const UI0: UI = { fillable: false, pages: false, mode: 'draft', changesIn: 'text', check: false, openSec: 0, openCl: '', editing: '', draft: '', addFor: '', nTitle: '', nBody: '', newSecTitle: '', exNew: '' }
 
@@ -49,7 +50,7 @@ type CView = Clause & { num: string; sec: number; cur: string; added: boolean; c
 type SView = { n: number; title: string; initial?: boolean; clauses: CView[] }
 
 /** Builds the document model (sections with current text, issues, report) from the saved state. */
-function build(doc: DocState) {
+export function build(doc: DocState) {
   const v = doc.v
   const onCount = PHN.filter(([ab]) => doc.ph[ab]?.on).length
   const fee = +v.fee || 0
@@ -90,7 +91,8 @@ export default function AgreementEditor() {
   const nav = useNavigate()
   const { profile, session } = useAuth()
   const autoTitle = useRef(true)
-  const [row, setRow] = useState<{ id: string; title: string; status: string; project_id: string | null; client_id: string | null } | null>(null)
+  const [row, setRow] = useState<{ id: string; title: string; status: string; project_id: string | null; client_id: string | null; doc_hash?: string | null; sent_at?: string | null } | null>(null)
+  const [sig, setSig] = useState<SigRow | null>(null)
   const [doc, setDoc] = useState<DocState | null>(null)
   const [ui, setUi] = useState<UI>(UI0)
   const [err, setErr] = useState('')
@@ -109,13 +111,14 @@ export default function AgreementEditor() {
         if (error) return setErr(error.message)
         nav('/proposals/' + (data as { id: string }).id, { replace: true }); return
       }
-      const { data, error } = await supabase.from('agreements').select('id, title, status, project_id, client_id, doc').eq('id', id!).single()
+      const { data, error } = await supabase.from('agreements').select('id, title, status, project_id, client_id, doc, doc_hash, sent_at').eq('id', id!).single()
       if (!live) return
       if (error) return setErr(error.message)
       const r = data as { id: string; title: string; status: string; project_id: string | null; client_id: string | null; doc: DocState }
       const d = r.doc && r.doc.v ? r.doc : newDoc()
       // The name follows the project name only while nobody has set it by hand (Rename, Duplicate).
       autoTitle.current = r.title === autoName(d) || r.title === 'Untitled proposal'
+      if (r.status === 'signed') { const { data: sg } = await supabase.from('agreement_signatures').select('*').eq('agreement_id', r.id).maybeSingle(); if (live) setSig(sg as SigRow | null) }
       setRow(r); setDoc(d); setTimeout(() => { loaded.current = true })
     })()
     return () => { live = false }
@@ -156,7 +159,7 @@ export default function AgreementEditor() {
     return true
   }
   useEffect(() => {
-    if (!doc || !row || !loaded.current) return
+    if (!doc || !row || !loaded.current || row.status !== 'draft') return // published agreements are locked
     pending.current = { id: row.id, values: payload(doc, row.title) }
     setSaved('unsaved')
     const t = setTimeout(flushNow, 900)
@@ -208,17 +211,31 @@ export default function AgreementEditor() {
   if (err && !doc) return <p className="err">{err}</p>
   if (!doc || !model || !row) return <p>Loading…</p>
 
-  const up = (f: (d: DocState) => void) => setDoc((d) => { const c: DocState = JSON.parse(JSON.stringify(d)); f(c); return c })
+  const locked = row.status !== 'draft'
+  const up = (f: (d: DocState) => void) => { if (locked) { setErr(row.status === 'sent' ? 'Published to the client, so it’s locked. Unpublish it to edit.' : 'This agreement is signed and can’t be changed.'); return }
+    setDoc((d) => { const c: DocState = JSON.parse(JSON.stringify(d)); f(c); return c }) }
   const setV = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => { const val = e.target.value; up((d) => { d.v[k] = val }) }
   const draft = ui.mode === 'draft'
   const showMarks = draft || ui.changesIn === 'text'
   const openClause = (sec: number, cl: string) => patchUi({ openSec: sec, openCl: cl, check: false })
 
-  const send = async () => {
-    if (model.issues.length && !window.confirm(`There are ${model.issues.length} open issues (empty fill points or payment totals). Mark as sent anyway?`)) return
-    const { error } = await supabase.from('agreements').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', row.id)
-    if (error) setErr(error.message); else setRow({ ...row, status: 'sent' })
+  const publish = async () => {
+    setErr('')
+    if (!row.client_id) return setErr('Link this agreement to a project (and its client) first.')
+    if (!doc.v.archSig && !window.confirm('Your signature isn’t on the Architect line yet. Publish anyway?')) return
+    if (model.issues.length && !window.confirm(`There are ${model.issues.length} open issues (empty fill points or payment totals). Publish anyway?`)) return
+    if (!window.confirm('Publish to the client portal? The client’s contacts are emailed, and the text is locked until you unpublish it.')) return
+    await flushNow()
+    const { error } = await supabase.rpc('publish_agreement', { p_id: row.id, p_sections: model.secs.map((x) => x.n), p_logo: doc.v.logo ? '' : firmLogo })
+    if (error) setErr(error.message); else setRow({ ...row, status: 'sent', sent_at: new Date().toISOString() })
   }
+  const unpublish = async () => {
+    if (!window.confirm('Take this agreement back from the client portal so you can edit it? The client can no longer sign this version.')) return
+    const { error } = await supabase.rpc('unpublish_agreement', { p_id: row.id })
+    if (error) setErr(error.message); else { setErr(''); setRow({ ...row, status: 'draft', sent_at: null }) }
+  }
+  const signView: SignView | undefined = sig ? { initials: sig.initials, initImg: sig.initials_img, sigImg: sig.signature, name: sig.signer_name, title: sig.signer_title, date: sig.signed_at,
+    cert: { email: sig.signer_email, signedAt: sig.signed_at, ip: sig.ip, ua: sig.user_agent, hash: sig.doc_hash, method: sig.method, publishedAt: row.sent_at ?? null } } : undefined
   // Field positions come from the Final view, which is what Download PDF prints.
   const measureFinal = async () => {
     const prev = ui.mode
@@ -249,7 +266,7 @@ export default function AgreementEditor() {
         <main className="ag-main">
           <div className={ui.pages ? 'ag-src-offscreen' : undefined} aria-hidden={ui.pages || undefined}>
             <Document tocPages={tocPages} logo={doc.v.logo || firmLogo} doc={doc} model={model} draft={draft} showMarks={showMarks} changesIn={ui.changesIn} onOpen={openClause}
-              breaks={doc.pb ?? []} onToggleBreak={(id) => up((d) => { const b = new Set(d.pb ?? []); if (b.has(id)) b.delete(id); else b.add(id); d.pb = [...b] })} />
+              breaks={doc.pb ?? []} onToggleBreak={(id) => up((d) => { const b = new Set(d.pb ?? []); if (b.has(id)) b.delete(id); else b.add(id); d.pb = [...b] })} sign={signView} />
           </div>
           {ui.pages && <div ref={pagesRef} className="ag-screen-pages" aria-label="Agreement, print layout" />}
         </main>
@@ -297,8 +314,11 @@ export default function AgreementEditor() {
             {ui.fillable && <FillablePanel onClose={() => patchUi({ fillable: false })} measure={measureFinal} />}
           </div>
           <div className="ag-tool">
-            <button type="button" className="btn" onClick={send} disabled={row.status !== 'draft'}>{row.status === 'draft' ? 'Send to client' : 'Sent'}</button>
-            {row.status === 'sent' && <p className="muted" style={{ margin: 0, fontSize: 12 }}>Marked as sent. Emailing the agreement and e-signature aren’t connected yet: download the PDF and send it yourself for now.</p>}
+            {row.status === 'draft' && <><button type="button" className="btn" onClick={publish}>Publish to client portal</button>
+              <p className="muted" style={{ margin: 0, fontSize: 12 }}>The client initials each section and signs in their portal. Your signature should already be on the Architect line.</p></>}
+            {row.status === 'sent' && <><p style={{ margin: 0, fontSize: 13 }}><strong>Waiting for the client’s signature.</strong> Published {row.sent_at ? new Date(row.sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}; the text is locked.</p>
+              <button type="button" className="btn small secondary" onClick={unpublish}>Unpublish to edit</button></>}
+            {row.status === 'signed' && sig && <p style={{ margin: 0, fontSize: 13, color: 'var(--green)' }}><strong>Signed by {sig.signer_name}</strong> on {new Date(sig.signed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}. Download PDF includes the signing certificate.</p>}
           </div>
           {err && <p className="err" role="alert" style={{ margin: 0, fontSize: 13 }}>{err}</p>}
         </aside>
@@ -496,8 +516,14 @@ function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model
 
 // ---------------------------------------------------------------- document
 type Seg = { t: string; k: Run['k']; fp?: string }
-function Document({ tocPages, logo, doc, model, draft, showMarks, changesIn, onOpen, breaks, onToggleBreak }: { tocPages: Record<number, number>; logo: string; doc: DocState; model: ReturnType<typeof build>; draft: boolean; showMarks: boolean; changesIn: string; onOpen: (sec: number, cl: string) => void
-  breaks: string[]; onToggleBreak: (id: string) => void }) {
+/** Client e-signature on the document: initials per section, the Owner signature, and (once signed) the audit certificate. */
+export type SignView = { initials: Record<string, string>; initImg: string | null; sigImg: string | null; name: string; title?: string | null; date: string | null
+  onInitial?: (sec: number) => void; onSign?: () => void
+  cert?: { email: string; signedAt: string; ip: string | null; ua: string | null; hash: string; method: string; publishedAt: string | null } }
+const stamp = (iso: string) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short' })
+
+export function Document({ tocPages, logo, doc, model, draft, showMarks, changesIn, onOpen, breaks, onToggleBreak, sign }: { tocPages: Record<number, number>; logo: string; doc: DocState; model: ReturnType<typeof build>; draft: boolean; showMarks: boolean; changesIn: string; onOpen: (sec: number, cl: string) => void
+  breaks: string[]; onToggleBreak: (id: string) => void; sign?: SignView }) {
   // Manual page breaks: "s3" = before Section 3, "c2.5" = before clause 2.5. Controls are screen-only (.ag-pb-ui).
   const hasBreak = (id: string) => breaks.includes(id)
   const BreakUI = ({ id, what }: { id: string; what: string }) => hasBreak(id)
@@ -542,7 +568,12 @@ function Document({ tocPages, logo, doc, model, draft, showMarks, changesIn, onO
   const fee = model.fee
   const struck = (on: boolean) => (on ? {} : { color: RED, textDecoration: 'line-through', textDecorationColor: RED })
 
-  const Initial = () => <p style={{ margin: '14px 0 18px', textAlign: 'right' }}>Initial: <span className="ag-f-initial" style={{ display: 'inline-block', width: 120, borderBottom: '1px solid #000' }}>&nbsp;</span></p>
+  const Initial = ({ n }: { n: number }) => {
+    const at = sign?.initials[String(n)]
+    return <p style={{ margin: '14px 0 18px', textAlign: 'right' }}>Initial: <span className="ag-f-initial" style={{ display: 'inline-block', width: 120, height: 30, verticalAlign: 'bottom', borderBottom: '1px solid #000', textAlign: 'center', position: 'relative' }}>
+      {at && sign?.initImg ? <img src={sign.initImg} alt="Owner initials" title={`Initialed ${stamp(at)}`} style={{ position: 'absolute', left: 0, right: 0, bottom: 1, margin: '0 auto', maxWidth: 110, maxHeight: 30 }} />
+        : sign?.onInitial ? <button type="button" className="ag-sign-btn no-print" onClick={() => sign.onInitial!(n)}>Initial here</button> : '\u00a0'}</span></p>
+  }
 
   const special = (c: CView) => {
     if (c.kind === 'program') return (
@@ -666,16 +697,40 @@ function Document({ tocPages, logo, doc, model, draft, showMarks, changesIn, onO
                 </div>)
             })}
             {/* every section gets an Owner initial line, so each one is acknowledged */}
-            <Initial />
+            <Initial n={s.n} />
           </section>)
       })}
 
       <div style={{ marginTop: 26, paddingTop: 16, borderTop: RULE, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 30 }}>
         <div><p>Date: {longDate}</p><div style={{ height: 64, position: 'relative' }}>{v.archSig && <img src={v.archSig} alt="Architect signature" style={{ position: 'absolute', left: 4, bottom: 0, maxWidth: 226, maxHeight: 62 }} />}</div><p style={{ margin: 0, borderTop: '1px solid #000', paddingTop: 4, width: 230 }}>{v.signer}</p></div>
-        <div><p>Date: {longDate}</p><div style={{ height: 64 }} /><p className="ag-f-osig" style={{ margin: '0 0 30px', borderTop: '1px solid #000', paddingTop: 4 }}>Owner (Signature)</p><p className="ag-f-oprint" style={{ margin: 0, borderTop: '1px solid #000', paddingTop: 4 }}>Owner (Print)</p></div>
+        <div><p>Date: {sign?.date ? longDateOf(sign.date.slice(0, 10)) : sign ? '' : longDate}</p>
+          <div style={{ height: 64, position: 'relative' }}>{sign?.sigImg ? <img src={sign.sigImg} alt="Owner signature" style={{ position: 'absolute', left: 4, bottom: 0, maxWidth: 226, maxHeight: 62 }} />
+            : sign?.onSign ? <button type="button" className="ag-sign-btn big no-print" style={{ position: 'absolute', left: 0, bottom: 6 }} onClick={sign.onSign}>Sign here</button> : null}</div>
+          <p className="ag-f-osig" style={{ margin: '0 0 30px', borderTop: '1px solid #000', paddingTop: 4 }}>Owner (Signature)</p>
+          {sign?.sigImg && sign.name && <p style={{ margin: '0 0 2px' }}>{sign.name}{sign.title ? `, ${sign.title}` : ''}</p>}
+          <p className="ag-f-oprint" style={{ margin: 0, borderTop: '1px solid #000', paddingTop: 4 }}>Owner (Print)</p></div>
       </div>
       <p style={{ margin: '18px 0 0', textAlign: 'center', fontStyle: 'italic' }}>If you have any further questions, please do not hesitate to contact us!</p>
       <p className="ag-hd" style={{ margin: '6px 0 0', paddingTop: 6, borderTop: RULE, textAlign: 'center', fontWeight: 700 }}>END OF DOCUMENT</p>
+
+      {sign?.cert && (
+        <section aria-label="Certificate of signing" className="ag-pagebreak" style={{ marginTop: 36, paddingTop: 18, borderTop: RULE, breakBefore: 'page', fontSize: 12 }}>
+          <h2 style={{ margin: '0 0 8px', paddingBottom: 6, borderBottom: RULE, textAlign: 'center', fontSize: 14.5 }}>CERTIFICATE OF ELECTRONIC SIGNATURE</h2>
+          <p>This Agreement was signed electronically in the Abaya Design Studio client portal. The signer consented to sign electronically and initialed each section before signing.</p>
+          <table className="ag-box" style={{ width: '100%' }}><tbody>
+            <tr><td className="k">Signer</td><td>{sign.name}{sign.title ? `, ${sign.title}` : ''}</td></tr>
+            <tr><td className="k">Signed in as</td><td>{sign.cert.email} (portal sign-in by email)</td></tr>
+            {sign.cert.publishedAt && <tr><td className="k">Sent for signature</td><td>{stamp(sign.cert.publishedAt)}</td></tr>}
+            {Object.entries(sign.initials).sort((a, b) => +a[0] - +b[0]).map(([n, at]) => <tr key={n}><td className="k">Section {n} initialed</td><td>{stamp(at)}</td></tr>)}
+            <tr><td className="k">Signed</td><td>{stamp(sign.cert.signedAt)}</td></tr>
+            <tr><td className="k">Signature</td><td>{sign.cert.method === 'style' ? 'Typed name in a chosen style' : sign.cert.method === 'draw' ? 'Drawn by the signer' : 'Image uploaded by the signer'}
+              {sign.sigImg && <img src={sign.sigImg} alt="" style={{ display: 'block', maxHeight: 40, marginTop: 4 }} />}</td></tr>
+            <tr><td className="k">IP address</td><td>{sign.cert.ip || '—'}</td></tr>
+            <tr><td className="k">Device</td><td style={{ wordBreak: 'break-word' }}>{sign.cert.ua || '—'}</td></tr>
+            <tr><td className="k">Document fingerprint (SHA-256)</td><td style={{ wordBreak: 'break-all', fontFamily: 'monospace', fontSize: 10.5 }}>{sign.cert.hash}</td></tr>
+          </tbody></table>
+          <p style={{ marginTop: 8 }}><em>The fingerprint was recorded when the Agreement was sent and checked again at signing; any change to the text would change it.</em></p>
+        </section>)}
 
       {!draft && report.length > 0 && (
         <section aria-label="Modifications report" className="ag-pagebreak" style={{ marginTop: 36, paddingTop: 18, borderTop: RULE, breakBefore: 'page' }}>

@@ -24,6 +24,7 @@ import ClientLayout from './client/ClientLayout'
 import ClientProject from './client/ClientProject'
 import ClientInvoices from './client/ClientInvoices'
 import ClientHome from './client/ClientHome'
+import ClientAgreement from './client/ClientAgreement'
 
 function Gate() {
   const { session, profile, loading, signOut, recovering, endRecovery } = useAuth()
@@ -43,6 +44,7 @@ function Gate() {
         <Route index element={<ClientHome />} />
         <Route path="projects/:id" element={<ClientProject />} />
         <Route path="invoices" element={<ClientInvoices />} />
+        <Route path="agreements/:id" element={<ClientAgreement />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Route>
     </Routes>

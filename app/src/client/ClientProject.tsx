@@ -42,6 +42,7 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
     meetings: must(await supabase.from('meetings').select('*').eq('project_id', id!)) as Meeting[],
     requests: must(await supabase.from('service_requests').select('*').eq('project_id', id!).order('created_at', { ascending: false })) as ServiceRequest[],
     invoices: must(await supabase.from('invoices').select('id, number, status, issue_date, total, amount_paid, due_date').eq('project_id', id!).order('issue_date', { ascending: false })) as Inv[],
+    agreements: must(await supabase.from('agreements').select('id, title, status, signed_at').eq('project_id', id!).in('status', ['sent', 'signed']).order('created_at', { ascending: false })) as { id: string; title: string; status: string; signed_at: string | null }[],
     team: must(await supabase.from('project_contacts').select('id, trade, name, company, email, phone').eq('project_id', id!).eq('show_to_client', true).order('created_at')) as Team[],
     models: ((await supabase.storage.from('models').list(id!)).data ?? []).filter((f) => f.id && f.name && !f.name.startsWith('.')),
   }), [id])
@@ -55,7 +56,7 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
 
   if (d.error) return <p className="err">{d.error}</p>
   if (!d.data) return <p>Loading…</p>
-  const { p, phases, drawings, items, meetings, requests, invoices, models, team } = d.data
+  const { p, phases, drawings, items, meetings, requests, invoices, models, team, agreements } = d.data
   // staff can read hidden updates; the preview shows only what the client sees
   const updates = d.data.updates.filter((u) => u.visible_to_client)
   const invById = Object.fromEntries(invoices.map((i) => [i.id, i]))
@@ -78,6 +79,12 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
           {(p.categories ?? []).map((c) => <abbr key={c} className="pill" title={CATEGORY_NAME[c]}>{c}</abbr>)}</h1>
         {p.address && <p className="muted" style={{ margin: '6px 0 0' }}>{p.address}</p>}
       </div>
+
+      {agreements.map((a) => a.status === 'sent'
+        ? <div key={a.id} className="card pad row between cs-ready"><span><strong>Your agreement is ready to sign.</strong> {a.title}</span>
+            {pv ? <a className="btn" href={`#/proposals/${a.id}`}>Review &amp; sign</a> : <Link className="btn" to={`/agreements/${a.id}`}>Review &amp; sign</Link>}</div>
+        : <div key={a.id} className="card pad row between" style={{ padding: '10px 16px' }}><span><span style={{ color: 'var(--green)', fontWeight: 700 }}>✓ Signed</span> {a.title}{a.signed_at ? ` · ${new Date(a.signed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}</span>
+            {pv ? <a className="btn small secondary" href={`#/proposals/${a.id}`}>View</a> : <Link className="btn small secondary" to={`/agreements/${a.id}`}>View</Link>}</div>)}
 
       <Ed pv={pv} s="model"><ModelPanel projectId={p.id} files={models.map((m) => ({ name: m.name, at: m.updated_at ?? m.created_at ?? '' }))} /></Ed>
 

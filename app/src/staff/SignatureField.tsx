@@ -10,7 +10,7 @@ const pathFor = (uid: string) => `signatures/${uid}.png`
 const MAX_W = 600, MAX_H = 180, MAX_CHARS = 45000 // keep it small: the whole proposal autosaves in one request
 
 /** Trim blank margins, turn near-white paper transparent, scale down; returns a PNG data URL. */
-async function cleanSignature(blob: Blob): Promise<string> {
+export async function cleanSignature(blob: Blob): Promise<string> {
   const img = await createImageBitmap(blob)
   const c = document.createElement('canvas'); c.width = img.width; c.height = img.height
   const x = c.getContext('2d')!; x.drawImage(img, 0, 0)
