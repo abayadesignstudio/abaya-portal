@@ -71,7 +71,7 @@ export default function Clients() {
 
   return (
     <div className="stack">
-      <div className="row between"><h1>Clients</h1>{admin && <button className="btn" onClick={() => { setForm(form ? null : { ...blankClient, contacts: [blankContact()] }); setErr('') }}>{form ? 'Close' : '+ Add client'}</button>}</div>
+      <div className="row between"><h1>Clients</h1>{<button className="btn" onClick={() => { setForm(form ? null : { ...blankClient, contacts: [blankContact()] }); setErr('') }}>{form ? 'Close' : '+ Add client'}</button>}</div>
       {form && (
         <form onSubmit={saveClient} className="card pad stack">
           <h2>{form.id ? 'Edit client' : 'Add client'}</h2>
