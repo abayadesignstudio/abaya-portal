@@ -53,7 +53,7 @@ export default function ModelViewer({ url }: { url: string }) {
         controls.target.copy(p).add(dir.multiplyScalar(Math.max(r * 0.3, p.distanceTo(c) * 0.5)))
       }
       api.current = { fit, go }
-      setViews(cams.map((x, i) => x.name || x.parent?.name || `View ${i + 1}`))
+      setViews(cams.map((x, i) => (x.name || x.parent?.name || `View ${i + 1}`).replace(/_/g, ' ')))
       fit(); setState('ready'); loop()
     }, (e) => { if (e.total) setPct(e.loaded / e.total) }, () => alive && setState('error'))
 
