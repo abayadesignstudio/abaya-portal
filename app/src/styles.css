@@ -191,3 +191,8 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 @supports not selector(::-webkit-scrollbar){.stoday ul{scrollbar-width:thin;scrollbar-color:rgba(200,191,159,.45) transparent}}
 .up-bar{height:6px;border-radius:999px;background:#ece8de;overflow:hidden;max-width:420px}
 .up-bar > span{display:block;height:100%;background:var(--navy);transition:width .2s}
+
+/* logged project email */
+.up-email-re{margin:0;padding-bottom:6px;border-bottom:1px solid #d9d4c7;font-size:14.5px}
+.up-email-re span{font-weight:700;color:#5b6472;margin-right:2px}
+.up-email-prev{margin:2px 0 0;font-size:13.5px;font-style:italic;color:#475467;line-height:1.5}
