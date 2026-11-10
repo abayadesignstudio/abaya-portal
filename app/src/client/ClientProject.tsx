@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { CLink as Link } from './preview'
 import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASE_NAME } from '../lib/supabase'
@@ -9,6 +9,7 @@ import { sortPhases, fmtDate, signedPhotoUrls, drawingLink, BAR_COLOR, PHASE_STY
 import PhaseStepper from './PhaseStepper'
 import UpdateCard from './UpdateCard'
 import './client.css'
+const ModelViewer = lazy(() => import('./ModelViewer'))
 
 type P = { id: string; number: string; name: string; sector: string | null; category: string | null; categories: string[] | null; address: string | null; status: string }
 type Inv = { id: string; number: string; status: string; issue_date?: string | null; total: number; amount_paid: number; due_date: string | null }
@@ -76,7 +77,7 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
         {p.address && <p className="muted" style={{ margin: '6px 0 0' }}>{p.address}</p>}
       </div>
 
-      <Ed pv={pv} s="model"><ModelPanel projectId={p.id} files={models.map((m) => m.name)} /></Ed>
+      <Ed pv={pv} s="model"><ModelPanel projectId={p.id} files={models.map((m) => ({ name: m.name, at: m.updated_at ?? m.created_at ?? '' }))} /></Ed>
 
       <Ed pv={pv} s="phases"><section className="card pad stack" aria-label="Phases">
         <h2>Where we are</h2>
@@ -107,19 +108,33 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
   )
 }
 
-function ModelPanel({ projectId, files }: { projectId: string; files: string[] }) {
-  const glb = files.find((f) => /\.(glb|gltf)$/i.test(f))
+function ModelPanel({ projectId, files }: { projectId: string; files: { name: string; at: string }[] }) {
+  // newest .glb wins (a .gltf with separate files can't be streamed, so it's download-only)
+  const glb = [...files].filter((f) => /\.glb$/i.test(f.name)).sort((a, b) => b.at.localeCompare(a.at))[0]?.name
+  const any = glb ?? files.find((f) => /\.(gltf|skp)$/i.test(f.name))?.name
+  const [url, setUrl] = useState<string | null>(null)
+  useEffect(() => {
+    setUrl(null)
+    if (glb) supabase.storage.from('models').createSignedUrl(`${projectId}/${glb}`, 3600).then(({ data }) => setUrl(data?.signedUrl ?? null))
+  }, [projectId, glb])
   const download = async () => {
-    if (!glb) return
-    const { data } = await supabase.storage.from('models').createSignedUrl(`${projectId}/${glb}`, 600)
+    if (!any) return
+    const { data } = await supabase.storage.from('models').createSignedUrl(`${projectId}/${any}`, 600, { download: any })
     if (data) window.open(data.signedUrl, '_blank', 'noopener')
   }
+  if (glb) return (
+    <section className="card" aria-label="3D model" style={{ overflow: 'hidden' }}>
+      {url ? <Suspense fallback={<div className="mv"><div className="mv-msg">Loading viewer…</div></div>}><ModelViewer url={url} /></Suspense>
+        : <div className="mv"><div className="mv-msg">Loading model…</div></div>}
+      <div className="row between" style={{ padding: '10px 14px' }}><strong>3D model</strong><button className="btn small secondary" onClick={download}>Download model</button></div>
+    </section>
+  )
   return (
     <section className="card" aria-label="3D model" style={{ overflow: 'hidden' }}>
       <div style={{ height: 300, background: 'linear-gradient(160deg,#0b2f4a,#02253d)', color: '#ede6d6', display: 'grid', placeItems: 'center', textAlign: 'center', padding: 24 }}>
-        {glb ? <div className="stack" style={{ alignItems: 'center' }}><strong style={{ fontSize: 18 }}>3D model ready</strong><span style={{ color: '#c5ccd8' }}>The in-browser viewer (orbit, floor plans, saved views) is being added. You can download the model now.</span>
+        {any ? <div className="stack" style={{ alignItems: 'center' }}><strong style={{ fontSize: 18 }}>3D model ready</strong><span style={{ color: '#c5ccd8' }}>This model can be downloaded and opened on your computer.</span>
           <button className="btn secondary" onClick={download}>Download model</button></div>
-          : <div><strong style={{ fontSize: 18 }}>3D model</strong><p style={{ color: '#c5ccd8', margin: '8px 0 0' }}>Your project’s SketchUp model will appear here once it’s published, so you can orbit it and click through floor plans and views.</p></div>}
+          : <div><strong style={{ fontSize: 18 }}>3D model</strong><p style={{ color: '#c5ccd8', margin: '8px 0 0' }}>Your project’s 3D model will appear here once it’s published, so you can orbit around it and step through saved views.</p></div>}
       </div>
     </section>
   )

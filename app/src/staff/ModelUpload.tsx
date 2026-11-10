@@ -5,13 +5,25 @@ import { fmtDate } from '../lib/projectContent'
 import { bigUpload } from '../lib/bigUpload'
 
 /** Project page → Files: the 3D model the client sees on their project page (storage bucket models/{project}/). */
+const mb = (n: number) => `${(n / 1048576).toFixed(n < 10485760 ? 1 : 0)} MB`
+
 export default function ModelUpload({ projectId, onSaved }: { projectId: string; onSaved?: () => void }) {
   const files = useLoad(async () => ((await supabase.storage.from('models').list(projectId)).data ?? []).filter((f) => f.name && !f.name.startsWith('.')), [projectId])
-  const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [pct, setPct] = useState(0)
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [pct, setPct] = useState(0); const [step, setStep] = useState(''); const [msg, setMsg] = useState('')
   const upload = async (f: File | undefined) => {
     if (!f) return
-    setErr(''); setBusy(true); setPct(0)
-    try { await bigUpload('models', `${projectId}/${f.name}`, f, setPct) }
+    setErr(''); setMsg(''); setBusy(true); setPct(0)
+    let up = f
+    if (/\.glb$/i.test(f.name)) {
+      try {
+        const { compressModel } = await import('../lib/compressModel')
+        const r = await compressModel(f, setStep)
+        up = r.file
+        setMsg(r.note ?? `Compressed ${mb(r.before)} → ${mb(r.after)} (${Math.round((1 - r.after / r.before) * 100)}% smaller).`)
+      } catch (e) { setMsg(`Couldn’t compress (${e instanceof Error ? e.message : e}) — uploading the original.`) }
+    }
+    setStep('Uploading…')
+    try { await bigUpload('models', `${projectId}/${up.name}`, up, setPct) }
     catch (e) { setBusy(false); return setErr(e instanceof Error ? e.message : String(e)) }
     setBusy(false)
     files.reload(); onSaved?.()
@@ -25,10 +37,11 @@ export default function ModelUpload({ projectId, onSaved }: { projectId: string;
   return (
     <section className="card pad stack" style={{ gap: 10 }} aria-labelledby="mdl-h">
       <h2 id="mdl-h">3D model</h2>
-      <p className="muted" style={{ margin: 0, fontSize: 13 }}>Shown on the client’s project page. Export from SketchUp as .glb (or .gltf) and upload it here.</p>
-      <label className="btn small secondary" style={{ alignSelf: 'flex-start' }}>{busy ? `Uploading… ${Math.round(pct * 100)}%` : 'Upload model'}
-        <input type="file" accept=".glb,.gltf,.skp" hidden disabled={busy} onChange={(e) => { upload(e.target.files?.[0]); e.target.value = '' }} /></label>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}>Shown on the client’s project page in a 3D viewer. Export from SketchUp as .glb and upload it — it’s compressed in your browser first, so even large models get small. Scenes saved as cameras become view buttons.</p>
+      <label className="btn small secondary" style={{ alignSelf: 'flex-start' }}>{busy ? (step === 'Uploading…' ? `Uploading… ${Math.round(pct * 100)}%` : step || 'Working…') : 'Upload model'}
+        <input type="file" accept=".glb,.gltf" hidden disabled={busy} onChange={(e) => { upload(e.target.files?.[0]); e.target.value = '' }} /></label>
       {busy && <div className="up-bar" role="progressbar" aria-valuenow={Math.round(pct * 100)} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${pct * 100}%` }} /></div>}
+      {msg && <p className="muted" role="status" style={{ margin: 0, fontSize: 13 }}>{msg}</p>}
       {err && <p className="err" role="alert">{err}</p>}
       {files.data?.length === 0 && <p className="muted" style={{ margin: 0 }}><em>No model uploaded.</em></p>}
       <ul className="cp-files">{files.data?.map((f) => <li key={f.name}><span>{f.name}</span>
