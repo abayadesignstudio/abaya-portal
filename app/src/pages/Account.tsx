@@ -1,3 +1,4 @@
+import PersonalCalendars from './PersonalCalendars'
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
@@ -18,6 +19,7 @@ export default function Account({ embedded }: { embedded?: boolean }) {
         <p className="muted" style={{ margin: 0 }}>Signed in as <strong>{session?.user.email}</strong>. You sign in with this email.</p>
       </section>
       <GoogleSection />
+      <PersonalCalendars />
       <section className="card pad stack" aria-labelledby="pw-h">
         <h2 id="pw-h" style={{ margin: 0 }}>Password</h2>
         <p className="muted" style={{ margin: 0 }}>Set a password to sign in with your email and password instead of waiting for an emailed link. You can change it here anytime; the email link still works if you forget it.</p>

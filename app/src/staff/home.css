@@ -213,3 +213,4 @@
 .tk[draggable="true"]{cursor:grab}
 .tk.dragging{opacity:.45}
 .mc-cell.drop,.cv-adcell.drop,.cv-col.drop,.cv-sched > li.drop{background:#eef3f8;box-shadow:inset 0 0 0 2px #9ab3c9}
+.tk-personal{margin-left:4px;font-size:10.5px;font-weight:700;color:#5b6472;border:1px solid #d9d4c7;border-radius:999px;padding:0 5px;white-space:nowrap}

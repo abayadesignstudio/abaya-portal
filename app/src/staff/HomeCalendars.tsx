@@ -36,7 +36,7 @@ type Ev = { id: string; profile_id: string; project_id?: string | null; title: s
 export type Proj = { id: string; number: string; name: string; sector?: string | null }
 /** One Google Calendar event as the calendar-feed function returns it (one copy per connected calendar it's on). */
 type GEv = { id: string; uid: string; profile_id: string; title: string; start: string; end: string; all_day: boolean; location: string | null; busy_only: boolean
-  guests: string[]; organizer: string | null; auto_project_id: string | null; can_edit: boolean; description?: string; link: string | null }
+  guests: string[]; organizer: string | null; auto_project_id: string | null; can_edit: boolean; description?: string; link: string | null; personal?: string | null }
 /** The same meeting merged across everyone's calendars: shown once, with everyone in it. */
 type GM = GEv & { key: string; people: string[] }
 type Link = { google_event_id: string; project_id: string | null }
@@ -265,7 +265,7 @@ function GEventItem({ e, people, project, onOpen }: { e: GM; people: Person[]; m
   const body = <>
     <ProjTag p={project} />
     {!e.all_day && <span className="num tk-time">{time12(hhmm(e.start))} </span>}
-    <Faces ids={e.people} people={people} /><span className="tk-title">{e.title}</span>
+    <Faces ids={e.people} people={people} /><span className="tk-title">{e.title}</span>{e.personal && <span className="tk-personal" title="From your personal calendar">{e.personal}</span>}
   </>
   return (
     <li className={'tk tk-g' + (e.all_day ? ' allday' : '')} style={{ borderLeftColor: project ? sectorColor(project.sector) : '#9aa4b2' }}

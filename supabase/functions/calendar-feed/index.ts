@@ -6,6 +6,7 @@
 //    to spot a project number (auto_project_id).
 import { admin, json, CORS, staffCaller } from './mail.ts'
 import { googleConfigured, accessToken, listEvents, type GItem } from './google.ts'
+import ICAL from 'npm:ical.js@2.1.0'
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/
 type Proj = { id: string; number: string }
@@ -25,8 +26,9 @@ Deno.serve(async (req) => {
   try { const b = await req.json(); from = String(b.from ?? ''); to = String(b.to ?? '') } catch { /* empty */ }
   if (!DAY.test(from) || !DAY.test(to) || from > to) return json({ error: 'Bad dates' }, 400)
   if ((Date.parse(to) - Date.parse(from)) / 86400_000 > 62) return json({ error: 'Range too long' }, 400)
-  if (!googleConfigured()) return json({ events: [], connected: [], me_connected: false, skipped: 'google not configured' })
   const db = admin()
+  const personal = await personalEvents(db, uid, from, to)
+  if (!googleConfigured()) return json({ events: personal, connected: [], me_connected: false, skipped: 'google not configured' })
   const [{ data: conns }, { data: staff }, { data: projects }] = await Promise.all([
     db.from('google_connections').select('profile_id, refresh_token'),
     db.from('profiles').select('id, email').in('role', ['admin', 'staff']),
@@ -68,5 +70,81 @@ Deno.serve(async (req) => {
       link: own ? e.htmlLink ?? null : null,
     }
   }
-  return json({ events: lists.flat(), connected, me_connected: connected.includes(uid) })
+  return json({ events: [...lists.flat(), ...personal], connected, me_connected: connected.includes(uid) })
 })
+
+// ---- personal calendars (iCal links) ----
+const addDay = (d: string, n: number) => { const x = new Date(`${d}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10) }
+// deno-lint-ignore no-explicit-any
+async function personalEvents(db: any, uid: string, from: string, to: string) {
+  const { data: cals } = await db.from('personal_calendars').select('id, profile_id, label, ics_url, visibility')
+  // coworkers only see calendars shared as busy or details; the owner always sees everything
+  const mine = (cals ?? []).filter((c: { profile_id: string; visibility: string }) => c.profile_id === uid || c.visibility !== 'private')
+  const lists = await Promise.all(mine.map(async (c: { id: string; profile_id: string; label: string; ics_url: string; visibility: string }) => {
+    try {
+      const url = c.ics_url.replace(/^webcal:/i, 'https:')
+      if (!safeUrl(url)) return []
+      const r = await fetch(url, { signal: AbortSignal.timeout(10_000), headers: { Accept: 'text/calendar' } })
+      if (!r.ok) return []
+      const text = await r.text()
+      if (text.length > 8_000_000 || !text.includes('BEGIN:VCALENDAR')) return []
+      const own = c.profile_id === uid
+      const busy = !own && c.visibility === 'busy'
+      return expand(text, from, to).map((e) => ({
+        id: `pc:${c.id}:${e.uid}:${e.start}`, uid: `pc:${e.uid}:${e.start}`, profile_id: c.profile_id,
+        busy_only: busy || e.priv, all_day: e.allDay,
+        title: busy || (e.priv && !own) ? 'Busy' : e.title || '(No title)',
+        start: e.start, end: e.end, location: busy || (e.priv && !own) ? null : e.location, guests: [], organizer: null,
+        auto_project_id: null, can_edit: false, link: null, personal: own ? c.label : null,
+      }))
+    } catch { return [] }
+  }))
+  return lists.flat()
+}
+
+// public internet only (the link is user-supplied)
+function safeUrl(u: string) {
+  try {
+    const x = new URL(u)
+    if (x.protocol !== 'https:' && x.protocol !== 'http:') return false
+    const h = x.hostname.toLowerCase()
+    if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal') || h.endsWith('.supabase.co') || h.endsWith('.supabase.internal')) return false
+    if (/^(127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h) || h.includes(':') || h === '[::1]') return false
+    return true
+  } catch { return false }
+}
+
+type Occ = { uid: string; title: string; location: string | null; start: string; end: string; allDay: boolean; priv: boolean }
+function expand(text: string, from: string, to: string): Occ[] {
+  const comp = new ICAL.Component(ICAL.parse(text))
+  for (const tz of comp.getAllSubcomponents('vtimezone')) { try { ICAL.TimezoneService.register(tz) } catch { /* ignore */ } }
+  const lo = ICAL.Time.fromDateString(from), hi = ICAL.Time.fromDateString(addDay(to, 1))
+  const vevents = comp.getAllSubcomponents('vevent')
+  const exceptions = vevents.filter((v: { hasProperty: (k: string) => boolean }) => v.hasProperty('recurrence-id'))
+  const out: Occ[] = []
+  // deno-lint-ignore no-explicit-any
+  const fmt = (t: any) => t.isDate ? t.toString().slice(0, 10) : t.toJSDate().toISOString()
+  // deno-lint-ignore no-explicit-any
+  const push = (item: any, s: any, e: any) => {
+    if (String(item.component.getFirstPropertyValue('status') ?? '').toUpperCase() === 'CANCELLED') return
+    const cls = String(item.component.getFirstPropertyValue('class') ?? '').toUpperCase()
+    out.push({ uid: String(item.uid), title: String(item.summary ?? ''), location: item.location ? String(item.location) : null,
+      start: fmt(s), end: fmt(e ?? s), allDay: !!s.isDate, priv: cls === 'PRIVATE' || cls === 'CONFIDENTIAL' })
+  }
+  for (const v of vevents) {
+    if (v.hasProperty('recurrence-id')) continue
+    const ev = new ICAL.Event(v)
+    for (const x of exceptions) if (x.getFirstPropertyValue('uid') === ev.uid) { try { ev.relateException(x) } catch { /* ignore */ } }
+    if (!ev.startDate) continue
+    if (ev.isRecurring()) {
+      const it = ev.iterator()
+      for (let n = 0, next = it.next(); next && n < 20000; n++, next = it.next()) {
+        if (next.compare(hi) >= 0) break
+        const o = ev.getOccurrenceDetails(next)
+        if (o.endDate && o.endDate.compare(lo) <= 0) continue
+        push(o.item, o.startDate, o.endDate)
+      }
+    } else if (ev.startDate.compare(hi) < 0 && (ev.endDate ?? ev.startDate).compare(lo) > 0) push(ev, ev.startDate, ev.endDate)
+  }
+  return out
+}
