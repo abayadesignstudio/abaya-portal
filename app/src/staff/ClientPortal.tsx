@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase, money, PHASE_NAME } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
-import { sortPhases, fmtDate, PHASE_STYLE } from '../lib/projectContent'
+import { sortPhases, PHASE_STYLE } from '../lib/projectContent'
 import Combobox, { sectorColor } from '../components/Combobox'
 import { ClientProjectView, type EditSection } from '../client/ClientProject'
 import ClientHeader from '../client/ClientHeader'
@@ -118,7 +118,7 @@ function Editor({ section, project, onSaved }: { section: Section; project: Proj
     case 'contract': return <ContractTab projectId={project.id} phases={phases} onSaved={() => { d.reload(); onSaved() }} />
     case 'requests': return <RequestsTab projectId={project.id} />
     case 'access': return <ClientAccessTab project={project} />
-    case 'model': return <ModelEditor projectId={project.id} onSaved={onSaved} />
+    case 'model': return <ModelEditor projectId={project.id} />
     case 'phases': case 'schedule': return <PhasesEditor phases={phases} onSaved={() => { d.reload(); onSaved() }} projectId={project.id} />
     case 'invoices': return <InvoicesEditor invoices={invoices} />
   }
@@ -153,33 +153,11 @@ function PhasesEditor({ projectId, phases, onSaved }: { projectId: string; phase
   )
 }
 
-function ModelEditor({ projectId, onSaved }: { projectId: string; onSaved: () => void }) {
-  const files = useLoad(async () => ((await supabase.storage.from('models').list(projectId)).data ?? []).filter((f) => f.name && !f.name.startsWith('.')), [projectId])
-  const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
-  const upload = async (f: File | undefined) => {
-    if (!f) return
-    setErr(''); setBusy(true)
-    const { error } = await supabase.storage.from('models').upload(`${projectId}/${f.name}`, f, { upsert: true })
-    setBusy(false)
-    if (error) return setErr(error.message)
-    files.reload(); onSaved()
-  }
-  const remove = async (name: string) => {
-    if (!window.confirm(`Remove ${name} from the client portal? This deletes the file.`)) return
-    const { error } = await supabase.storage.from('models').remove([`${projectId}/${name}`])
-    if (error) return setErr(error.message)
-    files.reload(); onSaved()
-  }
+function ModelEditor({ projectId }: { projectId: string }) {
   return (
     <div className="stack" style={{ gap: 10 }}>
-      <p className="muted" style={{ margin: 0, fontSize: 13 }}>Upload the exported model (.glb or .gltf). The client can download it from the 3D model card.</p>
-      <label className="btn small secondary" style={{ alignSelf: 'flex-start' }}>{busy ? 'Uploading…' : 'Upload model'}
-        <input type="file" accept=".glb,.gltf,.skp" hidden disabled={busy} onChange={(e) => upload(e.target.files?.[0])} /></label>
-      {err && <p className="err" role="alert">{err}</p>}
-      {files.data?.length === 0 && <p className="muted" style={{ margin: 0 }}><em>No model uploaded.</em></p>}
-      <ul className="cp-files">{files.data?.map((f) => <li key={f.name}><span>{f.name}</span>
-        <span className="muted">{f.updated_at ? fmtDate(f.updated_at) : ''}</span>
-        <button type="button" className="linkish" onClick={() => remove(f.name)}>Remove</button></li>)}</ul>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}>Models are uploaded on the project page, under <strong>Files</strong>.</p>
+      <Link className="btn small" style={{ alignSelf: 'flex-start' }} to={`/projects/${projectId}`} state={{ tab: 'drawings' }}>Go to project Files ›</Link>
     </div>
   )
 }

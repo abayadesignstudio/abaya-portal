@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import TypePicker, { typeCodes } from './TypePicker'
 import Avatar from '../components/Avatar'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
+import ModelUpload from './ModelUpload'
 import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASES, PHASE_NAME } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import { useAuth } from '../lib/auth'
@@ -25,10 +26,12 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 export default function ProjectDetail() {
   const { id } = useParams()
-  const [tab, setTab] = useState<Tab>('budget')
+  const loc = useLocation()
+  const startTab = ((loc.state as { tab?: Tab } | null)?.tab) ?? 'budget'
+  const [tab, setTab] = useState<Tab>(startTab)
   const [teamErr, setTeamErr] = useState('')
   const [teamOpen, setTeamOpen] = useState<string | null>(null) // phase whose team editor is open, right in the table
-  useEffect(() => { setTab('budget') }, [id])
+  useEffect(() => { setTab(startTab) }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
   const { data, error, reload } = useLoad(async () => {
     const p = must(await supabase.from('projects').select('id, number, name, status, category, categories, sector, address, next_milestone, client_id, clients(name)').eq('id', id!).single()) as unknown as Project
     const phases = sortPhases(must(await supabase.from('phases').select('id, code, fee, fee_pct, status, start_date, end_date, meetings_included').eq('project_id', id!)) as Phase[])
@@ -326,6 +329,7 @@ export function DrawingsTab({ projectId, phases, invoices }: { projectId: string
           </tbody>
         </table>
       </section>
+      <ModelUpload projectId={projectId} />
     </div>
   )
 }
