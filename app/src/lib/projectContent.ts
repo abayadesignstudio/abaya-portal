@@ -27,7 +27,7 @@ export const PHASE_STYLE: Record<string, { bg: string; fg: string; border: strin
 }
 export const BAR_COLOR: Record<string, string> = { complete: '#d0d5dd', in_progress: '#039855', paused: '#d92d20', not_started: '#98a2b3' }
 
-export const KIND_LABEL: Record<string, string> = { memo: 'Memo', photos: 'Photos', list: 'List', meeting: 'Meeting notes', change: 'Change from meeting' }
+export const KIND_LABEL: Record<string, string> = { memo: 'Memo', photos: 'Photos', list: 'List', meeting: 'Meeting notes', change: 'Change from meeting', email: 'Email' }
 
 export const fmtDate = (d: string | null | undefined) => d ? new Date(d.length === 10 ? d + 'T12:00:00' : d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 

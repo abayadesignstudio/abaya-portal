@@ -33,7 +33,7 @@ export default function Account({ embedded }: { embedded?: boolean }) {
 /** Connect Google: my portal tasks go to Google Tasks, and my Google Calendar meetings show on the portal calendar. */
 function GoogleSection() {
   const loc = useLocation()
-  const [conn, setConn] = useState<{ google_email: string | null; connected_at: string } | null | undefined>(undefined)
+  const [conn, setConn] = useState<{ google_email: string | null; connected_at: string; gmail_enabled?: boolean; gmail_synced_at?: string | null } | null | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null)
   const load = async () => { const { data } = await supabase.rpc('my_google_connection'); setConn(((data as unknown[]) ?? [])[0] as typeof conn ?? null) }
@@ -45,9 +45,9 @@ function GoogleSection() {
     else if (r === 'cancelled') setMsg({ ok: false, t: 'Google wasn’t connected (you cancelled on Google’s page).' })
     else if (r === 'error') setMsg({ ok: false, t: 'Google couldn’t be connected. Try again; if it keeps failing, Google sync may not be fully set up yet.' })
   }, [loc.search])
-  const connect = async () => {
+  const connect = async (gmail = false) => {
     setBusy(true); setMsg(null)
-    const { data, error } = await supabase.functions.invoke('google-oauth', { body: { return_to: window.location.origin + window.location.pathname } })
+    const { data, error } = await supabase.functions.invoke('google-oauth', { body: { return_to: window.location.origin + window.location.pathname, gmail } })
     if (error || !data?.url) {
       let code = ''
       try { code = (await (error as { context?: Response })?.context?.json())?.code ?? '' } catch { /* not JSON */ }
@@ -70,8 +70,17 @@ function GoogleSection() {
       {msg && <p className={msg.ok ? 'ok' : 'err'} role={msg.ok ? 'status' : 'alert'} style={{ margin: 0 }}>{msg.t}</p>}
       <div className="row" style={{ gap: 8 }}>
         {conn ? <button type="button" className="btn secondary" disabled={busy} onClick={disconnect}>Disconnect Google</button>
-          : <button type="button" className="btn" disabled={busy || conn === undefined} onClick={connect}>{busy ? 'Opening Google…' : 'Connect Google'}</button>}
+          : <button type="button" className="btn" disabled={busy || conn === undefined} onClick={() => connect()}>{busy ? 'Opening Google…' : 'Connect Google'}</button>}
       </div>
+      {conn && <div className="stack" style={{ gap: 6, borderTop: '1px solid #efece6', paddingTop: 12 }}>
+        <strong>Project emails</strong>
+        <p className="muted" style={{ margin: 0, fontSize: 14 }}>When you email a project’s client contacts (or they email you), the portal adds a short entry to that project’s updates — who wrote to whom, the subject and Gmail’s one-line preview — and it shows in the client portal. It reads your mail read-only, every 15 minutes, and never stores full emails or attachments.</p>
+        {conn.gmail_enabled
+          ? <p style={{ margin: 0, fontSize: 14 }}><span className="badge b-paid">On</span> {conn.gmail_synced_at ? `Last checked ${new Date(conn.gmail_synced_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : 'First check within 15 minutes'}
+            {' '}<button type="button" className="linkbtn" disabled={busy} onClick={async () => { setBusy(true); const { data } = await supabase.functions.invoke('email-sync', { body: {} }); setBusy(false); load(); const r = data?.report ? Object.values(data.report)[0] as { logged?: number } | string : null; setMsg({ ok: typeof r !== 'string', t: typeof r === 'string' ? `Couldn’t check: ${r}` : `Checked — ${r?.logged ?? 0} new project email${r?.logged === 1 ? '' : 's'} logged.` }) }}>Check now</button></p>
+          : <div><button type="button" className="btn small" disabled={busy} onClick={() => connect(true)}>Turn on project emails</button>
+            <span className="muted" style={{ fontSize: 13, marginLeft: 8 }}>Google will ask to let the portal read your email.</span></div>}
+      </div>}
     </section>
   )
 }
