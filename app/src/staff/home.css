@@ -216,3 +216,10 @@
 .tk-personal{margin-left:4px;font-size:10.5px;font-weight:700;color:#5b6472;border:1px solid #d9d4c7;border-radius:999px;padding:0 5px;white-space:nowrap}
 /* events from a personal calendar (personal Gmail / iCloud / Outlook): green left edge */
 .tk.tk-pers{border-left-color:#4f7a35 !important}
+.cal-pick table{border-collapse:collapse;width:100%;font-size:14px}
+.cal-pick th,.cal-pick td{padding:5px 8px;text-align:left}
+.cal-pick thead th{font-size:12px;color:#5f6368;font-weight:700;border-bottom:1px solid var(--line)}
+.cal-pick td:nth-child(n+2),.cal-pick thead th:nth-child(n+2){text-align:center;width:72px}
+.cal-pick input{width:16px;height:16px}
+.cal-pick-g{font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:#8a8f98;padding-top:10px!important}
+.td-cals{padding:0 10px;font-size:16px}

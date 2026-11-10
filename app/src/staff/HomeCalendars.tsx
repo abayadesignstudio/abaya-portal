@@ -543,6 +543,58 @@ export function AddTask({ me, admin, people, projects, day, edit, onDone, onCanc
 }
 
 /** Merge copies of the same meeting from different people's calendars into one item listing everyone in it. */
+
+// ---------------- which calendars show where (saved per person in calendar_prefs) ----------------
+type Prefs = { hide_today: string[]; hide_cal: string[] }
+let prefsCache: Prefs | null = null
+const PREFS_EVT = 'abaya:cal-prefs'
+/** The calendar an event came from: 'pc:<personal calendar id>' or 'g:<person>' (their Google work calendar). */
+const calOf = (e: GEv) => e.id.startsWith('pc:') ? e.id.split(':').slice(0, 2).join(':') : `g:${e.profile_id}`
+function useCalPrefs(me: string) {
+  const [p, setP] = useState<Prefs>(prefsCache ?? { hide_today: [], hide_cal: [] })
+  useEffect(() => {
+    const on = () => prefsCache && setP(prefsCache)
+    window.addEventListener(PREFS_EVT, on)
+    if (!prefsCache) supabase.from('calendar_prefs').select('hide_today, hide_cal').eq('profile_id', me).maybeSingle().then(({ data }) => {
+      prefsCache = { hide_today: data?.hide_today ?? [], hide_cal: data?.hide_cal ?? [] }; window.dispatchEvent(new Event(PREFS_EVT)) })
+    return () => window.removeEventListener(PREFS_EVT, on)
+  }, [me])
+  const toggle = async (where: keyof Prefs, key: string, show: boolean) => {
+    const cur = prefsCache ?? p
+    const next = { ...cur, [where]: show ? cur[where].filter((k) => k !== key) : [...new Set([...cur[where], key])] }
+    prefsCache = next; window.dispatchEvent(new Event(PREFS_EVT))
+    await supabase.from('calendar_prefs').upsert({ profile_id: me, ...next, updated_at: new Date().toISOString() })
+  }
+  return { today: (k: string) => !p.hide_today.includes(k), cal: (k: string) => !p.hide_cal.includes(k), toggle }
+}
+
+/** Every calendar this person could see, with a Sidebar and a Calendar switch for each. */
+function CalendarsPanel({ me, admin, people, events }: { me: string; admin: boolean; people: Person[]; events: GEv[] }) {
+  const prefs = useCalPrefs(me)
+  const mine = useLoad(async () => ((await supabase.from('personal_calendars').select('id, label').eq('profile_id', me)).data ?? []) as { id: string; label: string }[], [me])
+  const who = (id: string) => { const x = people.find((q) => q.id === id); return x?.full_name || x?.email || 'Someone' }
+  const pcs = new Map<string, string>()
+  for (const c of mine.data ?? []) pcs.set(`pc:${c.id}`, `${c.label} (personal)`)
+  for (const e of events) { const k = calOf(e); if (k.startsWith('pc:') && !pcs.has(k)) pcs.set(k, `${who(e.profile_id)} · personal`) }
+  const gs = new Set([`g:${me}`, ...events.map(calOf).filter((k) => k.startsWith('g:'))])
+  const groups: [string, [string, string][]][] = [
+    ['Mine', [[`g:${me}`, 'Work calendar (Google)'], ...[...pcs].filter(([k]) => (mine.data ?? []).some((c) => `pc:${c.id}` === k))]],
+    ['Coworkers', [...[...gs].filter((k) => k !== `g:${me}`).map((k): [string, string] => [k, `${who(k.slice(2))} · work`]),
+      ...[...pcs].filter(([k]) => !(mine.data ?? []).some((c) => `pc:${c.id}` === k))]],
+    ['Portal', [['tasks', 'Tasks'], ['marks', 'Milestones & deliverables'], ...(admin ? [['bills', 'Bills due'] as [string, string]] : [])]],
+  ]
+  return <div className="cal-pick">
+    <table><thead><tr><th>Calendar</th><th>Sidebar</th><th>Calendar</th></tr></thead>
+      {groups.filter(([, rows]) => rows.length).map(([g, rows]) => <tbody key={g}><tr><th colSpan={3} className="cal-pick-g">{g}</th></tr>
+        {rows.map(([k, label]) => <tr key={k}><td>{label}</td>
+          <td><input type="checkbox" aria-label={`Show ${label} in the Today sidebar`} checked={prefs.today(k)} onChange={(e) => prefs.toggle('hide_today', k, e.target.checked)} /></td>
+          <td><input type="checkbox" aria-label={`Show ${label} on the calendar`} checked={prefs.cal(k)} onChange={(e) => prefs.toggle('hide_cal', k, e.target.checked)} /></td></tr>)}
+      </tbody>)}
+    </table>
+    <p className="muted" style={{ margin: '8px 0 0', fontSize: 12.5 }}>Saved to your account. Add personal calendars on <a href="#/account">My account</a>.</p>
+  </div>
+}
+
 function mergeEvents(list: GEv[], me: string): GM[] {
   const m = new Map<string, GM>()
   for (const e of list) {
@@ -589,7 +641,9 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   const evs = useLoad(async () => must(await supabase.from('calendar_events').select(EV_SELECT).lte('starts_on', to).gte('ends_on', from)) as unknown as Ev[], [from, to])
   // bills due (admins only; bills include salaries)
   const bills = useLoad(async () => admin ? must(await supabase.from('company_bills').select('id, name, amount, due_on, paid_on').gte('due_on', from).lte('due_on', to)) as BillRow[] : [], [admin, from, to])
-  const [showBills, setShowBills] = useState(true)
+  const prefs = useCalPrefs(me)
+  const [calsOpen, setCalsOpen] = useState<DOMRect | null>(null)
+  const showBills = prefs.cal('bills')
   // milestones and deliverables from the Projects timeline; a person sees deliverables assigned to them and milestones on their projects
   const marks = useLoad(async () => {
     const [ms, dl, mem] = await Promise.all([
@@ -609,7 +663,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   const markFor = (m: ProjMark) => who === 'all' || (m.kind === 'deliverable'
     ? m.assignee === who || (!m.assignee && (marks.data?.members ?? []).some((x) => x.project_id === m.project_id && x.profile_id === who))
     : (marks.data?.members ?? []).some((x) => x.project_id === m.project_id && x.profile_id === who))
-  const marksOn = (k: string) => (marks.data?.list ?? []).filter((m) => m.date === k && markFor(m)).sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'milestone' ? -1 : 1))
+  const marksOn = (k: string) => (marks.data?.list ?? []).filter((m) => prefs.cal('marks') && m.date === k && markFor(m)).sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'milestone' ? -1 : 1))
   // Google Calendar meetings for everyone who connected Google
   const feed = useLoad(async () => {
     const { data, error } = await supabase.functions.invoke('calendar-feed', { body: { from, to } })
@@ -624,10 +678,10 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   const connected = !!feed.data?.me_connected
   const gByDay = useMemo(() => {
     const m = new Map<string, GM[]>()
-    for (const e of mergeEvents(feed.data?.events ?? [], me)) for (const k of eventDays(e)) m.set(k, [...(m.get(k) ?? []), e])
+    for (const e of mergeEvents((feed.data?.events ?? []).filter((x) => prefs.cal(calOf(x))), me)) for (const k of eventDays(e)) m.set(k, [...(m.get(k) ?? []), e])
     for (const l of m.values()) l.sort((a, b) => (a.all_day === b.all_day ? a.start.localeCompare(b.start) : a.all_day ? -1 : 1))
     return m
-  }, [feed.data, me])
+  }, [feed.data, me, prefs])
   useCalendarChanges((kind) => { if (kind === 'tasks') { tasks.reload(); evs.reload(); marks.reload() } else { feed.reload(); links.reload() } })
   const reload = () => calendarChanged('tasks')
   const today = isoDate(new Date())
@@ -639,7 +693,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
     : view === 'day' ? day0.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
     : start.getMonth() === weekEnd.getMonth() ? `${start.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} – ${weekEnd.getDate()}, ${weekEnd.getFullYear()}`
     : `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${weekEnd.getFullYear()}`
-  const show = (pid: string) => who === 'all' || pid === who
+  const show = (pid: string) => prefs.cal('tasks') && (who === 'all' || pid === who)
   const order = [...people].sort((a, b) => (a.id === me ? -1 : b.id === me ? 1 : nameOf(a).localeCompare(nameOf(b))))
   const rank = (pid: string) => order.findIndex((p) => p.id === pid)
   const done = (m: string) => { setOpen(null); setMsg(m) } // the change itself reloads the lists (calendarChanged)
@@ -727,7 +781,8 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
       <div className="row" role="group" aria-label="Show calendar for" style={{ gap: 6 }}>
         <button type="button" className={'btn small' + (who === 'all' ? '' : ' secondary')} aria-pressed={who === 'all'} onClick={() => setWho('all')}>Everyone</button>
         {order.map((p) => <button key={p.id} type="button" className={'btn small' + (who === p.id ? '' : ' secondary')} aria-pressed={who === p.id} onClick={() => setWho(p.id)}>{p.id === me ? 'Me' : firstName(p)}</button>)}
-        {admin && <label className="row" style={{ gap: 6, marginLeft: 'auto', fontSize: 14 }}><input type="checkbox" checked={showBills} onChange={(e) => setShowBills(e.target.checked)} style={{ width: 16, height: 16 }} /> Show bills</label>}
+        <button type="button" className="btn small secondary" style={{ marginLeft: 'auto' }} aria-haspopup="dialog" onClick={(e) => setCalsOpen(e.currentTarget.getBoundingClientRect())}>Calendars ▾</button>
+        {calsOpen && <Pop anchor={calsOpen} label="Calendars" onClose={() => setCalsOpen(null)}><CalendarsPanel me={me} admin={admin} people={people} events={feed.data?.events ?? []} /></Pop>}
       </div>
       {feed.data && !connected && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Your Google Calendar meetings can show here, and events you add go to your Google Calendar: <a href="#/account">connect Google on My account</a>.</p>}
       {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
@@ -863,13 +918,16 @@ export function TodayCard({ me, admin, people, projects }: { me: string; admin: 
   const pop = (o: Open, el: HTMLElement) => { setOpen({ ...o, anchor: el.getBoundingClientRect() }); setMsg('') }
   const linkOf = (id: string) => (links.data ?? []).find((l) => l.google_event_id === id)
   const projOf = (e: GEv) => { const l = linkOf(e.id); return projects.find((p) => p.id === (l ? l.project_id : e.auto_project_id)) }
-  const myEvents = mergeEvents(feed.data?.events ?? [], me).filter((e) => e.people.includes(me))
+  const prefs = useCalPrefs(me)
+  const [calsOpen, setCalsOpen] = useState<DOMRect | null>(null)
+  const myEvents = mergeEvents((feed.data?.events ?? []).filter((x) => prefs.today(calOf(x))), me).filter((e) => e.people.includes(me))
     .sort((a, b) => (a.all_day === b.all_day ? a.start.localeCompare(b.start) : a.all_day ? -1 : 1))
   const mine = myEvents.filter((e) => eventDays(e).includes(today))
   const reload = () => calendarChanged('tasks')
   const close = () => setOpen(null)
-  const allTasks = tasks.data ?? [], allOld = olds.data ?? []
-  const todo = allTasks.filter((t) => t.due_on === today), late = overdue.data ?? [], old = allOld.filter((e) => e.starts_on <= today)
+  const tasksOn = prefs.today('tasks')
+  const allTasks = tasksOn ? tasks.data ?? [] : [], allOld = tasksOn ? olds.data ?? [] : []
+  const todo = allTasks.filter((t) => t.due_on === today), late = tasksOn ? overdue.data ?? [] : [], old = allOld.filter((e) => e.starts_on <= today)
   // coming up: the next 7 days, grouped by day (unfinished tasks, older-style items, meetings)
   const upcoming = Array.from({ length: 7 }, (_, i) => isoDate(addDays(new Date(), i + 1))).map((k) => ({
     k, evs: myEvents.filter((e) => eventDays(e)[0] === k), // multi-day events listed on their first day
@@ -881,8 +939,11 @@ export function TodayCard({ me, admin, people, projects }: { me: string; admin: 
     <section className="card pad stack" aria-labelledby="hm-today">
       <div className="row between">
         <h2 id="hm-today">Today <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>{loading ? '' : left ? `· ${left} to do` : '· all done'}</span></h2>
-        <button className="btn small" onClick={(e) => pop({ kind: 'new', day: today }, e.currentTarget)}>+ Add</button>
+        <div className="row" style={{ gap: 6 }}>
+          <button type="button" className="btn small secondary td-cals" aria-label="Choose which calendars show here" title="Calendars" onClick={(e) => setCalsOpen(e.currentTarget.getBoundingClientRect())}>⚙</button>
+          <button className="btn small" onClick={(e) => pop({ kind: 'new', day: today }, e.currentTarget)}>+ Add</button></div>
       </div>
+      {calsOpen && <Pop anchor={calsOpen} label="Calendars" onClose={() => setCalsOpen(null)}><CalendarsPanel me={me} admin={admin} people={people} events={feed.data?.events ?? []} /></Pop>}
       {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
       {tasks.error && <p className="err">{tasks.error}</p>}
       {!loading && !mine.length && !todo.length && !late.length && !old.length && <p className="muted" style={{ margin: 0 }}><em>Nothing scheduled today.</em></p>}
