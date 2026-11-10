@@ -27,8 +27,8 @@ Deno.serve(async (req) => {
   if (!DAY.test(from) || !DAY.test(to) || from > to) return json({ error: 'Bad dates' }, 400)
   if ((Date.parse(to) - Date.parse(from)) / 86400_000 > 62) return json({ error: 'Range too long' }, 400)
   const db = admin()
-  const personal = await personalEvents(db, uid, from, to)
-  if (!googleConfigured()) return json({ events: personal, connected: [], me_connected: false, skipped: 'google not configured' })
+  const { events: personal, errors: personal_errors } = await personalEvents(db, uid, from, to)
+  if (!googleConfigured()) return json({ events: personal, personal_errors, connected: [], me_connected: false, skipped: 'google not configured' })
   const [{ data: conns }, { data: staff }, { data: projects }] = await Promise.all([
     db.from('google_connections').select('profile_id, refresh_token'),
     db.from('profiles').select('id, email').in('role', ['admin', 'staff']),
@@ -70,7 +70,7 @@ Deno.serve(async (req) => {
       link: own ? e.htmlLink ?? null : null,
     }
   }
-  return json({ events: [...lists.flat(), ...personal], connected, me_connected: connected.includes(uid) })
+  return json({ events: [...lists.flat(), ...personal], personal_errors, connected, me_connected: connected.includes(uid) })
 })
 
 // ---- personal calendars (iCal links) ----
@@ -80,16 +80,48 @@ async function personalEvents(db: any, uid: string, from: string, to: string) {
   const { data: cals } = await db.from('personal_calendars').select('id, profile_id, label, ics_url, visibility')
   // coworkers only see calendars shared as busy or details; the owner always sees everything
   const mine = (cals ?? []).filter((c: { profile_id: string; visibility: string }) => c.profile_id === uid || c.visibility !== 'private')
+  // problems reading the caller's own calendars are reported back so My account can show them
+  const errors: { id: string; label: string; error: string }[] = []
   const lists = await Promise.all(mine.map(async (c: { id: string; profile_id: string; label: string; ics_url: string; visibility: string }) => {
+    const fail = (error: string) => { if (c.profile_id === uid) errors.push({ id: c.id, label: c.label, error }); return [] }
     try {
-      const url = c.ics_url.replace(/^webcal:/i, 'https:')
-      if (!safeUrl(url)) return []
-      const r = await fetch(url, { signal: AbortSignal.timeout(10_000), headers: { Accept: 'text/calendar' } })
-      if (!r.ok) return []
-      const text = await r.text()
-      if (text.length > 8_000_000 || !text.includes('BEGIN:VCALENDAR')) return []
       const own = c.profile_id === uid
       const busy = !own && c.visibility === 'busy'
+      // a Google calendar shared with the owner's work account: read it with their Google connection
+      if (!/^(https?|webcal):/i.test(c.ics_url)) {
+        const { data: conn } = await db.from('google_connections').select('refresh_token').eq('profile_id', c.profile_id).maybeSingle()
+        if (!conn) return fail('Connect Google (above) first — the shared calendar is read through it.')
+        const token = await accessToken(conn.refresh_token)
+        const items: GItem[] = []
+        let page = ''
+        for (let i = 0; i < 5; i++) {
+          const q = new URLSearchParams({ timeMin: `${from}T00:00:00-12:00`, timeMax: `${to}T23:59:59+14:00`, singleEvents: 'true', orderBy: 'startTime', maxResults: '250' })
+          if (page) q.set('pageToken', page)
+          const g = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(c.ics_url)}/events?${q}`, { headers: { Authorization: `Bearer ${token}` } })
+          if (g.status === 404 || g.status === 403) return fail('Your work Google account can’t see that calendar yet. Share it with your work email (see the steps), then try again.')
+          if (!g.ok) return fail(`Google didn’t answer (${g.status}).`)
+          const j = await g.json(); items.push(...(j.items ?? [])); page = j.nextPageToken ?? ''
+          if (!page) break
+        }
+        return items.filter((e) => e.status !== 'cancelled').map((e) => {
+          const allDay = !!e.start?.date
+          const priv = e.visibility === 'private' || e.visibility === 'confidential'
+          const hide = busy || (priv && !own)
+          const start = allDay ? e.start!.date! : e.start?.dateTime ?? ''
+          return { id: `pc:${c.id}:${e.id}`, uid: `pc:${e.iCalUID ?? e.id}:${start}`, profile_id: c.profile_id, busy_only: hide, all_day: allDay,
+            title: hide ? 'Busy' : String(e.summary ?? '(No title)'), start, end: allDay ? e.end!.date! : e.end?.dateTime ?? '',
+            location: hide ? null : (e.location ?? null), guests: [], organizer: null, auto_project_id: null, can_edit: false, link: null, personal: own ? c.label : null }
+        })
+      }
+      const url = c.ics_url.replace(/^webcal:/i, 'https:')
+      if (!safeUrl(url)) return fail('That link isn’t allowed.')
+      const get = () => fetch(url, { signal: AbortSignal.timeout(10_000), headers: { Accept: 'text/calendar, */*', 'User-Agent': 'Mozilla/5.0 (compatible; AbayaPortal/1.0; +https://abayadesignstudio.com)' } })
+      let r = await get()
+      if (r.status === 429 || r.status >= 500) { await new Promise((ok) => setTimeout(ok, 1200)); r = await get() } // busy: try once more
+      if (!r.ok) return fail(r.status === 429 && /google\.com/.test(url) ? 'Google doesn’t allow its iCal links to be read by servers. Use “Share with my work Google account” instead.' : `The calendar didn’t answer (${r.status}). Check the link.`)
+      const text = await r.text()
+      if (text.length > 8_000_000) return fail('The calendar is too large.')
+      if (!text.includes('BEGIN:VCALENDAR')) return fail('That link isn’t an iCal calendar.')
       return expand(text, from, to).map((e) => ({
         id: `pc:${c.id}:${e.uid}:${e.start}`, uid: `pc:${e.uid}:${e.start}`, profile_id: c.profile_id,
         busy_only: busy || e.priv, all_day: e.allDay,
@@ -97,9 +129,9 @@ async function personalEvents(db: any, uid: string, from: string, to: string) {
         start: e.start, end: e.end, location: busy || (e.priv && !own) ? null : e.location, guests: [], organizer: null,
         auto_project_id: null, can_edit: false, link: null, personal: own ? c.label : null,
       }))
-    } catch { return [] }
+    } catch (e) { return fail(`Couldn’t read the calendar: ${String((e as Error)?.message ?? e).slice(0, 160)}`) }
   }))
-  return lists.flat()
+  return { events: lists.flat(), errors }
 }
 
 // public internet only (the link is user-supplied)
