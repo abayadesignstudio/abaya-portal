@@ -24,9 +24,14 @@ Deno.serve(async (req) => {
   if (!cron && !uid) return json({ error: 'Forbidden' }, 403)
   if (!googleConfigured()) return json({ skipped: 'google not configured' })
   const db = admin()
+  // Back-fill: { only: [emails], days } re-reads every connected mailbox for mail with those people, ignoring what was already scanned.
+  // Used when a contact is added, so earlier emails with them show up too.
+  const body = await req.json().catch(() => ({})) as { only?: string[]; days?: number }
+  const only = (body.only ?? []).map((e) => String(e).trim().toLowerCase()).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)).slice(0, 10)
+  const days = Math.min(Math.max(Number(body.days) || 2, 1), 365)
 
   let cq = db.from('google_connections').select('profile_id, refresh_token, gmail_enabled')
-  if (uid) cq = cq.eq('profile_id', uid)
+  if (uid && !only.length) cq = cq.eq('profile_id', uid)
   const [{ data: conns }, { data: staff }, { data: contacts }, { data: projects }, { data: pcs }] = await Promise.all([
     cq,
     db.from('profiles').select('id, full_name, email').in('role', ['admin', 'staff']),
@@ -67,12 +72,13 @@ Deno.serve(async (req) => {
     try {
       const token = await accessToken(c.refresh_token)
       const H = { Authorization: `Bearer ${token}` }
-      meetings = await logMeetings(c.profile_id, H)
+      meetings = only.length ? 0 : await logMeetings(c.profile_id, H)
       if (!c.gmail_enabled) { report[c.profile_id] = { meetings }; continue }
       const ids: { id: string; threadId: string }[] = []
       let page = ''
-      for (let i = 0; i < 3; i++) {
-        const q = new URLSearchParams({ q: 'newer_than:2d -in:chats -in:spam -in:trash', maxResults: '100' })
+      for (let i = 0; i < (only.length ? 10 : 3); i++) {
+        const wq = only.length ? ` {${only.map((e) => `from:${e} to:${e} cc:${e}`).join(' ')}}` : ''
+        const q = new URLSearchParams({ q: `newer_than:${days}d -in:chats -in:spam -in:trash${wq}`, maxResults: '100' })
         if (page) q.set('pageToken', page)
         const r = await fetch(`${GM}/messages?${q}`, { headers: H })
         if (r.status === 403) { report[c.profile_id] = 'gmail access not granted'; ids.length = 0; break }
@@ -81,8 +87,8 @@ Deno.serve(async (req) => {
         if (!page) break
       }
       if (!ids.length) { await db.from('google_connections').update({ gmail_synced_at: new Date().toISOString() }).eq('profile_id', c.profile_id); report[c.profile_id] ??= { looked: 0, logged: 0 }; continue }
-      const { data: seen } = await db.from('email_seen').select('gmail_id').eq('profile_id', c.profile_id).in('gmail_id', ids.map((x) => x.id))
-      const seenSet = new Set((seen ?? []).map((s) => s.gmail_id))
+      const { data: seen } = only.length ? { data: [] } : await db.from('email_seen').select('gmail_id').eq('profile_id', c.profile_id).in('gmail_id', ids.map((x) => x.id))
+      const seenSet = new Set((seen ?? []).map((s: { gmail_id: string }) => s.gmail_id))
       for (const m of ids.filter((x) => !seenSet.has(x.id)).reverse()) { // oldest first, so replies follow what they answer
         looked++
         const mq = new URLSearchParams({ format: 'metadata' })
@@ -99,8 +105,7 @@ Deno.serve(async (req) => {
         if (!from) continue
         const everyone = [from, ...to]
         if (!everyone.some(isContact)) continue
-        // a staff member must be on it too (this is work correspondence)
-        if (!everyone.some((e) => staffBy.has(e))) continue
+        // it reached a staff mailbox, so it's work correspondence even when we were only Bcc'd (HOA/board blasts)
         const subject = String(h('Subject') ?? '(no subject)').trim()
         const project = pickProject(everyone, subject)
         const messageId = String(h('Message-ID') ?? `gmail:${m.id}`).trim()

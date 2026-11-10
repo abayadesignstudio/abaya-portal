@@ -459,6 +459,9 @@ export function RequestsTab({ projectId, phases: allPhases = [], onChanged }: { 
 }
 
 /* ---------------- Client access ---------------- */
+/** After a contact is added: pull the last 90 days of email with them into Updates (runs in the background). */
+const backfill = (email: string) => { const e = email.trim().toLowerCase(); if (e) supabase.functions.invoke('email-sync', { body: { only: [e], days: 90 } }).catch(() => {}) }
+
 const TRADES = ['General Contractor', 'Structural Engineer', 'MEP Engineer', 'Civil Engineer', 'Landscape Architect', 'Interior Designer', 'Surveyor', 'Geotechnical Engineer', 'Consultant', 'Owner’s Rep', 'Other']
 type PContact = { id: string; trade: string; name: string | null; company: string | null; email: string | null; phone: string | null; notes: string | null; show_to_client: boolean }
 const BLANK_PC = { trade: 'General Contractor', name: '', company: '', email: '', phone: '', notes: '', show_to_client: true }
@@ -477,7 +480,7 @@ export function ContactsTab({ project }: { project: Project }) {
     const row = { trade: f.trade, name: f.name.trim() || null, company: f.company.trim() || null, email: f.email.trim().toLowerCase() || null, phone: f.phone.trim() || null, notes: f.notes.trim() || null, show_to_client: f.show_to_client }
     if (!row.name && !row.company) { setErr('Add a name or a company.'); return }
     const { error } = edit ? await supabase.from('project_contacts').update(row).eq('id', edit) : await supabase.from('project_contacts').insert({ ...row, project_id: project.id })
-    if (error) setErr(error.message); else { setF(BLANK_PC); setEdit(null); setOpen(false); d.reload() } }
+    if (error) setErr(error.message); else { if (row.email) backfill(row.email); setF(BLANK_PC); setEdit(null); setOpen(false); d.reload() } }
   const startEdit = (c: PContact) => { setEdit(c.id); setOpen(true); setF({ trade: c.trade, name: c.name ?? '', company: c.company ?? '', email: c.email ?? '', phone: c.phone ?? '', notes: c.notes ?? '', show_to_client: c.show_to_client }) }
   const del = async (c: PContact) => {
     if (!window.confirm(`Remove ${c.name || c.company} (${c.trade}) from this project? Updates already logged stay. This can’t be undone.`)) return
@@ -545,7 +548,7 @@ export function ClientAccessTab({ project, embedded }: { project: Project; embed
   const signedIn = new Set((d.data?.users ?? []).map((x) => x.email.toLowerCase()))
   const add = async (e: React.FormEvent) => { e.preventDefault(); setErr('')
     const { error } = await supabase.from('client_contacts').insert({ client_id: project.client_id, name: nc.name.trim() || null, email: nc.email.trim().toLowerCase() })
-    if (error) setErr(error.message); else { setNc({ name: '', email: '' }); d.reload() } }
+    if (error) setErr(error.message); else { backfill(nc.email); setNc({ name: '', email: '' }); d.reload() } }
   const invite = async (email: string, name: string | null) => { setErr(''); setMsg('')
     const { error } = await supabase.from('invites').upsert({ email: email.toLowerCase(), role: 'client', client_id: project.client_id, full_name: name, invited_by: profile?.id })
     if (error) setErr(error.message); else { setMsg(`${email} can now sign in at the portal with their email.`); d.reload() } }
