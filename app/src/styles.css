@@ -179,8 +179,9 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .side-bottom .me{flex:none}
 .stimer > .stoday{flex:0 1 auto;display:flex;flex-direction:column;overflow:clip;min-height:0}
 .stoday > .stoday-h,.stimer > .stimer-bar{flex:none}
-.stoday > ul{flex:1 1 auto;min-height:min(100%, 92px);max-height:none}
-.side-bottom{min-height:min-content}
+.stoday > ul{flex:1 1 auto;min-height:0;max-height:none}
+/* room for the Today header, ~2 entries, the Timer bar and your name; below that the whole sidebar scrolls */
+.side-bottom{min-height:300px}
 .stoday ul::-webkit-scrollbar{width:6px}
 .stoday ul::-webkit-scrollbar-track{background:transparent;margin:4px 0}
 .stoday ul::-webkit-scrollbar-thumb{background:rgba(200,191,159,.38);border-radius:999px}
