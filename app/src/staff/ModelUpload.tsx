@@ -19,7 +19,7 @@ export default function ModelUpload({ projectId, onSaved }: { projectId: string;
         const { compressModel } = await import('../lib/compressModel')
         const r = await compressModel(f, setStep)
         up = r.file
-        setMsg(r.note ?? `Compressed ${mb(r.before)} → ${mb(r.after)} (${Math.round((1 - r.after / r.before) * 100)}% smaller).`)
+        setMsg(r.after < r.before ? `Compressed ${mb(r.before)} → ${mb(r.after)} (${Math.round((1 - r.after / r.before) * 100)}% smaller).${r.note ? ' ' + r.note : ''}` : r.note ?? '')
       } catch (e) { setMsg(`Couldn’t compress (${e instanceof Error ? e.message : e}) — uploading the original.`) }
     }
     setStep('Uploading…')
