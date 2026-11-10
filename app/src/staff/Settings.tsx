@@ -1,3 +1,4 @@
+import { reloadRates } from '../lib/roles'
 import { useEffect, useState } from 'react'
 import Account from '../pages/Account'
 import { supabase, money } from '../lib/supabase'
@@ -43,7 +44,7 @@ function BillableRates() {
   const [err, setErr] = useState(''); const [msg, setMsg] = useState('')
   const list = rates.data ?? []
   const roles = [...new Set(list.map((r) => r.role))]
-  const run = async (fn: () => Promise<void>, ok: string) => { try { await fn(); setErr(''); setMsg(ok); rates.reload() } catch (e) { setMsg(''); setErr(e instanceof Error ? e.message : String(e)) } }
+  const run = async (fn: () => Promise<void>, ok: string) => { try { await fn(); setErr(''); setMsg(ok); rates.reload(); reloadRates() } catch (e) { setMsg(''); setErr(e instanceof Error ? e.message : String(e)) } }
   const add = (e: React.FormEvent) => {
     e.preventDefault()
     const role = f.role.trim(), rate = parseFloat(f.rate.replace(/[$,]/g, ''))

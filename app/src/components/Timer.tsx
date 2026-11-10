@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { phaseLabel } from '../lib/supabase'
-import { ACTIVITIES, OVERHEAD, ROLES, iso, announceTimeChange } from '../lib/time'
+import { ACTIVITIES, OVERHEAD, iso, announceTimeChange } from '../lib/time'
+import { useRoles, useRates, rateForRole } from '../lib/roles'
+import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { useTimer, uniqueRecent, clockOf, EMPTY_FIELDS, type TimerApi, type TimerFields, type TodayTask } from './useTimer'
 import Combobox, { sectorColor } from './Combobox'
@@ -260,13 +262,16 @@ function TodayList({ api, selected, onSelect }: { api: TimerApi; selected: strin
 function TaskSettings({ api, me, task, onPlay, onClose, onRekey }: { api: TimerApi; me: string; task: TodayTask; onPlay: () => void; onClose: () => void; onRekey: (key: string) => void }) {
   // type of service: phase, role and activity (changing them relabels today's time on this task)
   const [svc, setSvc] = useState({ phase_id: task.phase_id ?? '', role_label: task.role_label ?? '', activity: task.activity ?? '' })
+  const roles = useRoles(); const rates = useRates(); const { profile } = useAuth()
   useEffect(() => { setSvc({ phase_id: task.phase_id ?? '', role_label: task.role_label ?? '', activity: task.activity ?? '' }) }, [task.key])
   const oh = task.projects?.number === 'OH'
   const svcProj = api.projects.find((p) => p.id === task.project_id)
   const svcChanged = svc.phase_id !== (task.phase_id ?? '') || svc.role_label !== (task.role_label ?? '') || svc.activity !== (task.activity ?? '')
   const saveSvc = async () => {
     setBusy(true); setErr(''); setMsg('')
-    let q = supabase.from('time_entries').update({ phase_id: svc.phase_id || null, role_label: svc.role_label || null, activity: svc.activity || null })
+    const roleChanged = svc.role_label !== (task.role_label ?? '')
+    const r = rateForRole(svc.role_label, (profile as { title?: string | null } | null)?.title, rates)
+    let q = supabase.from('time_entries').update({ phase_id: svc.phase_id || null, role_label: svc.role_label || null, activity: svc.activity || null, ...(roleChanged ? { bill_rate: r ? Number(r) : null } : {}) })
       .eq('profile_id', me).eq('work_date', iso(new Date())).eq('project_id', task.project_id)
     q = task.phase_id ? q.eq('phase_id', task.phase_id) : q.is('phase_id', null)
     q = task.role_label ? q.eq('role_label', task.role_label) : q.is('role_label', null)
@@ -323,7 +328,7 @@ function TaskSettings({ api, me, task, onPlay, onClose, onRekey }: { api: TimerA
           <option value="">{svcProj && (svcProj.phases ?? []).length === 0 ? 'No phases set up' : 'Phase'}</option>
           {(svcProj?.phases ?? []).map((x) => <option key={x.id} value={x.id}>{x.code} · {phaseLabel(x)}</option>)}</select></div>}
         <div className="tm-pair">
-          <div><label className="sr" htmlFor="ts-r">Role</label><select id="ts-r" className="input" value={svc.role_label} onChange={(e) => setSvc({ ...svc, role_label: e.target.value })}><option value="">Role</option>{ROLES.map((x) => <option key={x}>{x}</option>)}</select></div>
+          <div><label className="sr" htmlFor="ts-r">Role</label><select id="ts-r" className="input" value={svc.role_label} onChange={(e) => setSvc({ ...svc, role_label: e.target.value })}><option value="">Role</option>{roles.map((x) => <option key={x}>{x}</option>)}</select></div>
           <div><label className="sr" htmlFor="ts-a">Activity</label><select id="ts-a" className="input" value={svc.activity} onChange={(e) => setSvc({ ...svc, activity: e.target.value })}><option value="">{oh ? 'Overhead type' : 'Activity'}</option>{(oh ? OVERHEAD : ACTIVITIES).map((x) => <option key={x}>{x}</option>)}</select></div>
         </div>
         {svcChanged && <button type="button" className="btn small" disabled={busy} onClick={saveSvc} style={{ alignSelf: 'flex-end' }}>Save type of service</button>}
