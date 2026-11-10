@@ -665,7 +665,8 @@ function Document({ tocPages, logo, doc, model, draft, showMarks, changesIn, onO
                   </>}
                 </div>)
             })}
-            {s.initial && <Initial />}
+            {/* every section gets an Owner initial line, so each one is acknowledged */}
+            <Initial />
           </section>)
       })}
 
