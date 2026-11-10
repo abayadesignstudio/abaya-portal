@@ -97,10 +97,10 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
           </section></Ed>
         </div>
         <div className="stack">
+          <Ed pv={pv} s="invoices"><InvoicesMini invoices={invoices} /></Ed>
           <Ed pv={pv} s="contract"><ContractPanel phases={phases} items={items} meetings={meetings} /></Ed>
           <Ed pv={pv} s="schedule"><Schedule phases={phases} /></Ed>
           <Ed pv={pv} s="requests"><RequestPanel projectId={p.id} me={profile!.id} requests={requests} onSent={d.reload} preview={!!pv} /></Ed>
-          <Ed pv={pv} s="invoices"><InvoicesMini invoices={invoices} /></Ed>
         </div>
       </div>
 
