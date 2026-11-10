@@ -43,7 +43,7 @@ export default function ClientHome() {
             </div>
             <span className="muted" style={{ fontSize: 14 }}>{p.status === 'complete' ? 'Complete' : p.next_milestone ?? ''}</span>
           </div>
-          {p.phases.length > 0 ? <PhaseStepper phases={sortPhases(p.phases)} /> : <p className="muted" style={{ margin: 0 }}><em>Schedule coming soon.</em></p>}
+          {p.phases.length > 0 ? <PhaseStepper phases={sortPhases(p.phases.filter((x) => x.code !== 'AS'))} /> : <p className="muted" style={{ margin: 0 }}><em>Schedule coming soon.</em></p>}
           <span style={{ fontWeight: 700, color: 'var(--navy)' }}>Open project ›</span>
         </Link>
       ))}

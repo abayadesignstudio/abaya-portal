@@ -35,7 +35,7 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
   const { profile } = useAuth()
   const d = useLoad(async () => ({
     p: must(await supabase.from('projects').select('id, number, name, sector, category, categories, address, status').eq('id', id!).single()) as P,
-    phases: sortPhases(must(await supabase.from('phases').select('id, code, fee, status, start_date, end_date, meetings_included').eq('project_id', id!)) as PhaseRow[]),
+    phases: sortPhases(must(await supabase.from('phases').select('id, code, fee, status, start_date, end_date, meetings_included').eq('project_id', id!).neq('code', 'AS')) as PhaseRow[]),
     updates: must(await supabase.from('updates').select('*').eq('project_id', id!).order('created_at', { ascending: false }).limit(30)) as Update[],
     drawings: must(await supabase.from('drawings').select('*').eq('project_id', id!).order('issued_on', { ascending: false })) as Drawing[],
     items: must(await supabase.from('contract_items').select('*').eq('project_id', id!).order('sort')) as ContractItem[],

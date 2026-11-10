@@ -24,4 +24,6 @@ export const PHASES = [
   ['BN', 'Bidding & Negotiation'], ['PM', 'Permitting'], ['CA', 'Construction Administration'],
 ] as const
 export const PHASE_NAME = Object.fromEntries(PHASES) as Record<string, string>
+/** Display name for a phase row: additional-service lines (code AS) carry their own name. */
+export const phaseLabel = (p: { code: string; name?: string | null }) => p.code === 'AS' ? (p.name || 'Additional service') : (PHASE_NAME[p.code] ?? p.code)
 export const CATEGORY_NAME: Record<string, string> = { S: 'Shell', FO: 'Interior Finish-Out', CON: 'Consultation' }

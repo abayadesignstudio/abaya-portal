@@ -106,7 +106,7 @@ export default function ClientPortal() {
 
 function Editor({ section, project, onSaved }: { section: Section; project: Project; onSaved: () => void }) {
   const d = useLoad(async () => ({
-    phases: sortPhases(must(await supabase.from('phases').select('id, code, fee, fee_pct, status, start_date, end_date, meetings_included').eq('project_id', project.id)) as Phase[]),
+    phases: sortPhases(must(await supabase.from('phases').select('id, code, fee, fee_pct, status, start_date, end_date, meetings_included').eq('project_id', project.id).neq('code', 'AS')) as Phase[]),
     invoices: must(await supabase.from('invoices').select('id, number, status, total, amount_paid, issue_date, due_date').eq('project_id', project.id).order('issue_date', { ascending: false })) as Inv[],
   }), [project.id])
   if (d.error) return <p className="err">{d.error}</p>

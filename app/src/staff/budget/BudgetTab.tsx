@@ -6,7 +6,7 @@ import { sortPhases, fmtDate } from '../../lib/projectContent'
 import RowMenu from '../../components/RowMenu'
 import { linkedAgreements, contractFee, MULTIPLIER } from '../../lib/fees'
 
-type Phase = { id: string; code: string; fee: number; status: string; start_date: string | null; end_date: string | null }
+type Phase = { id: string; code: string; name?: string | null; parent_phase_id?: string | null; fee: number; status: string; start_date: string | null; end_date: string | null }
 export type Person = { id: string; full_name: string | null; email: string; initials: string | null; title: string | null; bill_rate: number | null; avatar_url?: string | null }
 export type Member = { profile_id: string; role_label: string | null; bill_rate: number | null; rate_id?: string | null }
 export type Rate = { id: string; role: string; level: string; rate: number; sort: number }
@@ -62,7 +62,7 @@ export default function BudgetTab({ projectId }: { projectId: string }) {
   const [sub, setSub] = useState<'pay' | 'consultants' | 'expenses'>('pay')
   const [err, setErr] = useState('')
   const { data, error, reload } = useLoad(async () => {
-    const phases = sortPhases(must(await supabase.from('phases').select('id, code, fee, status, start_date, end_date').eq('project_id', projectId)) as Phase[])
+    const phases = sortPhases(must(await supabase.from('phases').select('id, code, name, parent_phase_id, fee, status, start_date, end_date').eq('project_id', projectId)) as Phase[])
     const ids = phases.map((p) => p.id)
     const people = must(await supabase.from('profiles').select('id, full_name, email, initials, title, bill_rate, avatar_url').in('role', ['admin', 'staff']).order('full_name')) as Person[]
     const members = must(await supabase.from('project_members').select('profile_id, role_label, bill_rate').eq('project_id', projectId)) as Member[]

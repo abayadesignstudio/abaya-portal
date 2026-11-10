@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { PHASE_NAME } from '../lib/supabase'
+import { phaseLabel } from '../lib/supabase'
 import { ACTIVITIES, OVERHEAD, ROLES, iso, announceTimeChange } from '../lib/time'
 import { supabase } from '../lib/supabase'
 import { useTimer, uniqueRecent, clockOf, EMPTY_FIELDS, type TimerApi, type TimerFields, type TodayTask } from './useTimer'
@@ -35,7 +35,7 @@ export function TimerPanel({ api, idPrefix, onDone, onCancel }: { api: TimerApi;
             options={projects.map((p) => p.number === 'OH' ? { value: p.id, label: 'Overhead', search: 'OH overhead' } : { value: p.id, chip: p.number, color: sectorColor(p.sector), label: p.name })} />
           {!isOverhead && <Combobox id={id('ph')} label="Phase" placeholder={proj && proj.phases.length === 0 ? 'No phases set up yet' : 'Phase'} disabled={!proj || proj.phases.length === 0}
             value={v.phase_id} onChange={(x) => setField('phase_id', x)}
-            options={(proj?.phases ?? []).map((x) => ({ value: x.id, chip: x.code, color: 'var(--navy, #02253d)', label: PHASE_NAME[x.code] ?? x.code }))} />}
+            options={(proj?.phases ?? []).map((x) => ({ value: x.id, chip: x.code, color: 'var(--navy, #02253d)', label: phaseLabel(x) }))} />}
           <div className="tm-pair">
             <RolePicker id={id('r')} role={v.role_label} rate={v.bill_rate} onChange={(role, rate) => setV((o) => ({ ...o, role_label: role, bill_rate: rate }))} />
             <div><label className="sr" htmlFor={id('a')}>Activity</label><select id={id('a')} className="input" value={v.activity} onChange={set('activity')}><option value="">{isOverhead ? 'Overhead type' : 'Activity'}</option>{(isOverhead ? OVERHEAD : ACTIVITIES).map((a) => <option key={a}>{a}</option>)}</select></div>
@@ -113,7 +113,7 @@ export function ManualPanel({ api, me, idPrefix, onDone, onCancel }: { api: Time
         options={api.projects.map((p) => p.number === 'OH' ? { value: p.id, label: 'Overhead', search: 'OH overhead' } : { value: p.id, chip: p.number, color: sectorColor(p.sector), label: p.name })} />
       {!isOverhead && <Combobox id={id('ph')} label="Phase" placeholder={proj && proj.phases.length === 0 ? 'No phases set up yet' : 'Phase'} disabled={!proj || proj.phases.length === 0}
         value={f.phase_id} onChange={(x) => set('phase_id', x)}
-        options={(proj?.phases ?? []).map((x) => ({ value: x.id, chip: x.code, color: 'var(--navy, #02253d)', label: PHASE_NAME[x.code] ?? x.code }))} />}
+        options={(proj?.phases ?? []).map((x) => ({ value: x.id, chip: x.code, color: 'var(--navy, #02253d)', label: phaseLabel(x) }))} />}
       <div className="tm-pair">
       <RolePicker id={id('r')} role={f.role_label} rate={f.bill_rate} onChange={(role, rate) => setF((o) => ({ ...o, role_label: role, bill_rate: rate }))} />
       <div><label className="sr" htmlFor={id('a')}>Activity</label><select id={id('a')} className="input" value={f.activity} onChange={(e) => set('activity', e.target.value)}><option value="">{isOverhead ? 'Overhead type' : 'Activity'}</option>{(isOverhead ? OVERHEAD : ACTIVITIES).map((a) => <option key={a}>{a}</option>)}</select></div>
@@ -321,7 +321,7 @@ function TaskSettings({ api, me, task, onPlay, onClose, onRekey }: { api: TimerA
       <fieldset className="ts-svc"><legend className="l">Type of service</legend>
         {!oh && <div><label className="sr" htmlFor="ts-ph">Phase</label><select id="ts-ph" className="input" value={svc.phase_id} onChange={(e) => setSvc({ ...svc, phase_id: e.target.value })}>
           <option value="">{svcProj && (svcProj.phases ?? []).length === 0 ? 'No phases set up' : 'Phase'}</option>
-          {(svcProj?.phases ?? []).map((x) => <option key={x.id} value={x.id}>{x.code} · {PHASE_NAME[x.code] ?? x.code}</option>)}</select></div>}
+          {(svcProj?.phases ?? []).map((x) => <option key={x.id} value={x.id}>{x.code} · {phaseLabel(x)}</option>)}</select></div>}
         <div className="tm-pair">
           <div><label className="sr" htmlFor="ts-r">Role</label><select id="ts-r" className="input" value={svc.role_label} onChange={(e) => setSvc({ ...svc, role_label: e.target.value })}><option value="">Role</option>{ROLES.map((x) => <option key={x}>{x}</option>)}</select></div>
           <div><label className="sr" htmlFor="ts-a">Activity</label><select id="ts-a" className="input" value={svc.activity} onChange={(e) => setSvc({ ...svc, activity: e.target.value })}><option value="">{oh ? 'Overhead type' : 'Activity'}</option>{(oh ? OVERHEAD : ACTIVITIES).map((x) => <option key={x}>{x}</option>)}</select></div>

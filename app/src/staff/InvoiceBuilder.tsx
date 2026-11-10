@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { supabase, money, SECTOR_COLOR, PHASES, PHASE_NAME } from '../lib/supabase'
+import { supabase, money, SECTOR_COLOR, phaseLabel } from '../lib/supabase'
+import { sortPhases } from '../lib/projectContent'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import { todayIso, addDays, fmtDate, num, round2, cardFee, achFee, CARD_FEE_MAX, nextInvoiceNumber, displayStatus, emailInvoice } from '../lib/invoices'
 import './invoices.css'
 
-type Phase = { id: string; code: string; fee: number; status: string }
+type Phase = { id: string; code: string; name?: string | null; parent_phase_id?: string | null; fee: number; status: string }
 type Expense = { id: string; description: string; amount: number; spent_on: string; invoice_id: string | null }
 type Item = { kind: string; description: string; amount: string }
 type Project = { id: string; number: string; name: string; sector: string | null; client_id: string | null; clients: { name: string; billing_email: string | null; address: string | null } | null }
@@ -19,7 +20,6 @@ type Line = { kind: string; phase_id: string | null; description: string; pct_to
 
 const STATUS_STYLE: Record<string, [string, string, string]> = { complete: ['Complete', '#344054', '#e4e7ec'], in_progress: ['In progress', '#fff', '#039855'], paused: ['Paused', '#fff', '#d92d20'], not_started: ['Not started', '#344054', '#fff'] }
 const ITEM_LABEL: Record<string, string> = { late: 'Late charge', retainer: 'Retainer', tax: 'Sales tax', credit: 'Credit', other: '' }
-const order = (code: string) => PHASES.findIndex(([c]) => c === code)
 
 export default function InvoiceBuilder() {
   const { id } = useParams()
@@ -43,7 +43,7 @@ export default function InvoiceBuilder() {
   const ctx = useLoad(async () => {
     if (!projectId) return null
     const p = must(await supabase.from('projects').select('id, number, name, sector, client_id, clients(name, billing_email, address)').eq('id', projectId).single()) as unknown as Project
-    const phases = (must(await supabase.from('phases').select('id, code, fee, status').eq('project_id', projectId)) as Phase[]).sort((a, b) => order(a.code) - order(b.code))
+    const phases = sortPhases(must(await supabase.from('phases').select('id, code, name, parent_phase_id, fee, status').eq('project_id', projectId)) as Phase[])
     const billedLines = phases.length ? must(await supabase.from('invoice_lines').select('phase_id, amount, invoice_id, invoices!inner(status)').eq('kind', 'phase').in('phase_id', phases.map((x) => x.id))) as unknown as { phase_id: string; amount: number; invoice_id: string; invoices: { status: string } }[] : []
     const billedBefore: Record<string, number> = {}
     billedLines.filter((l) => l.invoice_id !== id && ['open', 'paid'].includes(l.invoices.status)).forEach((l) => { billedBefore[l.phase_id] = (billedBefore[l.phase_id] ?? 0) + Number(l.amount) })
@@ -114,8 +114,8 @@ export default function InvoiceBuilder() {
   const total = round2(fixed + exBase + exMark + extra)
   const prior = round2((c?.pastDue ?? []).reduce((a, x) => a + Number(x.total) - Number(x.amount_paid), 0))
   const warn = [
-    ...phaseRows.filter((r) => r.over).map((r) => `${PHASE_NAME[r.ph.code]} would be billed past 100% of its fee.`),
-    ...phaseRows.filter((r) => r.d < 0).map((r) => `${PHASE_NAME[r.ph.code]} has a negative amount — use a Credit line instead.`),
+    ...phaseRows.filter((r) => r.over).map((r) => `${phaseLabel(r.ph)} would be billed past 100% of its fee.`),
+    ...phaseRows.filter((r) => r.d < 0).map((r) => `${phaseLabel(r.ph)} has a negative amount — use a Credit line instead.`),
   ]
   const dueDate = issue ? addDays(issue, terms) : ''
   const setPct = (ph: Phase, prev: number, v: string) => { const p = num(v); setDue({ ...due, [ph.id]: String(round2(p / 100 * Number(ph.fee) - prev)) }) }
@@ -127,7 +127,7 @@ export default function InvoiceBuilder() {
 
   // ---- persistence
   const buildLines = (): Omit<Line, 'sort'>[] => [
-    ...phaseRows.filter((r) => r.d !== 0).map((r) => ({ kind: 'phase', phase_id: r.ph.id, description: `${r.ph.code} · ${PHASE_NAME[r.ph.code]}${advance ? ' — billed in advance' : ''}`, pct_to_date: round2(r.pct), amount: round2(r.d) })),
+    ...phaseRows.filter((r) => r.d !== 0).map((r) => ({ kind: 'phase', phase_id: r.ph.id, description: `${r.ph.code} · ${phaseLabel(r.ph)}${advance ? ' — billed in advance' : ''}`, pct_to_date: round2(r.pct), amount: round2(r.d) })),
     ...exSel.map((x) => ({ kind: 'expense', phase_id: null, description: x.description, pct_to_date: null, amount: Number(x.amount) })),
     ...(exMark ? [{ kind: 'markup', phase_id: null, description: 'Service fee on reimbursables, 10% (Agreement §8.2)', pct_to_date: null, amount: exMark }] : []),
     ...items.filter((x) => x.description.trim() || num(x.amount)).map((x) => ({ kind: x.kind, phase_id: null, description: x.description.trim() || (ITEM_LABEL[x.kind] || 'Other'), pct_to_date: null, amount: round2(num(x.amount)) })),
@@ -253,12 +253,12 @@ export default function InvoiceBuilder() {
                 <span>Phase</span><span style={{ textAlign: 'right' }}>Fee</span><span style={{ textAlign: 'right' }}>Billed before</span><span>Status</span><span style={{ textAlign: 'right' }}>{advance ? '% billed to date' : '% complete'}</span><span style={{ textAlign: 'right' }}>This invoice ($)</span><span style={{ textAlign: 'right' }}>Remaining</span></div>
               {phaseRows.map((r) => { const s = STATUS_STYLE[r.ph.status] ?? STATUS_STYLE.not_started; return (
                 <div key={r.ph.id} className="ib-cols" style={{ padding: '10px 0', borderBottom: '1px solid #efece6' }}>
-                  <strong>{PHASE_NAME[r.ph.code]}</strong>
+                  <strong>{phaseLabel(r.ph)}</strong>
                   <span className="num" style={{ textAlign: 'right' }}>{money(r.fee)}</span>
                   <span className="num" style={{ textAlign: 'right' }}>{money(r.prev)} <span className="muted">({r.fee ? Math.round(r.prev / r.fee * 100) : 0}%)</span></span>
                   <span><span className="status" style={{ color: s[1], background: s[2] }}>{s[0]}</span></span>
-                  <PctInput label={`${PHASE_NAME[r.ph.code]} ${advance ? 'percent billed to date' : 'percent complete to date'}`} value={round2(r.pct)} disabled={locked} bad={r.over} onCommit={(v) => setPct(r.ph, r.prev, v)} />
-                  <label style={{ position: 'relative', display: 'block' }}><span className="sr">{PHASE_NAME[r.ph.code]} amount this invoice</span>
+                  <PctInput label={`${phaseLabel(r.ph)} ${advance ? 'percent billed to date' : 'percent complete to date'}`} value={round2(r.pct)} disabled={locked} bad={r.over} onCommit={(v) => setPct(r.ph, r.prev, v)} />
+                  <label style={{ position: 'relative', display: 'block' }}><span className="sr">{phaseLabel(r.ph)} amount this invoice</span>
                     <span aria-hidden="true" className="muted" style={{ position: 'absolute', left: 10, top: 12 }}>$</span>
                     <input className="input num" inputMode="decimal" disabled={locked} style={{ textAlign: 'right', paddingLeft: 22, borderColor: r.over ? '#d92d20' : undefined }} value={due[r.ph.id] ?? ''} placeholder="0" onChange={(e) => setDue({ ...due, [r.ph.id]: e.target.value })} /></label>
                   <span className="num" style={{ textAlign: 'right', color: r.remain < -0.005 ? '#b42318' : undefined }}>{money(r.remain)}</span>
@@ -372,7 +372,7 @@ export default function InvoiceBuilder() {
                 <h2 style={{ margin: '24px 0 6px', fontSize: 16 }}>Architecture Services{advance ? ' — Down Payment' : ''}</h2>
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) repeat(4, minmax(0,1fr))' }}>
                   {['Phase', 'Fee', 'Billed before', advance ? 'Billed in advance' : 'Complete', 'This invoice'].map((h, i) => <div key={h} className="ib-th" style={{ textAlign: i ? 'right' : 'left' }}>{h}</div>)}
-                  {phaseRows.map((r) => [<div key={r.ph.id + 'a'} style={{ padding: '8px 10px', borderBottom: '1px solid #efefef' }}>{PHASE_NAME[r.ph.code]}</div>,
+                  {phaseRows.map((r) => [<div key={r.ph.id + 'a'} style={{ padding: '8px 10px', borderBottom: '1px solid #efefef' }}>{phaseLabel(r.ph)}</div>,
                     <div key={r.ph.id + 'b'} className="num" style={{ padding: '8px 10px', borderBottom: '1px solid #efefef', textAlign: 'right' }}>{money(r.fee)}</div>,
                     <div key={r.ph.id + 'c'} className="num" style={{ padding: '8px 10px', borderBottom: '1px solid #efefef', textAlign: 'right' }}>{money(r.prev)}</div>,
                     <div key={r.ph.id + 'd'} className="num" style={{ padding: '8px 10px', borderBottom: '1px solid #efefef', textAlign: 'right' }}>{Math.round(r.pct)}%</div>,

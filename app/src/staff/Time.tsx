@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { supabase, PHASE_NAME, PHASES, SECTOR_COLOR } from '../lib/supabase'
+import { supabase, PHASES, SECTOR_COLOR, phaseLabel } from '../lib/supabase'
 import './time-mobile.css'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
@@ -142,6 +142,10 @@ export default function Time() {
       for (const { p, ph } of rows) out.push({ value: `${p.id}|${ph.id}`, chip: p.number, color: sectorColor(p.sector), label: p.name, group: `${code} · ${name}`,
         hint: ph.status === 'in_progress' ? '· in progress' : ph.status === 'complete' ? '· complete' : ph.status === 'paused' ? '· paused' : undefined, search: `${code} ${name}` })
     }
+    // approved additional services, each its own line
+    const svc = list.flatMap((p) => p.phases.filter((ph) => ph.code === 'AS' && ph.status !== 'complete').map((ph) => ({ p, ph })))
+    for (const { p, ph } of svc) out.push({ value: `${p.id}|${ph.id}`, chip: p.number, color: sectorColor(p.sector), label: `${p.name} — ${phaseLabel(ph)}`, group: 'Additional services',
+      hint: ph.parent_phase_id ? `· under ${p.phases.find((x) => x.id === ph.parent_phase_id)?.code ?? ''}` : undefined, search: `AS additional ${phaseLabel(ph)}` })
     for (const p of list.filter((p) => p.phases.length === 0)) out.push({ value: `${p.id}|`, chip: p.number, color: sectorColor(p.sector), label: p.name, group: 'No phases yet' })
     return out
   })()
@@ -203,11 +207,11 @@ export default function Time() {
                   {p && !isOH && <span className="tag" style={{ background: sectorColor(p.sector) }}>{p.number}</span>}{isOH ? 'Overhead' : (p?.name ?? 'Project')}</h2>
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                   {rows.filter((r) => r.project_id === pid).map((r) => {
-                    const code = p?.phases.find((x) => x.id === r.phase_id)?.code
+                    const phx = p?.phases.find((x) => x.id === r.phase_id); const code = phx?.code
                     return (
                       <li key={keyOf(r)} className="ts-mrow">
                         <div style={{ minWidth: 0, flex: 1 }}>
-                          {!isOH && <div style={{ fontWeight: 700 }}>{code ? `${code} · ${PHASE_NAME[code]}` : legacyOf(data.data?.entries ?? [], r)}</div>}
+                          {!isOH && <div style={{ fontWeight: 700 }}>{phx ? `${code} · ${phaseLabel(phx)}` : legacyOf(data.data?.entries ?? [], r)}</div>}
                           <label className="sr" htmlFor={'mact-' + keyOf(r)}>Activity</label>
                           <select id={'mact-' + keyOf(r)} className="input" style={{ marginTop: 6 }} value={r.activity ?? ''} onChange={(e) => changeActivity(r, e.target.value)}>
                             <option value="">{isOH ? 'Overhead type' : 'Activity'}</option>{(isOH ? OVERHEAD : ACTIVITIES).map((x) => <option key={x}>{x}</option>)}</select>
@@ -247,14 +251,14 @@ export default function Time() {
               <h2 className="row ts-proj">
                 {p && !isOH && <span className="tag" style={{ background: SECTOR_COLOR[p.sector ?? 'internal'] }}>{p.number}</span>}{isOH ? 'Overhead' : (p?.name ?? 'Project')}</h2>
               {rows.filter((r) => r.project_id === pid).map((r) => {
-                const code = p?.phases.find((x) => x.id === r.phase_id)?.code
+                const phx = p?.phases.find((x) => x.id === r.phase_id); const code = phx?.code
                 const total = days.reduce((a, d) => a + cell(r, d), 0)
                 return (
                   <div key={keyOf(r)} className="ts-row ts-line">
                     <div className="cell ts-l ts-what">
                       {isOH ? <strong>Overhead</strong> : <div style={{ minWidth: 0 }}>
                         <div>{code ? `${code} · ` : ''}{r.role_label ?? 'Role not set'}{r.bill_rate != null && <span className="muted"> · ${Number(r.bill_rate)}/hr</span>}</div>
-                        <strong>{code ? PHASE_NAME[code] : legacyOf(data.data?.entries ?? [], r)}</strong></div>}
+                        <strong>{phx ? phaseLabel(phx) : legacyOf(data.data?.entries ?? [], r)}</strong></div>}
                       {r.phase_id && (() => {
                         // this week's allocated hours for this phase (from the phase timeline); the ring fills as hours are logged this week
                         const alloc = weekAlloc(r.project_id, r.phase_id)

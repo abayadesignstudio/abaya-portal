@@ -6,9 +6,17 @@ export type Update = { id: string; project_id: string; author: string | null; ki
 export type Drawing = { id: string; project_id: string; phase_id: string | null; title: string; sheet_count: number | null; issued_on: string; storage_path: string; locked_until_invoice: string | null }
 export type ContractItem = { id: string; project_id: string; phase_id: string | null; title: string; status: string; sort: number }
 export type Meeting = { id: string; project_id: string; phase_id: string | null; held_on: string; title: string | null }
-export type ServiceRequest = { id: string; project_id: string; description: string; status: string; quote: number | null; created_at: string }
+export type ServiceRequest = { id: string; project_id: string; description: string; status: string; quote: number | null; created_at: string; phase_id?: string | null }
 
-export const sortPhases = <T extends { code: string }>(list: T[]) => [...list].sort((a, b) => PHASES.findIndex(([c]) => c === a.code) - PHASES.findIndex(([c]) => c === b.code))
+/** Standard phases in CE→CA order; additional-service lines (AS) right after the phase they belong to, unassigned ones last. */
+export const sortPhases = <T extends { code: string; id?: string; parent_phase_id?: string | null }>(list: T[]) => {
+  const idx = (c: string) => { const i = PHASES.findIndex(([x]) => x === c); return i < 0 ? 98 : i }
+  const byId = new Map(list.map((p) => [p.id, p]))
+  const key = (p: T) => p.code !== 'AS' ? idx(p.code) : (p.parent_phase_id && byId.get(p.parent_phase_id) ? idx(byId.get(p.parent_phase_id)!.code) : 98) + 0.5
+  return [...list].sort((a, b) => key(a) - key(b))
+}
+/** Client-facing phases: the standard ones only (services show in their own list). */
+export const mainPhases = <T extends { code: string }>(list: T[]) => list.filter((p) => p.code !== 'AS')
 
 /** Phase colors: complete = gray, in progress = green, paused = red, not started = outline */
 export const PHASE_STYLE: Record<string, { bg: string; fg: string; border: string; label: string }> = {

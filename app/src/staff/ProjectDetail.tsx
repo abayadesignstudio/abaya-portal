@@ -5,7 +5,7 @@ import RowMenu from '../components/RowMenu'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import ModelUpload from './ModelUpload'
 import RenderingsUpload from './RenderingsUpload'
-import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASES, PHASE_NAME } from '../lib/supabase'
+import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASES, PHASE_NAME, phaseLabel } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import { useAuth } from '../lib/auth'
 import UpdateCard from '../client/UpdateCard'
@@ -15,7 +15,7 @@ import { linkedAgreements, contractFee, syncPctPhases, round2 } from '../lib/fee
 import { sortPhases, fmtDate, signedPhotoUrls, uid, extOf,
   type Update, type Drawing, type ContractItem, type Meeting, type ServiceRequest } from '../lib/projectContent'
 
-export type Phase = { id: string; code: string; fee: number; fee_pct: number | null; status: string; start_date: string | null; end_date: string | null; meetings_included: number | null }
+export type Phase = { id: string; code: string; name?: string | null; parent_phase_id?: string | null; service_id?: string | null; fee: number; fee_pct: number | null; status: string; start_date: string | null; end_date: string | null; meetings_included: number | null }
 type Entry = { phase_id: string | null; profile_id: string; minutes: number; profiles: { full_name: string | null; bill_rate: number | null } | null }
 export type Project = { id: string; number: string; name: string; status: string; category: string | null; categories: string[] | null; sector: string | null; address: string | null; next_milestone: string | null; client_id: string | null; clients: { name: string } | null }
 export type Inv = { id: string; number: string; status: string; total: number; amount_paid: number | null; issue_date: string | null; due_date: string | null }
@@ -36,7 +36,7 @@ export default function ProjectDetail() {
   useEffect(() => { setTab(startTab) }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
   const { data, error, reload } = useLoad(async () => {
     const p = must(await supabase.from('projects').select('id, number, name, status, category, categories, sector, address, next_milestone, client_id, clients(name)').eq('id', id!).single()) as unknown as Project
-    const phases = sortPhases(must(await supabase.from('phases').select('id, code, fee, fee_pct, status, start_date, end_date, meetings_included').eq('project_id', id!)) as Phase[])
+    const phases = sortPhases(must(await supabase.from('phases').select('id, code, name, parent_phase_id, service_id, fee, fee_pct, status, start_date, end_date, meetings_included').eq('project_id', id!)) as Phase[])
     const billed = must(await supabase.from('phase_billing').select('phase_id, billed').eq('project_id', id!)) as { phase_id: string; billed: number }[]
     const time = must(await supabase.from('time_entries').select('phase_id, profile_id, minutes, profiles(full_name, bill_rate)').eq('project_id', id!)) as unknown as Entry[]
     const invoices = must(await supabase.from('invoices').select('id, number, status, total, amount_paid, issue_date, due_date').eq('project_id', id!).order('issue_date', { ascending: false, nullsFirst: true })) as Inv[]
@@ -70,9 +70,11 @@ export default function ProjectDetail() {
   })
   const billedBy = Object.fromEntries(billed.map((b) => [b.phase_id, Number(b.billed)]))
   const used = (phaseId: string) => time.filter((t) => t.phase_id === phaseId).reduce((a, t) => ({ hrs: a.hrs + t.minutes / 60, cost: a.cost + (t.minutes / 60) * Number(t.profiles?.bill_rate ?? 0) }), { hrs: 0, cost: 0 })
-  const phaseSum = round2(phases.reduce((a, x) => a + Number(x.fee), 0))
+  // contract phases vs additional services (AS lines are billed on top of the agreement)
+  const phaseSum = round2(phases.filter((x) => x.code !== 'AS').reduce((a, x) => a + Number(x.fee), 0))
+  const asSum = round2(phases.filter((x) => x.code === 'AS').reduce((a, x) => a + Number(x.fee), 0))
   const cf = contractFee(agreements) // null when no agreement is linked
-  const totFee = cf ?? phaseSum
+  const totFee = (cf ?? phaseSum) + asSum
   const agreementCodes = [...new Set(agreements.flatMap((g) => Object.entries(g.ph ?? {}).filter(([, v]) => v?.on).map(([k]) => k)))]
   const fromAgreement = PHASES.map(([c]) => c).filter((c) => agreementCodes.includes(c) && !phases.some((x) => x.code === c))
   const totBilled = invoices.filter((i) => i.status === 'open' || i.status === 'paid').reduce((a, i) => a + Number(i.total), 0)
@@ -102,7 +104,7 @@ export default function ProjectDetail() {
         <div className="stack" style={{ minWidth: 0 }}>
       {tab === 'overview' && <>
       <section className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }} aria-label="Summary">
-        {([['Total fee', money(totFee), cf === null ? 'Sum of phase fees (no agreement linked)' : `From ${agreements.length === 1 ? 'the agreement' : `${agreements.length} agreements`}`],
+        {([['Total fee', money(totFee), (cf === null ? 'Sum of phase fees (no agreement linked)' : `From ${agreements.length === 1 ? 'the agreement' : `${agreements.length} agreements`}`) + (asSum ? ` + ${money(asSum)} additional services` : '')],
           ['Contract split into phases', money(phaseSum), cf === null ? '' : Math.abs(phaseSum - cf) < 0.005 ? '100% of the fee' : `${cf ? Math.round(phaseSum / cf * 1000) / 10 : 0}% of the fee · ${money(Math.abs(cf - phaseSum))} ${phaseSum < cf ? 'unassigned' : 'over'}`],
           ['Invoiced', money(totBilled), ''], ['Left to bill', money(totFee - totBilled), ''],
           ...(totAhead > 0 ? [['Billed ahead of work', money(totAhead), 'Collected for work not done yet. Shrinks as phases progress.']] : []),
@@ -151,7 +153,8 @@ export default function ProjectDetail() {
             </td></tr>}
           </Fragment>)}</tbody>
           {phases.length > 0 && <tfoot><tr><td colSpan={4} style={{ fontWeight: 700 }}>Phases total</td>
-            <td className="r num" style={{ fontWeight: 700, color: cf !== null && Math.abs(phaseSum - cf) >= 0.005 ? 'var(--amber)' : undefined }}>{money(phaseSum)}{cf !== null && <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>of {money(cf)}</div>}</td><td colSpan={5} /></tr></tfoot>}
+            <td className="r num" style={{ fontWeight: 700, color: cf !== null && Math.abs(phaseSum - cf) >= 0.005 ? 'var(--amber)' : undefined }}>{money(phaseSum)}{cf !== null && <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>of {money(cf)}</div>}</td><td colSpan={5} /></tr>
+            {asSum > 0 && <tr><td colSpan={4} className="muted">Additional services (on top of the contract)</td><td className="r num">{money(asSum)}</td><td colSpan={5} /></tr>}</tfoot>}
         </table></div>
         {fromAgreement.length > 0 && <div className="row" style={{ gap: 8 }}>
           <button className="btn small" onClick={async () => { await supabase.from('phases').insert(fromAgreement.map((code) => ({ project_id: p.id, code, fee: 0 }))); reload() }}>
@@ -165,7 +168,7 @@ export default function ProjectDetail() {
       {tab === 'updates' && <UpdatesTab projectId={p.id} />}
       {tab === 'drawings' && <DrawingsTab projectId={p.id} phases={phases} invoices={invoices} />}
       {tab === 'contract' && <ContractTab projectId={p.id} phases={phases} onSaved={reload} />}
-      {tab === 'requests' && <RequestsTab projectId={p.id} />}
+      {tab === 'requests' && <RequestsTab projectId={p.id} phases={phases} onChanged={reload} />}
       {tab === 'client' && <ClientAccessTab project={p} />}
       {tab === 'settings' && <SettingsTab project={p} onSaved={reload} />}
         </div>
@@ -305,7 +308,7 @@ export function DrawingsTab({ projectId, phases, invoices }: { projectId: string
         <h2>Issue drawings</h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px,2fr) minmax(160px,1fr) 110px 160px', gap: 12 }}>
           <div><label className="l" htmlFor="d-t">Title</label><input id="d-t" className="input" value={f.title} placeholder="e.g. 100% CD set" onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
-          <div><label className="l" htmlFor="d-ph">Phase</label><select id="d-ph" className="input" value={f.phase_id} onChange={(e) => setF({ ...f, phase_id: e.target.value })}><option value="">—</option>{phases.map((p) => <option key={p.id} value={p.id}>{p.code} · {PHASE_NAME[p.code]}</option>)}</select></div>
+          <div><label className="l" htmlFor="d-ph">Phase</label><select id="d-ph" className="input" value={f.phase_id} onChange={(e) => setF({ ...f, phase_id: e.target.value })}><option value="">—</option>{phases.map((p) => <option key={p.id} value={p.id}>{p.code} · {phaseLabel(p)}</option>)}</select></div>
           <div><label className="l" htmlFor="d-s">Sheets</label><input id="d-s" className="input num" inputMode="numeric" value={f.sheet_count} onChange={(e) => setF({ ...f, sheet_count: e.target.value })} /></div>
           <div><label className="l" htmlFor="d-i">Issued</label><input id="d-i" type="date" className="input" value={f.issued_on} onChange={(e) => setF({ ...f, issued_on: e.target.value })} /></div>
         </div>
@@ -338,7 +341,8 @@ export function DrawingsTab({ projectId, phases, invoices }: { projectId: string
 }
 
 /* ---------------- Contract scope ---------------- */
-export function ContractTab({ projectId, phases, onSaved }: { projectId: string; phases: Phase[]; onSaved: () => void }) {
+export function ContractTab({ projectId, phases: allPhases, onSaved }: { projectId: string; phases: Phase[]; onSaved: () => void }) {
+  const phases = allPhases.filter((p) => p.code !== 'AS') // the contract covers the standard phases
   const d = useLoad(async () => ({
     items: must(await supabase.from('contract_items').select('*').eq('project_id', projectId).order('sort')) as ContractItem[],
     meetings: must(await supabase.from('meetings').select('*').eq('project_id', projectId).order('held_on', { ascending: false })) as Meeting[],
@@ -395,32 +399,35 @@ export function ContractTab({ projectId, phases, onSaved }: { projectId: string;
 }
 
 /* ---------------- Requests ---------------- */
-export function RequestsTab({ projectId }: { projectId: string }) {
+export function RequestsTab({ projectId, phases: allPhases = [], onChanged }: { projectId: string; phases?: Phase[]; onChanged?: () => void }) {
+  const parents = allPhases.filter((p) => p.code !== 'AS')
   const { profile } = useAuth()
   const list = useLoad(async () => must(await supabase.from('service_requests').select('*').eq('project_id', projectId).order('created_at', { ascending: false })) as ServiceRequest[], [projectId])
-  const save = async (r: ServiceRequest, patch: Partial<ServiceRequest>) => { await supabase.from('service_requests').update(patch).eq('id', r.id); list.reload() }
-  const [n, setN] = useState({ description: '', quote: '', status: 'quoted' }); const [err, setErr] = useState('')
+  const save = async (r: ServiceRequest, patch: Partial<ServiceRequest>) => { const { error } = await supabase.from('service_requests').update(patch).eq('id', r.id); if (error) setErr(error.message); list.reload(); onChanged?.() }
+  const [n, setN] = useState({ description: '', quote: '', status: 'quoted', phase_id: '' }); const [err, setErr] = useState('')
   const add = async (e: React.FormEvent) => {
     e.preventDefault(); setErr('')
     if (!n.description.trim()) return setErr('Describe the service.')
-    const { error } = await supabase.from('service_requests').insert({ project_id: projectId, requested_by: profile?.id, description: n.description.trim(), quote: n.quote ? Number(n.quote) : null, status: n.status })
+    const { error } = await supabase.from('service_requests').insert({ project_id: projectId, requested_by: profile?.id, description: n.description.trim(), quote: n.quote ? Number(n.quote) : null, status: n.status, phase_id: n.phase_id || null })
     if (error) return setErr(error.message)
-    setN({ description: '', quote: '', status: 'quoted' }); list.reload()
+    setN({ description: '', quote: '', status: 'quoted', phase_id: '' }); list.reload(); onChanged?.()
   }
   const remove = async (r: ServiceRequest) => {
     if (!window.confirm(`Delete “${r.description.slice(0, 60)}”? The client will no longer see it. This can’t be undone.`)) return
     const { error } = await supabase.from('service_requests').delete().eq('id', r.id)
     if (error) return setErr(error.message)
-    list.reload()
+    list.reload(); onChanged?.()
   }
   const total = (list.data ?? []).filter((r) => r.status === 'approved' || r.status === 'done').reduce((a, r) => a + Number(r.quote ?? 0), 0)
   return (
     <div className="stack">
       <form onSubmit={add} className="card pad stack" aria-label="Add an additional service">
         <h2>Add an additional service</h2>
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}>For work outside the agreement. It appears on the client’s project page under “Request additional services” with its quote and status.</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px,1fr) 140px 160px auto', gap: 10, alignItems: 'end' }}>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>For work outside the agreement. It appears on the client’s project page with its fee and status. Once <strong>Approved</strong>, it becomes its own line in the Phases table (under the phase you pick), so the team can log time to it and you can bill it.</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px,1fr) 180px 120px 180px auto', gap: 10, alignItems: 'end' }}>
           <div><label className="l" htmlFor="as-d">Service</label><input id="as-d" className="input" value={n.description} placeholder="e.g. Revised site plan for pond relocation" onChange={(e) => setN({ ...n, description: e.target.value })} /></div>
+          <div><label className="l" htmlFor="as-p">Under phase</label><select id="as-p" className="input" value={n.phase_id} onChange={(e) => setN({ ...n, phase_id: e.target.value })}>
+            <option value="">— None —</option>{parents.map((p) => <option key={p.id} value={p.id}>{p.code} · {PHASE_NAME[p.code]}</option>)}</select></div>
           <div><label className="l" htmlFor="as-q">Fee</label><input id="as-q" className="input num" inputMode="decimal" placeholder="$" value={n.quote} onChange={(e) => setN({ ...n, quote: e.target.value })} /></div>
           <div><label className="l" htmlFor="as-s">Status</label><select id="as-s" className="input" value={n.status} onChange={(e) => setN({ ...n, status: e.target.value })}>
             <option value="quoted">Quoted (awaiting approval)</option><option value="approved">Approved</option><option value="done">Done</option></select></div>
@@ -432,8 +439,10 @@ export function RequestsTab({ projectId }: { projectId: string }) {
         <div className="row between"><h2 style={{ margin: 0 }}>Additional services</h2>{total > 0 && <span className="muted">Approved: <strong className="num">{money(total)}</strong></span>}</div>
         {list.data?.length === 0 && <p className="muted" style={{ margin: 0 }}><em>None yet — client requests also appear here.</em></p>}
         {list.data?.map((r) => <div key={r.id} className="row between" style={{ padding: '10px 0', borderTop: '1px solid #efece6', alignItems: 'flex-start', flexWrap: 'nowrap' }}>
-          <div style={{ flex: 1, minWidth: 240 }}><p style={{ margin: 0 }}>{r.description}</p><p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>{fmtDate(r.created_at)}</p></div>
+          <div style={{ flex: 1, minWidth: 240 }}><p style={{ margin: 0 }}>{r.description}</p><p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>{fmtDate(r.created_at)}{(r.status === 'approved' || r.status === 'done') && ' · on the Phases table — time can be logged to it'}</p></div>
           <div className="row" style={{ flexWrap: 'nowrap' }}>
+            <label className="sr" htmlFor={'rp' + r.id}>Under phase</label><select id={'rp' + r.id} className="input" style={{ width: 'auto', maxWidth: 190 }} value={r.phase_id ?? ''} onChange={(e) => save(r, { phase_id: e.target.value || null })}>
+              <option value="">No phase</option>{parents.map((p) => <option key={p.id} value={p.id}>{p.code}</option>)}</select>
             <label className="sr" htmlFor={'rq' + r.id}>Fee</label><input id={'rq' + r.id} className="input num" style={{ width: 120 }} placeholder="Quote $" defaultValue={r.quote ?? ''} onBlur={(e) => save(r, { quote: e.target.value ? Number(e.target.value) : null })} />
             <label className="sr" htmlFor={'rs' + r.id}>Status</label><select id={'rs' + r.id} className="input" style={{ width: 'auto' }} value={r.status} onChange={(e) => save(r, { status: e.target.value })}>
               <option value="requested">Requested</option><option value="quoted">Quoted</option><option value="approved">Approved</option><option value="declined">Declined</option><option value="done">Done</option></select>
@@ -540,7 +549,7 @@ function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSa
   }
   return (
     <tr>
-      <td><strong>{ph.code}</strong> <span className="muted">{PHASE_NAME[ph.code]}</span>{msg && <div className="err">{msg}</div>}</td>
+      <td>{ph.code === 'AS' ? <span style={{ paddingLeft: 14, display: 'inline-block' }}><span className="muted">↳ </span><strong>AS</strong> <span className="muted">{phaseLabel(ph)}</span><div className="muted" style={{ fontSize: 12 }}>Additional service</div></span> : <><strong>{ph.code}</strong> <span className="muted">{PHASE_NAME[ph.code]}</span></>}{msg && <div className="err">{msg}</div>}</td>
       <td><label className="sr" htmlFor={'st' + ph.id}>Status</label><select id={'st' + ph.id} className="input" style={{ minWidth: 140 }} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
         <option value="not_started">Not started</option><option value="in_progress">In progress</option><option value="paused">Paused</option><option value="complete">Complete</option></select></td>
       <td><label className="sr" htmlFor={'sd' + ph.id}>Start</label><input id={'sd' + ph.id} type="date" className="input" value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} /></td>
