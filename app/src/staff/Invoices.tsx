@@ -22,7 +22,9 @@ export default function Invoices() {
       .order('issue_date', { ascending: false, nullsFirst: true })) as unknown as InvoiceRow[]
     const ev = must(await supabase.from('invoice_events').select('id, invoice_id, kind, recipient, detail, at').order('at')) as InvEvent[]
     const rc = must(await supabase.from('invoice_recipients').select('invoice_id, email, kind')) as Recipient[]
-    return { inv, ev, rc }
+    // projects outside the firm: their invoices are listed but left out of the firm totals
+    const outside = new Set(((await supabase.from('projects').select('id').eq('outside_firm', true)).data ?? []).map((x) => x.id as string))
+    return { inv, ev, rc, outside }
   })
   const evBy = useMemo(() => {
     const m: Record<string, InvEvent[]> = {}
@@ -32,7 +34,7 @@ export default function Invoices() {
 
   const inRange = (i: InvoiceRow) => (!from || (i.issue_date ?? '') >= from) && (!to || (i.issue_date ?? '9999') <= to)
   const all = (data.data?.inv ?? []).filter(inRange)
-  const sum = (pred: (i: InvoiceRow) => boolean, val: (i: InvoiceRow) => number = (i) => Number(i.total)) => all.filter(pred).reduce((a, i) => a + val(i), 0)
+  const sum = (pred: (i: InvoiceRow) => boolean, val: (i: InvoiceRow) => number = (i) => Number(i.total)) => all.filter((i) => !data.data?.outside.has(i.project_id)).filter(pred).reduce((a, i) => a + val(i), 0)
   const st = (i: InvoiceRow) => displayStatus(i).key
   const stats: [string, number, string][] = [
     ['Total billed', sum((i) => i.status !== 'draft' && i.status !== 'void'), 'var(--text)'],

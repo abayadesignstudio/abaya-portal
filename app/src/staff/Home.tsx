@@ -35,7 +35,7 @@ export default function StaffHome() {
   const yearlyNeed = useYearlyNeed()
 
   const hours = useLoad(async () => {
-    const ytd = (must(await supabase.from('time_entries').select('minutes, billable, work_date, projects(number)').eq('profile_id', me).gte('work_date', new Date().getFullYear() + '-01-01').lte('work_date', new Date().getFullYear() + '-12-31')) as unknown as { minutes: number; billable: boolean; work_date: string; projects: { number: string } | null }[])
+    const ytd = (must(await supabase.from('time_entries').select('minutes, billable, work_date, projects!inner(number, outside_firm)').eq('profile_id', me).eq('projects.outside_firm', false).gte('work_date', new Date().getFullYear() + '-01-01').lte('work_date', new Date().getFullYear() + '-12-31')) as unknown as { minutes: number; billable: boolean; work_date: string; projects: { number: string } | null }[])
       .map((e) => ({ ...e, billable: e.billable && e.projects?.number !== 'OH' })) // Overhead time is never billable
     return ytd
   }, [me])

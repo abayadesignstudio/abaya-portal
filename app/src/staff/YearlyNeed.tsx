@@ -51,7 +51,7 @@ export default function YearlyNeed({ month, monthBills, order, colors }: { month
   const data = useLoad(async () => {
     const oneOff = must(await supabase.from('company_bills').select('id, name, category, amount, due_on, recurring_monthly')
       .eq('recurring_monthly', false).gte('due_on', `${year}-01-01`).lt('due_on', `${year + 1}-01-01`)) as Bill[]
-    const paid = must(await supabase.from('invoices').select('amount_paid').gte('paid_at', `${year}-01-01`).lt('paid_at', `${year + 1}-01-01`)) as { amount_paid: number }[]
+    const paid = must(await supabase.from('invoices').select('amount_paid, projects!inner(outside_firm)').eq('projects.outside_firm', false).gte('paid_at', `${year}-01-01`).lt('paid_at', `${year + 1}-01-01`)) as { amount_paid: number }[]
     const people = must(await supabase.from('profiles').select('util_target, bill_rate').in('role', ['admin', 'staff'])) as { util_target: number | null; bill_rate: number | null }[]
     return { oneOff, collected: paid.reduce((a, x) => a + Number(x.amount_paid || 0), 0), people }
   }, [year])

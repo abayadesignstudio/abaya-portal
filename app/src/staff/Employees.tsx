@@ -16,7 +16,7 @@ export default function Employees() {
   const year = new Date().getFullYear()
   const people = useLoad(async () => must(await supabase.from('profiles').select('id, full_name, email, title, role, util_target, bill_rate, avatar_url').in('role', ['admin', 'staff']).order('full_name')) as Person[])
   // Overhead (OH) time is never billable, whatever the entry says
-  const time = useLoad(async () => (must(await supabase.from('time_entries').select('profile_id, project_id, work_date, minutes, billable, projects(number)').gte('work_date', `${year}-01-01`).lte('work_date', `${year}-12-31`)) as unknown as (Entry & { projects: { number: string } | null })[])
+  const time = useLoad(async () => (must(await supabase.from('time_entries').select('profile_id, project_id, work_date, minutes, billable, projects!inner(number, outside_firm)').eq('projects.outside_firm', false).gte('work_date', `${year}-01-01`).lte('work_date', `${year}-12-31`)) as unknown as (Entry & { projects: { number: string } | null })[])
     .map((e) => ({ ...e, billable: e.billable && e.projects?.number !== 'OH' })))
   // a person's rate on a project (set on the project's team) wins over their standard rate
   const rates = useLoad(async () => must(await supabase.from('project_members').select('profile_id, project_id, bill_rate').not('bill_rate', 'is', null)) as { profile_id: string; project_id: string; bill_rate: number }[])

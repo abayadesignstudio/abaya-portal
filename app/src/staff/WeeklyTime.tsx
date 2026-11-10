@@ -21,7 +21,7 @@ export default function WeeklyTime({ weeklyNeed, bare }: { weeklyNeed: number; b
 
   const data = useLoad(async () => {
     const people = must(await supabase.from('profiles').select('id, full_name, initials, avatar_url, util_target, bill_rate').in('role', ['admin', 'staff']).order('full_name')) as Person[]
-    const entries = must(await supabase.from('time_entries').select('profile_id, minutes').eq('billable', true).gte('work_date', iso(start)).lte('work_date', iso(end))) as Entry[]
+    const entries = must(await supabase.from('time_entries').select('profile_id, minutes, projects!inner(outside_firm)').eq('billable', true).eq('projects.outside_firm', false).gte('work_date', iso(start)).lte('work_date', iso(end))) as Entry[]
     return { people, entries }
   }, [iso(start)])
 

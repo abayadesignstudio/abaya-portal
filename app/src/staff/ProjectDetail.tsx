@@ -17,7 +17,7 @@ import { sortPhases, fmtDate, signedPhotoUrls, uid, extOf,
 
 export type Phase = { id: string; code: string; name?: string | null; parent_phase_id?: string | null; service_id?: string | null; fee: number; fee_pct: number | null; status: string; start_date: string | null; end_date: string | null; meetings_included: number | null }
 type Entry = { phase_id: string | null; profile_id: string; minutes: number; profiles: { full_name: string | null; bill_rate: number | null } | null }
-export type Project = { id: string; number: string; name: string; status: string; category: string | null; categories: string[] | null; sector: string | null; address: string | null; next_milestone: string | null; client_id: string | null; clients: { name: string } | null }
+export type Project = { id: string; number: string; name: string; status: string; category: string | null; categories: string[] | null; sector: string | null; address: string | null; next_milestone: string | null; client_id: string | null; clients: { name: string } | null; outside_firm?: boolean }
 export type Inv = { id: string; number: string; status: string; total: number; amount_paid: number | null; issue_date: string | null; due_date: string | null }
 
 // Project sub-menu, Monograph-style: core pages, then client-facing content
@@ -35,7 +35,7 @@ export default function ProjectDetail() {
   const [teamOpen, setTeamOpen] = useState<string | null>(null) // phase whose team editor is open, right in the table
   useEffect(() => { setTab(startTab) }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
   const { data, error, reload } = useLoad(async () => {
-    const p = must(await supabase.from('projects').select('id, number, name, status, category, categories, sector, address, next_milestone, client_id, clients(name)').eq('id', id!).single()) as unknown as Project
+    const p = must(await supabase.from('projects').select('id, number, name, status, category, categories, sector, address, next_milestone, client_id, clients(name), outside_firm').eq('id', id!).single()) as unknown as Project
     const phases = sortPhases(must(await supabase.from('phases').select('id, code, name, parent_phase_id, service_id, fee, fee_pct, status, start_date, end_date, meetings_included').eq('project_id', id!)) as Phase[])
     const billed = must(await supabase.from('phase_billing').select('phase_id, billed').eq('project_id', id!)) as { phase_id: string; billed: number }[]
     const time = must(await supabase.from('time_entries').select('phase_id, profile_id, minutes, profiles(full_name, bill_rate)').eq('project_id', id!)) as unknown as Entry[]
@@ -92,9 +92,14 @@ export default function ProjectDetail() {
       <div className="row between">
         <h1 className="row" style={{ gap: 12 }}><span className="tag" style={{ background: SECTOR_COLOR[p.sector ?? 'internal'], height: 30, fontSize: 16 }}>{p.number}</span>{p.name}
           {(p.categories ?? []).map((c) => <abbr key={c} className="pill" title={CATEGORY_NAME[c]}>{c}</abbr>)}</h1>
-        <StatusSelect id={p.id} value={p.status} onSaved={reload} />
+        <div className="row" style={{ gap: 12 }}>
+          <label className="row" style={{ gap: 6, fontSize: 14 }} title="One person’s own work: it stays in the portal, but its hours and money aren’t counted in firm totals (utilization, time this week, what we need, collected).">
+            <input type="checkbox" checked={!!p.outside_firm} onChange={async (e) => { await supabase.from('projects').update({ outside_firm: e.target.checked }).eq('id', p.id); reload() }} />Outside the firm</label>
+          <StatusSelect id={p.id} value={p.status} onSaved={reload} />
+        </div>
       </div>
       <p className="muted" style={{ margin: 0 }}>{p.clients?.name ?? 'No client'}{p.address ? ` · ${p.address}` : ''}</p>
+      {p.outside_firm && <p className="muted" style={{ margin: 0, fontSize: 13 }}><span className="pill">Outside the firm</span> Its hours and money aren’t counted in the firm’s totals.</p>}
       <div className="pb-layout">
         <nav className="pb-subnav" aria-label="Project">
           {NAV_MAIN.map(([k, l]) => <button key={k} type="button" aria-current={tab === k ? 'page' : undefined} onClick={() => setTab(k)}>{l}</button>)}
