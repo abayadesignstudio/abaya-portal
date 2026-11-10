@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import { config } from '../site-render/blocks'
 import { NavContext } from '../site-render/chrome'
 import './editor.css'
+import RowMenu from '../components/RowMenu'
 
 type Page = {
   id: string; slug: string; title: string; nav_order: number; show_in_nav: boolean
@@ -188,7 +189,7 @@ export default function SiteEditor() {
             <div className="row">
               <button className="btn small secondary" type="submit">Save settings</button>
               {sel.published_content && sel.slug !== 'home' && <button className="btn small secondary" type="button" onClick={unpublish}>Unpublish</button>}
-              {sel.slug !== 'home' && <button className="btn small danger" type="button" onClick={remove}>Delete page</button>}
+              {sel.slug !== 'home' && <RowMenu label="Page actions" items={[{ label: 'Delete page', danger: true, onSelect: remove }]} />}
             </div>
             {sel.published_at && <p className="se-note">Last published {new Date(sel.published_at).toLocaleString()}.</p>}
           </form>

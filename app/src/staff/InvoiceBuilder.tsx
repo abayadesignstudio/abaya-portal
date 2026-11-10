@@ -6,6 +6,7 @@ import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import { todayIso, addDays, fmtDate, num, round2, cardFee, achFee, CARD_FEE_MAX, nextInvoiceNumber, displayStatus, emailInvoice } from '../lib/invoices'
 import './invoices.css'
+import RowMenu from '../components/RowMenu'
 
 type Phase = { id: string; code: string; name?: string | null; parent_phase_id?: string | null; fee: number; status: string; billing?: string }
 type HourEntry = { id: string; phase_id: string; profile_id: string; work_date: string; minutes: number; bill_rate: number | null; role_label: string | null; invoice_id: string | null; profiles: { full_name: string | null; bill_rate: number | null } | null }
@@ -320,7 +321,7 @@ export default function InvoiceBuilder() {
             {items.map((x, i) => <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 130px auto', gap: 8, alignItems: 'center' }}>
               <label className="sr" htmlFor={'it-d' + i}>Description</label><input id={'it-d' + i} className="input" disabled={locked} placeholder="Description" value={x.description} onChange={(e) => setItems(items.map((y, j) => (j === i ? { ...y, description: e.target.value } : y)))} />
               <label className="sr" htmlFor={'it-a' + i}>Amount</label><input id={'it-a' + i} className="input num" disabled={locked} inputMode="decimal" style={{ textAlign: 'right' }} value={x.amount} onChange={(e) => setItems(items.map((y, j) => (j === i ? { ...y, amount: e.target.value } : y)))} />
-              {!locked && <button className="linkbtn" aria-label="Remove item" style={{ fontSize: 20, color: 'var(--muted)' }} onClick={() => setItems(items.filter((_, j) => j !== i))}>×</button>}
+              {!locked && <RowMenu label="Item actions" items={[{ label: 'Remove', danger: true, onSelect: () => setItems(items.filter((_, j) => j !== i)) }]} />}
             </div>)}
             {!locked && <div className="row" style={{ gap: 8 }}>{prior > 0 && <button className="btn small secondary" onClick={() => addItem('late')}>+ Late charge</button>}
               {['retainer', 'tax', 'credit', 'other'].map((k) => <button key={k} className="btn small secondary" onClick={() => addItem(k)}>+ {k === 'other' ? 'Other' : ITEM_LABEL[k]}</button>)}</div>}

@@ -6,6 +6,7 @@ import { useLoad, must } from '../lib/useQuery'
 import { isoDate, parseDate } from './workload'
 import Avatar from '../components/Avatar'
 import MarkIcon, { type MarkKind } from '../components/MarkIcon'
+import RowMenu from '../components/RowMenu'
 
 // Tasks and shared schedules on the home page.
 //  - Tasks: one person each; checking one off crosses it out (it stays on the calendar, like Google Calendar).
@@ -129,7 +130,7 @@ export function TaskItem({ t, me, admin, people, showWho, prefixName, onChange, 
           return <button type="button" className="tk-text tk-open" aria-expanded={open} title={open ? 'Click to fold' : 'Click for details'} onClick={(ev) => { ev.stopPropagation(); setOpen(!open) }}>{body}{t.notes && !open && <span className="tk-hasnote" aria-label="has a note"> ¶</span>}</button>
         })()}
       </div>
-      {mine && <button type="button" className="tk-x" onClick={remove} disabled={busy} aria-label={`Delete task ${t.title}`}>×</button>}
+      {mine && <span className="tk-x"><RowMenu label={`Actions for ${t.title}`} items={[{ label: 'Delete task', danger: true, disabled: busy, onSelect: remove }]} /></span>}
       {open && <Unrolled
         rows={[['Task', t.title], t.projects && ['Project', `${t.projects.number} · ${t.projects.name}`], ['Due', `${longDay(t.due_on)}${t.due_time ? ' · ' + time12(t.due_time) : ''}`], ['Assigned to', nameOf(who)], done && ['Status', 'Done']]}
         notes={t.notes}
@@ -465,8 +466,8 @@ function EventView({ e, me, people, projects, project, link, onEdit, onChanged, 
       {err && <p className="err" role="alert" style={{ margin: 0 }}>{err}</p>}
       <div className="row" style={{ gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         {e.link && <a className="btn secondary small" href={e.link} target="_blank" rel="noreferrer">Open in Google</a>}
-        {e.can_edit && <button type="button" className="btn secondary small" onClick={remove} disabled={busy}>Delete</button>}
         {e.can_edit && <button type="button" className="btn small" onClick={onEdit}>Edit</button>}
+        {e.can_edit && <RowMenu label="Event actions" items={[{ label: 'Delete event', danger: true, disabled: busy, onSelect: remove }]} />}
       </div>
     </div>
   )

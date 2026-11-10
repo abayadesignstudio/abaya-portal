@@ -275,7 +275,7 @@ function ConsultantsPanel({ projectId, phases, rows, run }: { projectId: string;
             <td className="r"><NumIn label={`Fee for ${c.name}`} prefix="$" width={120} value={Number(c.fee)} onCommit={(v) => upd(c.id, { fee: v })} /></td>
             <td className="r"><NumIn label={`Markup for ${c.name}`} suffix="%" width={80} value={Number(c.markup_pct)} onCommit={(v) => upd(c.id, { markup_pct: v })} /></td>
             <td className="r"><NumIn label={`Billed for ${c.name}`} prefix="$" width={120} value={Number(c.billed)} onCommit={(v) => upd(c.id, { billed: v })} /></td>
-            <td><button type="button" className="linkbtn" style={{ color: 'var(--muted)', fontSize: 20 }} aria-label={`Remove ${c.name}`} onClick={() => run(async () => { must(await supabase.from('project_consultants').delete().eq('id', c.id)) })}>×</button></td>
+            <td><RowMenu label={`Actions for ${c.name}`} items={[{ label: 'Delete', danger: true, onSelect: () => { if (window.confirm(`Remove ${c.name} from this project? This can’t be undone.`)) run(async () => { must(await supabase.from('project_consultants').delete().eq('id', c.id)) }) } }]} /></td>
           </tr>)}
           {rows.length > 0 && <tr style={{ fontWeight: 700 }}><td colSpan={3}>Total</td><td className="r num">{money(total)}</td><td className="r num">{money(withMarkup - total)}</td><td className="r num">{money(billed)}</td><td /></tr>}
         </tbody></table></div>
@@ -312,7 +312,7 @@ function ExpensesPanel({ projectId, phases, rows, run }: { projectId: string; ph
             <td><label className="row" style={{ gap: 6 }}><input type="checkbox" checked={e.reimbursable} onChange={(x) => run(async () => { must(await supabase.from('expenses').update({ reimbursable: x.target.checked }).eq('id', e.id)) })} style={{ width: 18, height: 18 }} /><span className="sr">Reimbursable</span>{e.reimbursable ? 'Yes' : 'No'}</label></td>
             <td>{e.invoice_id ? 'Yes' : '—'}</td>
             <td className="r num" style={{ fontWeight: 700 }}>{money(e.amount)}</td>
-            <td>{!e.invoice_id && <button type="button" className="linkbtn" style={{ color: 'var(--muted)', fontSize: 20 }} aria-label={`Remove ${e.description}`} onClick={() => run(async () => { must(await supabase.from('expenses').delete().eq('id', e.id)) })}>×</button>}</td>
+            <td>{!e.invoice_id && <RowMenu label={`Actions for ${e.description}`} items={[{ label: 'Delete', danger: true, onSelect: () => { if (window.confirm(`Delete the expense “${e.description}”? This can’t be undone.`)) run(async () => { must(await supabase.from('expenses').delete().eq('id', e.id)) }) } }]} />}</td>
           </tr>)}
         </tbody></table></div>
     </div>)

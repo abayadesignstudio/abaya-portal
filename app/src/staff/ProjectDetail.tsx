@@ -24,6 +24,10 @@ export type Inv = { id: string; number: string; status: string; total: number; a
 const NAV_MAIN = [['overview', 'Overview'], ['budget', 'Budget'], ['settings', 'Details'], ['drawings', 'Files']] as const
 const NAV_CLIENT = [['updates', 'Updates'], ['contacts', 'Contacts'], ['contract', 'Contract'], ['requests', 'Additional services']] as const
 type Tab = typeof NAV_MAIN[number][0] | typeof NAV_CLIENT[number][0] | 'client'
+/** Number of pages in a PDF (= sheets in a drawing set); null if it can't be read. */
+async function pageCount(f: Blob): Promise<number | null> {
+  try { const { PDFDocument } = await import('pdf-lib'); return (await PDFDocument.load(await f.arrayBuffer(), { ignoreEncryption: true, updateMetadata: false })).getPageCount() } catch { return null }
+}
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 export default function ProjectDetail() {
@@ -280,7 +284,7 @@ export function UpdatesTab({ projectId }: { projectId: string }) {
 export function DrawingsTab({ projectId, phases, invoices }: { projectId: string; phases: Phase[]; invoices: Inv[] }) {
   const { profile } = useAuth()
   const list = useLoad(async () => must(await supabase.from('drawings').select('*').eq('project_id', projectId).order('issued_on', { ascending: false })) as Drawing[], [projectId])
-  const [f, setF] = useState({ title: '', phase_id: '', sheet_count: '', issued_on: new Date().toISOString().slice(0, 10), lock: '' })
+  const [f, setF] = useState({ title: '', phase_id: '', issued_on: new Date().toISOString().slice(0, 10), lock: '' })
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
   const unpaid = invoices.filter((i) => i.status === 'open' || i.status === 'draft')
@@ -294,8 +298,8 @@ export function DrawingsTab({ projectId, phases, invoices }: { projectId: string
       const { error } = await supabase.storage.from('drawings').upload(path, file, { contentType: 'application/pdf' })
       if (error) throw error
       must(await supabase.from('drawings').insert({ project_id: projectId, phase_id: f.phase_id || null, title: f.title.trim() || file.name.replace(/\.pdf$/i, ''),
-        sheet_count: f.sheet_count ? Number(f.sheet_count) : null, issued_on: f.issued_on, storage_path: path, locked_until_invoice: f.lock || null, uploaded_by: profile?.id }))
-      setF({ ...f, title: '', sheet_count: '' }); setFile(null); const fi = document.getElementById('d-f') as HTMLInputElement | null; if (fi) fi.value = ''; list.reload()
+        sheet_count: await pageCount(file), issued_on: f.issued_on, storage_path: path, locked_until_invoice: f.lock || null, uploaded_by: profile?.id }))
+      setF({ ...f, title: '' }); setFile(null); const fi = document.getElementById('d-f') as HTMLInputElement | null; if (fi) fi.value = ''; list.reload()
     } catch (x) { setErr(errText(x)) }
     setBusy(false)
   }
@@ -305,16 +309,26 @@ export function DrawingsTab({ projectId, phases, invoices }: { projectId: string
     window.open(data.signedUrl, '_blank', 'noopener')
   }
   const setLock = async (d: Drawing, v: string) => { await supabase.from('drawings').update({ locked_until_invoice: v || null }).eq('id', d.id); list.reload() }
-  const remove = async (d: Drawing) => { await supabase.storage.from('drawings').remove([d.storage_path]); await supabase.from('drawings').delete().eq('id', d.id); list.reload() }
+  // sheets = pages in the PDF; older uploads without a count are counted once, in the background
+  useEffect(() => {
+    const missing = (list.data ?? []).filter((d) => d.sheet_count == null)
+    if (!missing.length) return
+    let live = true
+    ;(async () => { for (const d of missing) {
+      const { data } = await supabase.storage.from('drawings').download(d.storage_path); if (!live || !data) continue
+      const n = await pageCount(data); if (n != null) await supabase.from('drawings').update({ sheet_count: n }).eq('id', d.id)
+    } if (live) list.reload() })()
+    return () => { live = false }
+  }, [list.data?.map((d) => d.id + (d.sheet_count ?? '')).join()]) // eslint-disable-line react-hooks/exhaustive-deps
+  const remove = async (d: Drawing) => { if (!window.confirm(`Delete “${d.title}”? The client can no longer open it. This can’t be undone.`)) return; await supabase.storage.from('drawings').remove([d.storage_path]); await supabase.from('drawings').delete().eq('id', d.id); list.reload() }
   const code = (pid: string | null) => phases.find((x) => x.id === pid)?.code
   return (
     <div className="stack">
       <form onSubmit={upload} className="card pad stack" aria-label="Upload drawings">
         <h2>Issue drawings</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px,2fr) minmax(160px,1fr) 110px 160px', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px,2fr) minmax(160px,1fr) 160px', gap: 12 }}>
           <div><label className="l" htmlFor="d-t">Title</label><input id="d-t" className="input" value={f.title} placeholder="e.g. 100% CD set" onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
           <div><label className="l" htmlFor="d-ph">Phase</label><select id="d-ph" className="input" value={f.phase_id} onChange={(e) => setF({ ...f, phase_id: e.target.value })}><option value="">—</option>{phases.map((p) => <option key={p.id} value={p.id}>{p.code} · {phaseLabel(p)}</option>)}</select></div>
-          <div><label className="l" htmlFor="d-s">Sheets</label><input id="d-s" className="input num" inputMode="numeric" value={f.sheet_count} onChange={(e) => setF({ ...f, sheet_count: e.target.value })} /></div>
           <div><label className="l" htmlFor="d-i">Issued</label><input id="d-i" type="date" className="input" value={f.issued_on} onChange={(e) => setF({ ...f, issued_on: e.target.value })} /></div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px,1fr) minmax(220px,1fr)', gap: 12 }}>
@@ -334,7 +348,7 @@ export function DrawingsTab({ projectId, phases, invoices }: { projectId: string
                 <td><button className="linkbtn" onClick={() => open(d)}>{d.title}</button></td><td>{code(d.phase_id) ?? '—'}</td><td className="r num">{d.sheet_count ?? '—'}</td><td>{fmtDate(d.issued_on)}</td>
                 <td><label className="sr" htmlFor={'lk' + d.id}>Hold until paid</label><select id={'lk' + d.id} className="input" style={{ minHeight: 36, color: locked ? 'var(--red)' : 'var(--green)', fontWeight: 700 }} value={d.locked_until_invoice ?? ''} onChange={(e) => setLock(d, e.target.value)}>
                   <option value="">Released</option>{invoices.map((i) => <option key={i.id} value={i.id}>{i.status === 'paid' ? `Released — ${i.number} paid` : `Locked until ${i.number} is paid`}</option>)}</select></td>
-                <td><button className="btn small danger" onClick={() => remove(d)}>Delete</button></td></tr> })}
+                <td><RowMenu label={`Actions for ${d.title}`} items={[{ label: 'Delete', danger: true, onSelect: () => remove(d) }]} /></td></tr> })}
             {list.data?.length === 0 && <tr><td colSpan={6} className="muted" style={{ textAlign: 'center', padding: 24 }}><em>No drawings issued yet.</em></td></tr>}
           </tbody>
         </table>
@@ -383,7 +397,7 @@ export function ContractTab({ projectId, phases: allPhases, onSaved }: { project
         <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none' }}>{d.data?.meetings.map((m) => <li key={m.id} className="row between" style={{ padding: '8px 0', borderTop: '1px solid #efece6' }}>
           <span>{fmtDate(m.held_on)} · <strong>{m.title ?? 'Meeting'}</strong> {m.phase_id && <span className="muted">· {phases.find((p) => p.id === m.phase_id)?.code}</span>}</span>
           <span className="row"><label className="sr" htmlFor={'mp' + m.id}>Phase</label><select id={'mp' + m.id} className="input" style={{ minHeight: 34, width: 'auto' }} value={m.phase_id ?? ''} onChange={async (e) => { await supabase.from('meetings').update({ phase_id: e.target.value || null }).eq('id', m.id); d.reload() }}><option value="">No phase</option>{phases.map((p) => <option key={p.id} value={p.id}>{p.code}</option>)}</select>
-            <button className="btn small danger" onClick={async () => { await supabase.from('meetings').delete().eq('id', m.id); d.reload() }}>×</button></span></li>)}</ul>
+            <RowMenu label={`Actions for ${m.title ?? 'meeting'}`} items={[{ label: 'Delete', danger: true, onSelect: async () => { if (!window.confirm(`Delete the meeting “${m.title ?? 'Meeting'}”? This can’t be undone.`)) return; await supabase.from('meetings').delete().eq('id', m.id); d.reload() } }]} /></span></li>)}</ul>
         <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Posting “Meeting notes” in the updates feed logs a meeting automatically.</em></p>
       </section>
       <section className="card pad stack">
@@ -397,7 +411,7 @@ export function ContractTab({ projectId, phases: allPhases, onSaved }: { project
           <span>{phases.find((p) => p.id === it.phase_id)?.code && <span className="pill" style={{ marginRight: 8 }}>{phases.find((p) => p.id === it.phase_id)?.code}</span>}{it.title}</span>
           <span className="row"><label className="sr" htmlFor={'cs' + it.id}>Status</label><select id={'cs' + it.id} className="input" style={{ minHeight: 34, width: 'auto' }} value={it.status} onChange={async (e) => { await supabase.from('contract_items').update({ status: e.target.value }).eq('id', it.id); d.reload() }}>
             <option value="not_started">Not started</option><option value="in_progress">In progress</option><option value="complete">Complete</option></select>
-            <button className="btn small danger" onClick={async () => { await supabase.from('contract_items').delete().eq('id', it.id); d.reload() }}>×</button></span></li>)}</ul>
+            <RowMenu label={`Actions for ${it.title}`} items={[{ label: 'Delete', danger: true, onSelect: async () => { if (!window.confirm(`Delete “${it.title}”? This can’t be undone.`)) return; await supabase.from('contract_items').delete().eq('id', it.id); d.reload() } }]} /></span></li>)}</ul>
       </section>
     </div>
   )

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import RowMenu from '../components/RowMenu'
 import { KIND_LABEL, fmtDate, type Update } from '../lib/projectContent'
 
 export default function UpdateCard({ u, urls, onDelete }: { u: Update; urls: Record<string, string>; onDelete?: () => void }) {
@@ -11,14 +12,13 @@ export default function UpdateCard({ u, urls, onDelete }: { u: Update; urls: Rec
       <div className="row between">
         <div className="row" style={{ gap: 8 }}><span className="pill">{KIND_LABEL[u.kind] ?? u.kind}</span>{u.title && <strong>{u.title}</strong>}
           {!u.visible_to_client && <span className="pill" style={{ borderColor: '#e4b4ad', color: 'var(--red)' }}>Staff only</span>}</div>
-        <span className="muted" style={{ fontSize: 13 }}>{u.profiles?.full_name ?? 'Abaya Design Studio'} · {fmtDate(u.created_at)}</span>
+        <span className="row" style={{ gap: 6 }}><span className="muted" style={{ fontSize: 13 }}>{u.profiles?.full_name ?? 'Abaya Design Studio'} · {fmtDate(u.created_at)}</span>{onDelete && <Dots onDelete={onDelete} />}</span>
       </div>
       {u.body && <p style={{ margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{u.body}</p>}
       {u.items.length > 0 && <ul style={{ margin: 0, paddingLeft: 20 }}>{u.items.map((it, i) => <li key={i}>{it}</li>)}</ul>}
       {u.photo_paths.length > 0 && <div className="row" style={{ gap: 8 }}>{u.photo_paths.map((p) => urls[p]
         ? <a key={p} href={urls[p]} target="_blank" rel="noreferrer"><img src={urls[p]} alt="Project photo" style={{ width: 160, height: 120, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--line)' }} /></a>
         : <span key={p} style={{ width: 160, height: 120, borderRadius: 6, background: '#ece9e3' }} />)}</div>}
-      {onDelete && <div><button type="button" className="btn small danger" onClick={onDelete}>Delete</button></div>}
     </article>
   )
 }
@@ -49,13 +49,12 @@ function EmailCard({ u, onDelete }: { u: Update; onDelete?: () => void }) {
       onKeyDown={(e) => { if (href && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open() } }}>
       <div className="row between">
         <span className="pill">{KIND_LABEL.email}</span>
-        <span className="muted" style={{ fontSize: 13 }}>{href && <span className="up-email-open">Open in Gmail ↗ · </span>}{fmtDate(u.created_at)}</span>
+        <span className="row" style={{ gap: 6 }}><span className="muted" style={{ fontSize: 13 }}>{href && <span className="up-email-open">Open in Gmail ↗ · </span>}{fmtDate(u.created_at)}</span>{onDelete && <Dots onDelete={onDelete} />}</span>
       </div>
       <div className="row" style={{ gap: 8 }}>{u.title && <strong>{u.title}</strong>}
         {!u.visible_to_client && <span className="pill" style={{ borderColor: '#e4b4ad', color: 'var(--red)' }}>Staff only</span>}</div>
       {subject && <p className="up-email-re"><span>RE:</span> {subject.replace(/^\s*(re|fwd?|aw)\s*:\s*/i, '')}</p>}
       {preview && <p className="up-email-prev">“{preview}”</p>}
-      {onDelete && <div><button type="button" className="btn small danger" onClick={onDelete}>Delete</button></div>}
     </article>
   )
 }
@@ -65,12 +64,13 @@ function EventCard({ u, onDelete }: { u: Update; onDelete?: () => void }) {
   const [what, when] = (u.body ?? '').split('\n')
   return (
     <article className="card pad stack up-email" style={{ gap: 6 }}>
-      <div className="row between"><span className="pill">{KIND_LABEL.event}</span><span className="muted" style={{ fontSize: 13 }}>{fmtDate(u.created_at)}</span></div>
+      <div className="row between"><span className="pill">{KIND_LABEL.event}</span><span className="row" style={{ gap: 6 }}><span className="muted" style={{ fontSize: 13 }}>{fmtDate(u.created_at)}</span>{onDelete && <Dots onDelete={onDelete} />}</span></div>
       <div className="row" style={{ gap: 8 }}>{u.title && <strong>{u.title}</strong>}
         {!u.visible_to_client && <span className="pill" style={{ borderColor: '#e4b4ad', color: 'var(--red)' }}>Staff only</span>}</div>
       {what && <p className="up-email-re">{what}</p>}
       {when && <p className="up-email-prev" style={{ fontStyle: 'normal' }}>{when}</p>}
-      {onDelete && <div><button type="button" className="btn small danger" onClick={onDelete}>Delete</button></div>}
     </article>
   )
 }
+
+const Dots = ({ onDelete }: { onDelete: () => void }) => <RowMenu label="Update actions" items={[{ label: 'Delete update', danger: true, onSelect: onDelete }]} />

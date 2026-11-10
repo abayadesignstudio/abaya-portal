@@ -157,8 +157,8 @@ export default function FeeTriangulator({ onCreateAgreement }: { onCreateAgreeme
                 <label className="sr" htmlFor={`ft-r-${r.key}`}>Hourly rate</label>
                 <input id={`ft-r-${r.key}`} className="input num" inputMode="decimal" placeholder="$/hr" value={r.rate} onChange={(e) => setRow(r.key, { rate: e.target.value })} />
                 <span className="num ft-amt">{money(num(r.hours) * num(r.rate))}</span>
-                <button type="button" className="ft-x" aria-label={`Remove employee ${i + 1}`} disabled={s.rows.length === 1 && !r.profile_id && !r.hours}
-                  onClick={() => setS((o) => ({ ...o, rows: o.rows.length > 1 ? o.rows.filter((x) => x.key !== r.key) : [newRow()] }))}>×</button>
+                <RowMenu label={`Actions for employee ${i + 1}`} items={[{ label: 'Remove', danger: true, disabled: s.rows.length === 1 && !r.profile_id && !r.hours,
+                  onSelect: () => setS((o) => ({ ...o, rows: o.rows.length > 1 ? o.rows.filter((x) => x.key !== r.key) : [newRow()] })) }]} />
               </div>))}
           </div>
           <div className="row between" style={{ marginTop: 8 }}>

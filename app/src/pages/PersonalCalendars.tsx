@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import { calendarChanged } from '../staff/HomeCalendars'
+import RowMenu from '../components/RowMenu'
 
 type Cal = { id: string; label: string; ics_url: string; visibility: 'private' | 'busy' | 'details' }
 const VIS: [Cal['visibility'], string, string][] = [
@@ -61,7 +62,7 @@ export default function PersonalCalendars() {
           <label className="sr" htmlFor={'pcv' + c.id}>Who sees it</label>
           <select id={'pcv' + c.id} className="input" style={{ width: 'auto' }} value={c.visibility} onChange={(e) => update(c, { visibility: e.target.value as Cal['visibility'] })}>
             {VIS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-          <button type="button" className="btn small secondary" onClick={() => remove(c)}>Remove</button>
+          <RowMenu label={`Actions for ${c.label}`} items={[{ label: 'Remove', danger: true, onSelect: () => remove(c) }]} />
         </div></div>)}
       <form onSubmit={add} className="stack" style={{ gap: 8, borderTop: list.data?.length ? '1px solid #efece6' : undefined, paddingTop: list.data?.length ? 10 : 0 }}>
         <div className="row" style={{ gap: 6 }} role="radiogroup" aria-label="Calendar type">

@@ -3,6 +3,7 @@ import { supabase, money } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import './admin.css'
+import RowMenu from '../components/RowMenu'
 
 type Contact = { id: string; name: string | null; email: string; receives_invoices: boolean; receives_updates: boolean }
 type Client = { id: string; name: string; billing_email: string | null; phone: string | null; address: string | null; client_contacts: Contact[]; projects: { id: string; status: string }[] }
@@ -91,8 +92,7 @@ export default function Clients() {
                   <div style={{ flex: '1 1 240px' }}><label className="l" htmlFor={`fc-e${i}`}>Email</label><input id={`fc-e${i}`} type="email" className="input" value={x.email} onChange={(e) => set('email', e.target.value)} /></div>
                   <label className="row" style={{ gap: 6, fontSize: 14, minHeight: 44 }}><input type="checkbox" checked={x.receives_invoices} onChange={(e) => set('receives_invoices', e.target.checked)} style={{ width: 18, height: 18 }} /> Gets invoices</label>
                   <label className="row" style={{ gap: 6, fontSize: 14, minHeight: 44 }}><input type="checkbox" checked={x.receives_updates} onChange={(e) => set('receives_updates', e.target.checked)} style={{ width: 18, height: 18 }} /> Gets updates</label>
-                  <button type="button" className="btn small danger" aria-label={`Remove ${x.name || x.email || 'this person'}`} style={{ marginBottom: 5 }}
-                    onClick={() => setForm({ ...form, contacts: form.contacts.length > 1 ? form.contacts.filter((_, j) => j !== i) : [blankContact()] })}>×</button>
+                  <span style={{ marginBottom: 5 }}><RowMenu label={`Actions for ${x.name || x.email || 'this person'}`} items={[{ label: 'Remove', danger: true, onSelect: () => setForm({ ...form, contacts: form.contacts.length > 1 ? form.contacts.filter((_, j) => j !== i) : [blankContact()] }) }]} /></span>
                 </div>)
             })}
             <div><button type="button" className="btn small secondary" onClick={() => setForm({ ...form, contacts: [...form.contacts, blankContact()] })}>+ Add another person</button></div>
@@ -156,7 +156,7 @@ function Contacts({ client, admin, invited, joined, onInvite, onChange }: { clie
             <td><input type="checkbox" aria-label={`${x.email} gets invoices`} checked={x.receives_invoices} disabled={!admin} onChange={() => toggle(x, 'receives_invoices')} style={{ width: 18, height: 18 }} /></td>
             <td><input type="checkbox" aria-label={`${x.email} gets updates`} checked={x.receives_updates} disabled={!admin} onChange={() => toggle(x, 'receives_updates')} style={{ width: 18, height: 18 }} /></td>
             <td>{joined.has(em) ? <span className="badge b-paid">Signed in</span> : invited.has(em) ? <span className="badge b-sched">Invited</span> : admin ? <button className="btn small" onClick={() => onInvite(client, x)}>Invite to portal</button> : <span className="muted">Not invited</span>}</td>
-            {admin && <td><button className="btn small danger" aria-label={`Remove ${x.email}`} onClick={() => del(x)}>×</button></td>}
+            {admin && <td><RowMenu label={`Actions for ${x.email}`} items={[{ label: 'Remove', danger: true, onSelect: () => del(x) }]} /></td>}
           </tr>) })}</tbody>
       </table>}
       {admin && <form onSubmit={add} className="row" style={{ alignItems: 'flex-end' }}>

@@ -6,6 +6,7 @@ import { supabase, SECTOR_COLOR, PHASE_NAME, money } from '../lib/supabase'
 import { useLoad } from '../lib/useQuery'
 import { calendarChanged } from './HomeCalendars'
 import './gantt.css'
+import RowMenu from '../components/RowMenu'
 
 // Projects as a Gantt chart (like Monograph): one row per project, one bar per phase (from its start/end dates).
 // Left: project number (building-type color), name, client and fee used. Right: a scrollable week/month timeline with
@@ -138,7 +139,7 @@ function ItemPop({ item, onClose, onSaved }: { item: ItemEdit; onClose: () => vo
       </div>
       {err && <p className="err" role="alert" style={{ margin: 0 }}>{err}</p>}
       <div className="row between">
-        {f.mode === 'edit' ? <button type="button" className="linkbtn" style={{ color: 'var(--red)' }} onClick={remove}>Delete</button> : <span />}
+        {f.mode === 'edit' ? <RowMenu label="More actions" items={[{ label: 'Delete', danger: true, onSelect: remove }]} /> : <span />}
         <div className="row" style={{ gap: 8 }}><button type="button" className="btn small secondary" onClick={onClose}>Cancel</button><button className="btn small" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></div>
       </div>
     </form>, document.body)

@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useLoad } from '../lib/useQuery'
 import { fmtDate } from '../lib/projectContent'
 import { bigUpload } from '../lib/bigUpload'
+import RowMenu from '../components/RowMenu'
 
 /** Project page → Files: the 3D model the client sees on their project page (storage bucket models/{project}/). */
 const mb = (n: number) => `${(n / 1048576).toFixed(n < 10485760 ? 1 : 0)} MB`
@@ -46,7 +47,7 @@ export default function ModelUpload({ projectId, onSaved }: { projectId: string;
       {files.data?.length === 0 && <p className="muted" style={{ margin: 0 }}><em>No model uploaded.</em></p>}
       <ul className="cp-files">{files.data?.map((f) => <li key={f.name}><span>{f.name}</span>
         <span className="muted">{f.updated_at ? fmtDate(f.updated_at) : ''}</span>
-        <button type="button" className="btn small danger" onClick={() => remove(f.name)}>Remove</button></li>)}</ul>
+        <RowMenu label={`Actions for ${f.name}`} items={[{ label: 'Delete', danger: true, onSelect: () => remove(f.name) }]} /></li>)}</ul>
     </section>
   )
 }

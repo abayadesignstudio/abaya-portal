@@ -7,6 +7,7 @@ import { useLoad, must } from '../lib/useQuery'
 import { ACTIVITIES, OVERHEAD, loadProjects, iso, mondayOf, hrs, TIME_CHANGED, announceTimeChange, type Proj } from '../lib/time'
 import Combobox, { sectorColor, type ComboOption } from '../components/Combobox'
 import { useDefaultRole } from '../components/RolePicker'
+import RowMenu from '../components/RowMenu'
 
 const PHONE = '(max-width: 900px)'
 function useIsPhone() {
@@ -221,7 +222,7 @@ export default function Time() {
                         </div>
                         <div className="stack" style={{ gap: 4, alignItems: 'center' }}>
                           <Cell value={cell(r, day)} today={false} label={`Hours, ${isOH ? 'Overhead' : `${p?.number ?? ''} ${p?.name ?? ''} ${code ?? ''}`} ${r.activity ?? ''}, ${day.toDateString()}`} note={noteOf(r, day)} onCommit={(t) => setCell(r, day, t)} onNote={(t) => setNote(r, day, t)} />
-                          <button className="linkbtn" style={{ color: 'var(--muted)', fontSize: 14 }} aria-label="Remove row" onClick={() => removeRow(r)}>Remove</button>
+                          <RowMenu label="Row actions" items={[{ label: 'Remove row', danger: true, onSelect: () => removeRow(r) }]} />
                         </div>
                       </li>)
                   })}
@@ -282,7 +283,7 @@ export default function Time() {
                     {days.map((d) => <div key={iso(d)} className="cell"><Cell value={cell(r, d)} today={iso(d) === today} note={noteOf(r, d)}
                       label={`${p?.name ?? ''} ${code ?? ''} ${r.activity ?? ''} ${d.toDateString()}`} onCommit={(t) => setCell(r, d, t)} onNote={(t) => setNote(r, d, t)} /></div>)}
                     <div className="cell num" style={{ fontWeight: 700 }}>{hrs(total)}</div>
-                    <div className="cell"><button className="linkbtn" style={{ color: 'var(--muted)', fontSize: 18 }} aria-label="Remove row" onClick={() => removeRow(r)}>×</button></div>
+                    <div className="cell"><RowMenu label="Row actions" items={[{ label: 'Remove row', danger: true, onSelect: () => removeRow(r) }]} /></div>
                   </div>)
               })}
             </div>

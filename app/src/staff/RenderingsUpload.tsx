@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useLoad } from '../lib/useQuery'
 import { bigUpload } from '../lib/bigUpload'
+import RowMenu from '../components/RowMenu'
 
 /** Project page → Files: renderings shown in the client's "Renderings" tab (models/{project}/renderings/). */
 const MAX = 3200
@@ -56,7 +57,7 @@ export default function RenderingsUpload({ projectId }: { projectId: string }) {
       {files.data?.length === 0 && <p className="muted" style={{ margin: 0 }}><em>No renderings uploaded.</em></p>}
       <div className="rnd-grid">{files.data?.map((f) => <figure key={f.name}>
         {thumbs[f.name] ? <img src={thumbs[f.name]} alt={f.name} loading="lazy" /> : <div className="rnd-ph" />}
-        <figcaption><span>{f.name}</span><button type="button" className="btn small danger" onClick={() => remove(f.name)}>Remove</button></figcaption></figure>)}</div>
+        <figcaption><span>{f.name}</span><RowMenu label={`Actions for ${f.name}`} items={[{ label: 'Delete', danger: true, onSelect: () => remove(f.name) }]} /></figcaption></figure>)}</div>
     </section>
   )
 }

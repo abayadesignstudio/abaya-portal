@@ -6,6 +6,7 @@ import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import { useRates, type Rate } from './budget/BudgetTab'
 import './admin.css'
+import RowMenu from '../components/RowMenu'
 
 type FS = { digest_time: string; digest_enabled: boolean; reminder_days: number[]; late_rate_monthly: number; firm_name: string | null; address: string | null; phone: string | null; billing_email: string | null; check_payee: string | null
   wire_bank_name: string | null; wire_bank_address: string | null; wire_account_name: string | null; wire_routing: string | null; wire_account: string | null; wire_swift: string | null; wire_notes: string | null }
@@ -73,7 +74,7 @@ function BillableRates() {
             <input className="input" aria-label={`Name of ${r.level}`} defaultValue={r.level} onBlur={(e) => setLevel(r, e.target.value)} />
             <span className="br-money"><span aria-hidden="true">$</span><input className="input num" aria-label={`Rate for ${r.level}`} inputMode="decimal" defaultValue={Number(r.rate).toFixed(2)}
               onBlur={(e) => setRate(r, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} /><span className="muted">/hr</span></span>
-            <button type="button" className="linkbtn" style={{ color: 'var(--muted)', fontSize: 18 }} aria-label={`Remove ${r.level}`} onClick={() => remove(r)}>×</button>
+            <RowMenu label={`Actions for ${r.level}`} items={[{ label: 'Delete', danger: true, onSelect: () => remove(r) }]} />
           </div>)}
         </div>)}
       </div>

@@ -14,6 +14,7 @@ import { buildPages, buildPrintPages, removePrintPages, sectionStartPages, sourc
 import '@fontsource/lato/700.css'
 import '@fontsource/lato/700-italic.css'
 import './agreement.css'
+import RowMenu from '../components/RowMenu'
 
 // ---------- helpers
 const W = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve']
@@ -442,7 +443,7 @@ function ClausePanel({ c, doc, model, ui, patchUi, up, setV }: OutlineProps & { 
         <div className="row">
           <button type="button" className="btn small secondary" onClick={() => patchUi({ editing: c.id, draft: c.cur })}>Edit wording</button>
           {c.modified && <button type="button" className="btn small secondary" onClick={() => up((d) => { delete d.edits[c.id] })}>Revert to standard</button>}
-          {c.added && <button type="button" className="btn small danger" onClick={() => { up((d) => { d.custom.splice(c.customIdx!, 1) }); patchUi({ openCl: '' }) }}>Delete</button>}
+          {c.added && <RowMenu label="Clause actions" items={[{ label: 'Delete clause', danger: true, onSelect: () => { up((d) => { d.custom.splice(c.customIdx!, 1) }); patchUi({ openCl: '' }) } }]} />}
         </div>
       ) : (<>
         <Field id={'ed-' + c.id} label="Wording" hint="Words in curly braces are fill points — keep them as they are. Changes show as underlined additions and struck deletions, and go in the Modifications Report.">
@@ -482,7 +483,7 @@ function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model
       <div key={i} className="row" style={{ alignItems: 'flex-start', gap: 8, flexWrap: 'nowrap' }}>
         <input id={'ex-' + i} type="checkbox" checked={x.on} onChange={(e) => up((d) => { d.ex[i].on = e.target.checked })} style={{ marginTop: 2, width: 18, height: 18, flex: 'none' }} />
         <label htmlFor={'ex-' + i} style={{ flex: 1, fontSize: 14 }}>{x.t}</label>
-        <button type="button" className="linkbtn" aria-label={`Remove ${x.t}`} style={{ color: 'var(--muted)', fontSize: 18 }} onClick={() => up((d) => { d.ex.splice(i, 1) })}>×</button>
+        <RowMenu label={`Actions for ${x.t}`} items={[{ label: 'Remove', danger: true, onSelect: () => up((d) => { d.ex.splice(i, 1) }) }]} />
       </div>))}
     <div className="row" style={{ flexWrap: 'nowrap' }}><label className="sr" htmlFor="ag-exn">New excluded service</label>
       <input id="ag-exn" className="input" placeholder="Add an excluded service" value={ui.exNew} onChange={(e) => patchUi({ exNew: e.target.value })} />
@@ -502,7 +503,7 @@ function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model
             <Field id={'pd-' + i} label="When due"><input id={'pd-' + i} className="input" value={p.due} onChange={set('due')} /></Field>
             <Field id={'pp-' + i} label="Phases covered"><input id={'pp-' + i} className="input" value={p.phase} onChange={set('phase')} /></Field>
             <div className="row between"><strong className="num" style={{ fontSize: 14 }}>{money(fee * (+p.pct || 0) / 100)}</strong>
-              <button type="button" className="btn small danger" onClick={() => up((d) => { d.pay.splice(i, 1) })}>Remove</button></div>
+              <RowMenu label={`Actions for ${p.label || 'payment'}`} items={[{ label: 'Remove payment', danger: true, onSelect: () => up((d) => { d.pay.splice(i, 1) }) }]} /></div>
           </div>) })}
       <div><button type="button" className="btn small secondary" onClick={() => up((d) => { d.pay.push({ label: `Payment ${d.pay.length + 1}`, due: 'Due ', phase: '', pct: '0' }) })}>+ Add payment</button></div>
     </>

@@ -3,6 +3,7 @@ import { supabase, money, SECTOR_COLOR } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import './admin.css'
+import RowMenu from '../components/RowMenu'
 
 type Expense = { id: string; project_id: string; description: string; amount: number; spent_on: string; reimbursable: boolean; invoice_id: string | null; receipt_path: string | null
   projects: { number: string; name: string; sector: string | null } | null; invoices: { number: string } | null }
@@ -97,7 +98,7 @@ export default function Expenses() {
                 <td>{e.receipt_path ? <button className="linkbtn" onClick={() => openReceipt(e.receipt_path!)}>View</button> : <span className="muted">—</span>}</td>
                 <td><div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
                   <button className="btn small secondary" onClick={() => { setEdit({ id: e.id, project_id: e.project_id, description: e.description, amount: String(e.amount), spent_on: e.spent_on, reimbursable: e.reimbursable }); setFile(null); window.scrollTo({ top: 0 }) }}>Edit</button>
-                  <button className="btn small danger" aria-label={`Delete ${e.description}`} onClick={() => remove(e)}>×</button></div></td>
+                  <RowMenu label={`Actions for ${e.description}`} items={[{ label: 'Delete', danger: true, onSelect: () => remove(e) }]} /></div></td>
               </tr>))}
             {data && rows.length === 0 && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center', padding: 24 }}><em>No expenses here.</em></td></tr>}
           </tbody>
