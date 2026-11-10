@@ -2,6 +2,7 @@
 // POST with a staff member's JWT:
 //   { op: 'create', title, all_day, date, end_date?, start_time?, end_time?, time_zone, location?, description?, guests?: [profile ids], project_id? }
 //   { op: 'update', id, ...same fields }      { op: 'delete', id }
+//   { op: 'move', id, days, time_zone }  — shift the event's dates by whole days; times, length and details stay
 // Staff picked as guests get Google's normal invitation (sendUpdates=all). Only the event's organizer can change or delete it.
 import { admin, json, CORS, staffCaller } from './mail.ts'
 import { googleConfigured, GOOGLE_NOT_CONFIGURED, accessToken, writeEvent } from './google.ts'
@@ -19,7 +20,7 @@ Deno.serve(async (req) => {
   // deno-lint-ignore no-explicit-any
   let b: any = {}
   try { b = await req.json() } catch { /* empty */ }
-  const op = b.op === 'update' ? 'update' : b.op === 'delete' ? 'delete' : 'create'
+  const op = b.op === 'update' ? 'update' : b.op === 'delete' ? 'delete' : b.op === 'move' ? 'move' : 'create'
   const id = typeof b.id === 'string' && b.id.length < 300 ? b.id : null
   if (op !== 'create' && !id) return json({ error: 'Missing event id' }, 400)
   const db = admin()
@@ -29,10 +30,25 @@ Deno.serve(async (req) => {
   try { token = await accessToken(c.refresh_token) } catch { return json({ error: 'Google access expired. Reconnect Google on My account.', code: 'reconnect' }, 409) }
   const scopeErr = () => json({ error: 'Reconnect Google on My account to let the portal add events to your calendar.', code: 'reconnect' }, 409)
 
+  // deno-lint-ignore no-explicit-any
+  let ev: any = null
   if (op !== 'create') { // only the organizer may change or delete
     const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(id!)}`, { headers: { Authorization: `Bearer ${token}` } })
-    const ev = await r.json().catch(() => null)
+    ev = await r.json().catch(() => null)
     if (!r.ok || !(ev?.organizer?.self ?? ev?.creator?.self)) return json({ error: 'Only the person who created this event can change it.' }, 403)
+  }
+  if (op === 'move') {
+    const n = Number(b.days)
+    if (!Number.isInteger(n) || Math.abs(n) > 3660) return json({ error: 'Bad move' }, 400)
+    const tz = typeof b.time_zone === 'string' && /^[A-Za-z_]+\/[A-Za-z_\/-]+$/.test(b.time_zone) ? b.time_zone : 'America/Chicago'
+    // keep the wall-clock time: send local date-time + time zone (not a fixed UTC offset), so DST changes don't shift it
+    // deno-lint-ignore no-explicit-any
+    const shift = (x: any) => x?.date ? { date: addDay(x.date, n) }
+      : { dateTime: addDay(String(x.dateTime).slice(0, 10), n) + String(x.dateTime).slice(10, 19), timeZone: x.timeZone ?? ev?.start?.timeZone ?? tz }
+    const r = await writeEvent(token, 'PATCH', id, { start: shift(ev.start), end: shift(ev.end) })
+    if (r.insufficientScope) return scopeErr()
+    if (r.status >= 300 || !r.data) return json({ error: `Google error ${r.status}` }, 502)
+    return json({ ok: true, id: r.data.id })
   }
   if (op === 'delete') {
     const r = await writeEvent(token, 'DELETE', id)

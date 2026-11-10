@@ -209,3 +209,7 @@
 .tk-acts .btn{min-height:28px;padding:0 10px;font-size:12px}
 .tk-hasnote{color:var(--muted);font-weight:400}
 .tk.done .tk-more-box dd{text-decoration:none;color:inherit}
+/* drag an item to another day */
+.tk[draggable="true"]{cursor:grab}
+.tk.dragging{opacity:.45}
+.mc-cell.drop,.cv-adcell.drop,.cv-col.drop,.cv-sched > li.drop{background:#eef3f8;box-shadow:inset 0 0 0 2px #9ab3c9}

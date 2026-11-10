@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase, SECTOR_COLOR, money } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
@@ -14,6 +14,19 @@ import MarkIcon, { type MarkKind } from '../components/MarkIcon'
 //    staff. A meeting is tied to a project when its title/description has a project number, or when someone links one.
 // Every change is passed to the task-sync function, which mirrors it into the assignee's Google Tasks when they've
 // connected Google (My account). If sync isn't set up, the portal works the same and nothing is lost.
+
+// Drag an item to another day on the calendar: only its date moves (time, length and details stay).
+type DragItem = { kind: 'task' | 'ev' | 'g' | 'ms' | 'dl'; id: string; from: string }
+const DRAG_MIME = 'application/x-abaya-cal'
+const CanDrag = createContext(false)
+function dragProps(on: boolean, d: DragItem) {
+  if (!on) return {}
+  return {
+    draggable: true,
+    onDragStart: (e: React.DragEvent<HTMLElement>) => { e.dataTransfer.setData(DRAG_MIME, JSON.stringify(d)); e.dataTransfer.effectAllowed = 'move'; e.currentTarget.classList.add('dragging') },
+    onDragEnd: (e: React.DragEvent<HTMLElement>) => e.currentTarget.classList.remove('dragging'),
+  }
+}
 
 export type Person = { id: string; full_name: string | null; email: string; initials: string | null; role: string; avatar_url?: string | null }
 export type Task = { id: string; title: string; notes: string | null; assignee: string; created_by: string | null; due_on: string; due_time: string | null; done_at: string | null
@@ -84,6 +97,7 @@ export function TaskItem({ t, me, admin, people, showWho, prefixName, onChange, 
   const [optimistic, setOptimistic] = useState<{ v: boolean; was: string | null } | null>(null) // flips instantly; cleared once the list reloads
   const done = optimistic && optimistic.was === t.done_at ? optimistic.v : !!t.done_at
   const mine = t.assignee === me || t.created_by === me || admin
+  const canDrag = useContext(CanDrag)
   const who = people.find((p) => p.id === t.assignee)
   const [open, setOpen] = useState(false)
   const toggle = async () => {
@@ -100,7 +114,7 @@ export function TaskItem({ t, me, admin, people, showWho, prefixName, onChange, 
     await supabase.from('tasks').delete().eq('id', t.id); setBusy(false); onChange()
   }
   return (
-    <li className={'tk' + (done ? ' done' : '')} style={{ borderLeftColor: t.projects ? sectorColor(t.projects.sector) : '#9aa4b2' }}>
+    <li className={'tk' + (done ? ' done' : '')} style={{ borderLeftColor: t.projects ? sectorColor(t.projects.sector) : '#9aa4b2' }} {...dragProps(canDrag && mine, { kind: 'task', id: t.id, from: t.due_on })}>
       <div className="tk-main">
         <button type="button" className="tk-ico" role="checkbox" aria-checked={done} disabled={!mine} onClick={(ev) => { ev.stopPropagation(); if (!busy) toggle() }} aria-label={`${done ? 'Mark not done' : 'Mark done'}: ${t.title}`} title={done ? 'Done — click to undo' : 'Mark done'}>
           <Mark kind="task" done={done} color={t.projects ? sectorColor(t.projects.sector) : undefined} /></button>
@@ -130,6 +144,7 @@ export function EventItem({ e, me, admin, people, onChange }: { e: Ev; me: strin
   const [busy, setBusy] = useState(false)
   const [checked, setChecked] = useState(false) // flips instantly; the item becomes a done task on reload
   const mine = e.profile_id === me || admin
+  const canDrag = useContext(CanDrag)
   const [open, setOpen] = useState(false)
   const complete = async () => {
     setChecked(true); setBusy(true)
@@ -140,7 +155,7 @@ export function EventItem({ e, me, admin, people, onChange }: { e: Ev; me: strin
     setBusy(false); onChange()
   }
   return (
-    <li className="tk" style={{ borderLeftColor: e.projects ? sectorColor(e.projects.sector) : '#9aa4b2' }}>
+    <li className="tk" style={{ borderLeftColor: e.projects ? sectorColor(e.projects.sector) : '#9aa4b2' }} {...dragProps(canDrag && mine, { kind: 'ev', id: e.id, from: e.starts_on })}>
       <div className="tk-main">
         <button type="button" className="tk-ico" role="checkbox" aria-checked={checked} disabled={!mine} onClick={(ev) => { ev.stopPropagation(); if (!busy && !checked) complete() }} aria-label={`Mark done: ${e.title}`} title="Mark done">
           <Mark kind="event" done={checked} color={e.projects ? sectorColor(e.projects.sector) : undefined} /></button>
@@ -183,6 +198,7 @@ function ProjMarkItem({ m, people, onChange }: { m: ProjMark; people: Person[]; 
   const [flip, setFlip] = useState<boolean | null>(null)
   const done = flip ?? m.done
   const late = !done && m.date < isoDate(new Date())
+  const canDrag = useContext(CanDrag)
   const toggle = async () => {
     const next = !done; setFlip(next); setBusy(true)
     const r = m.kind === 'milestone'
@@ -195,7 +211,7 @@ function ProjMarkItem({ m, people, onChange }: { m: ProjMark; people: Person[]; 
   const word = m.kind === 'milestone' ? (done ? 'reached' : 'not reached') : (done ? 'delivered' : 'not delivered')
   const [open, setOpen] = useState(false)
   return (
-    <li className={'tk tk-pm' + (done ? ' done' : '') + (late ? ' late' : '')} style={{ borderLeftColor: m.projects ? sectorColor(m.projects.sector) : '#9aa4b2' }}>
+    <li className={'tk tk-pm' + (done ? ' done' : '') + (late ? ' late' : '')} style={{ borderLeftColor: m.projects ? sectorColor(m.projects.sector) : '#9aa4b2' }} {...dragProps(canDrag, { kind: m.kind === 'milestone' ? 'ms' : 'dl', id: m.id, from: m.date })}>
       <div className="tk-main">
         <button type="button" className="tk-ico" role="checkbox" aria-checked={done} disabled={busy} onClick={(ev) => { ev.stopPropagation(); toggle() }}
           aria-label={`${m.kind === 'milestone' ? 'Milestone' : 'Deliverable'} ${m.title}: ${word}. Click to change.`} title={m.kind === 'milestone' ? (done ? 'Reached — click to undo' : 'Mark reached') : (done ? 'Delivered — click to undo' : 'Mark delivered')}>
@@ -244,13 +260,15 @@ async function fnError(error: unknown, fallback: string) {
 /** A Google Calendar meeting on the month grid. Click it for details (like Google Calendar). */
 function GEventItem({ e, people, project, onOpen }: { e: GM; people: Person[]; me: string; project?: Proj; onOpen: (e: GM, el: HTMLElement) => void }) {
   const [open, setOpen] = useState(false)
+  const canDrag = useContext(CanDrag)
   const body = <>
     <ProjTag p={project} />
     {!e.all_day && <span className="num tk-time">{time12(hhmm(e.start))} </span>}
     <Faces ids={e.people} people={people} /><span className="tk-title">{e.title}</span>
   </>
   return (
-    <li className={'tk tk-g' + (e.all_day ? ' allday' : '')} style={{ borderLeftColor: project ? sectorColor(project.sector) : '#9aa4b2' }}>
+    <li className={'tk tk-g' + (e.all_day ? ' allday' : '')} style={{ borderLeftColor: project ? sectorColor(project.sector) : '#9aa4b2' }}
+      {...dragProps(canDrag && e.can_edit, { kind: 'g', id: e.id, from: e.all_day ? e.start.slice(0, 10) : isoDate(new Date(e.start)) })}>
       <div className="tk-main">
         <span className="tk-ico tk-ico-static" aria-hidden="true"><Mark kind="event" done={false} color={project ? sectorColor(project.sector) : undefined} /></span>
         <button type="button" className="tk-text tk-open" aria-expanded={open} title={open ? 'Click to fold' : 'Click for details'} onClick={(ev) => { ev.stopPropagation(); setOpen(!open) }}>{body}</button>
@@ -596,6 +614,36 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   const order = [...people].sort((a, b) => (a.id === me ? -1 : b.id === me ? 1 : nameOf(a).localeCompare(nameOf(b))))
   const rank = (pid: string) => order.findIndex((p) => p.id === pid)
   const done = (m: string) => { setOpen(null); setMsg(m) } // the change itself reloads the lists (calendarChanged)
+  // drag & drop: move an item to another day; only the date changes
+  const move = async (d: DragItem, to: string) => {
+    if (d.from === to) return
+    const n = Math.round((parseDate(to).getTime() - parseDate(d.from).getTime()) / 864e5)
+    const when = parseDate(to).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    let error: { message: string } | null = null
+    if (d.kind === 'task') {
+      ({ error } = await supabase.from('tasks').update({ due_on: to }).eq('id', d.id))
+      if (!error) { syncTask(d.id, 'upsert'); calendarChanged('tasks') }
+    } else if (d.kind === 'ev') {
+      const e = (evs.data ?? []).find((x) => x.id === d.id); if (!e) return
+      ;({ error } = await supabase.from('calendar_events').update({ starts_on: isoDate(addDays(parseDate(e.starts_on), n)), ends_on: isoDate(addDays(parseDate(e.ends_on), n)) }).eq('id', d.id))
+      if (!error) calendarChanged('tasks')
+    } else if (d.kind === 'ms' || d.kind === 'dl') {
+      ;({ error } = d.kind === 'ms' ? await supabase.from('milestones').update({ date: to }).eq('id', d.id) : await supabase.from('deliverables').update({ due_date: to }).eq('id', d.id))
+      if (!error) marks.reload()
+    } else {
+      setMsg('Moving the event in Google Calendar…')
+      const { data, error: fe } = await supabase.functions.invoke('calendar-event', { body: { op: 'move', id: d.id, days: n, time_zone: tz() } })
+      if (fe || !data?.ok) { const x = await fnError(fe, 'Couldn’t move the event in Google Calendar.'); return setMsg(x.msg) }
+      calendarChanged('events')
+    }
+    setMsg(error ? error.message : `Moved to ${when}.`)
+  }
+  const [over, setOver] = useState<string | null>(null)
+  const drop = (k: string) => ({
+    onDragOver: (e: React.DragEvent) => { if (e.dataTransfer.types.includes(DRAG_MIME)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (over !== k) setOver(k) } },
+    onDragLeave: (e: React.DragEvent) => { if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) setOver((o) => (o === k ? null : o)) },
+    onDrop: (e: React.DragEvent) => { const raw = e.dataTransfer.getData(DRAG_MIME); setOver(null); if (!raw) return; e.preventDefault(); move(JSON.parse(raw) as DragItem, k) },
+  })
   const close = () => setOpen(null)
   // everything on one day, for the day / week / schedule views
   const itemsFor = (k: string): DayItems => {
@@ -627,6 +675,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
     ...x.tTimed.map((t) => { const a = minutes(t.due_time!.slice(0, 5)); return { key: t.id, a, b: a + 30, el: <ul className="tk-list">{tItem(t)}</ul> } }),
   ] }
   return (
+    <CanDrag.Provider value={true}>
     <section className="card pad stack" aria-labelledby="mc-h">
       <div className="row between">
         <h2 id="mc-h">{heading}</h2>
@@ -654,8 +703,8 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
       {feed.data && !connected && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Your Google Calendar meetings can show here, and events you add go to your Google Calendar: <a href="#/account">connect Google on My account</a>.</p>}
       {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
       {(tasks.error || evs.error) && <p className="err">{tasks.error || evs.error}</p>}
-      {((view === 'week' && weeks === 1) || view === 'day') && <TimeGrid days={cells} today={today} items={itemsFor} renderAllDay={renderAllDay} renderTimed={renderTimed} onEmpty={(k, el) => pop({ kind: 'new', day: k }, el)} />}
-      {view === 'schedule' && <ScheduleList days={cells} today={today} items={itemsFor} renderAll={(k) => renderAllDay(k, true)} onAdd={(k, el) => pop({ kind: 'new', day: k }, el)} />}
+      {((view === 'week' && weeks === 1) || view === 'day') && <TimeGrid days={cells} today={today} items={itemsFor} renderAllDay={renderAllDay} renderTimed={renderTimed} onEmpty={(k, el) => pop({ kind: 'new', day: k }, el)} drop={drop} over={over} />}
+      {view === 'schedule' && <ScheduleList days={cells} today={today} items={itemsFor} renderAll={(k) => renderAllDay(k, true)} onAdd={(k, el) => pop({ kind: 'new', day: k }, el)} drop={drop} over={over} />}
       {(view === 'month' || multiWeek) && <div style={{ overflowX: 'auto' }}><div className={'mc' + (multiWeek ? ` mc-w${weeks}` : '')} id="mc-grid" style={{ minWidth: 760 }}>
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => <div key={d} className="mc-h">{d}</div>)}
         {cells.slice(0, rows * 7).map((d) => {
@@ -664,7 +713,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
           const dayEvs = (evs.data ?? []).filter((e) => e.starts_on <= k && e.ends_on >= k && show(e.profile_id))
           return (
             // clicking empty space in a day opens quick-create for that day (the + button does the same, for keyboards)
-            <div key={k} className={'mc-cell' + (out ? ' out' : '') + (k === today ? ' today' : '')}
+            <div key={k} className={'mc-cell' + (out ? ' out' : '') + (k === today ? ' today' : '') + (over === k ? ' drop' : '')} {...drop(k)}
               onClick={(e) => { if (!(e.target as HTMLElement).closest('.tk, .mc-add, button, input, a, label')) pop({ kind: 'new', day: k }, e.currentTarget) }}>
               <div className="row between" style={{ gap: 4 }}>
                 <span className="mc-d">{d.getDate()}</span>
@@ -690,6 +739,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
         {open.kind === 'task' && <div className="qp-form"><AddTask me={me} admin={admin} people={people} projects={projects} day={open.task.due_on} edit={open.task} onCancel={close} onDone={(m) => done(m)} /></div>}
       </Pop>}
     </section>
+    </CanDrag.Provider>
   )
 }
 
@@ -701,8 +751,9 @@ type DayItems = { bills: BillRow[]; marks: ProjMark[]; evs: Ev[]; gAll: GM[]; gT
 type Timed = { key: string; a: number; b: number; el: React.ReactNode } // minutes from midnight
 
 /** Day and week views: an all-day strip on top, then an hourly timeline (opens scrolled to 7am), like Google Calendar. */
-function TimeGrid({ days, today, items, renderAllDay, renderTimed, onEmpty }: { days: Date[]; today: string; items: (k: string) => DayItems
-  renderAllDay: (k: string) => React.ReactNode; renderTimed: (k: string) => Timed[]; onEmpty: (k: string, el: HTMLElement) => void }) {
+type DropFn = (k: string) => React.HTMLAttributes<HTMLElement>
+function TimeGrid({ days, today, items, renderAllDay, renderTimed, onEmpty, drop, over }: { days: Date[]; today: string; items: (k: string) => DayItems
+  renderAllDay: (k: string) => React.ReactNode; renderTimed: (k: string) => Timed[]; onEmpty: (k: string, el: HTMLElement) => void; drop: DropFn; over: string | null }) {
   const body = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => { if (body.current) body.current.scrollTop = 7 * HOUR - 8 }, [days.length])
   const [now, setNow] = useState(() => new Date())
@@ -718,7 +769,7 @@ function TimeGrid({ days, today, items, renderAllDay, renderTimed, onEmpty }: { 
       </div>
       {anyAllDay && <div className="cv-allday" style={{ gridTemplateColumns: cols }}>
         <span className="cv-gut">all day</span>
-        {days.map((d) => { const k = isoDate(d); return <div key={k} className="cv-adcell">{renderAllDay(k)}</div> })}
+        {days.map((d) => { const k = isoDate(d); return <div key={k} className={'cv-adcell' + (over === k ? ' drop' : '')} {...drop(k)}>{renderAllDay(k)}</div> })}
       </div>}
       <div className="cv-body" ref={body}>
         <div className="cv-grid" style={{ gridTemplateColumns: cols, height: 24 * HOUR }}>
@@ -737,7 +788,7 @@ function TimeGrid({ days, today, items, renderAllDay, renderTimed, onEmpty }: { 
               group.push({ ...x, lane: l, n: 1 }); groupEnd = Math.max(groupEnd, x.b)
             }
             flush()
-            return <div key={k} className={'cv-col' + (k === today ? ' today' : '')}
+            return <div key={k} className={'cv-col' + (k === today ? ' today' : '') + (over === k ? ' drop' : '')} {...drop(k)}
               onClick={(e) => { if (!(e.target as HTMLElement).closest('.tk, button, input, a, label')) onEmpty(k, e.currentTarget) }}>
               {Array.from({ length: 24 }, (_, h) => <span key={h} className="cv-line" style={{ top: h * HOUR }} />)}
               {placed.map((x) => <div key={x.key} className="cv-ev" style={{ top: x.a / 60 * HOUR, height: Math.max(22, (x.b - x.a) / 60 * HOUR - 2), left: `calc(${x.lane / x.n * 100}% + 2px)`, width: `calc(${100 / x.n}% - 4px)` }}>{x.el}</div>)}
@@ -751,11 +802,11 @@ function TimeGrid({ days, today, items, renderAllDay, renderTimed, onEmpty }: { 
 }
 
 /** Schedule view: the next 30 days as a list, only days that have something on them. */
-function ScheduleList({ days, today, items, renderAll, onAdd }: { days: Date[]; today: string; items: (k: string) => DayItems; renderAll: (k: string) => React.ReactNode; onAdd: (k: string, el: HTMLElement) => void }) {
+function ScheduleList({ days, today, items, renderAll, onAdd, drop, over }: { days: Date[]; today: string; items: (k: string) => DayItems; renderAll: (k: string) => React.ReactNode; onAdd: (k: string, el: HTMLElement) => void; drop: DropFn; over: string | null }) {
   const busy = days.filter((d) => { const x = items(isoDate(d)); return x.bills.length + x.marks.length + x.evs.length + x.gAll.length + x.gTimed.length + x.tAll.length + x.tTimed.length > 0 })
   if (!busy.length) return <p className="muted" style={{ margin: 0 }}><em>Nothing scheduled from {days[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to {days[days.length - 1].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.</em></p>
   return <ol className="cv-sched">{busy.map((d) => { const k = isoDate(d); return (
-    <li key={k} className={k === today ? 'today' : ''}>
+    <li key={k} className={(k === today ? 'today' : '') + (over === k ? ' drop' : '')} {...drop(k)}>
       <div className="cv-sd"><strong className="num">{d.getDate()}</strong><span>{d.toLocaleDateString('en-US', { month: 'short', weekday: 'short' })}</span>
         <button type="button" className="mc-add" onClick={(e) => onAdd(k, e.currentTarget.closest('li') as HTMLElement)} aria-label={`Add an event or task on ${d.toDateString()}`}>+</button></div>
       <div className="cv-si">{renderAll(k)}</div>
