@@ -1,3 +1,6 @@
+import { useEffect, useState } from 'react'
+import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/auth'
 import { KIND_LABEL, fmtDate, type Update } from '../lib/projectContent'
 
 export default function UpdateCard({ u, urls, onDelete }: { u: Update; urls: Record<string, string>; onDelete?: () => void }) {
@@ -24,11 +27,27 @@ export default function UpdateCard({ u, urls, onDelete }: { u: Update; urls: Rec
 function EmailCard({ u, onDelete }: { u: Update; onDelete?: () => void }) {
   const [subject, ...rest] = (u.body ?? '').split('\n')
   const preview = rest.join(' ').trim()
+  // staff only (clients can't read email_log): open the email in Gmail, found by its Message-ID in whichever mailbox has it
+  const { session } = useAuth()
+  const [href, setHref] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    supabase.from('email_log').select('message_id').eq('update_id', u.id).maybeSingle().then(({ data }) => {
+      if (!live || !data?.message_id) return
+      const id = data.message_id.replace(/^<|>$/g, '')
+      const who = session?.user.email ? `?authuser=${encodeURIComponent(session.user.email)}` : ''
+      setHref(`https://mail.google.com/mail/${who}#search/${encodeURIComponent(`rfc822msgid:${id}`)}`)
+    })
+    return () => { live = false }
+  }, [u.id, session?.user.email])
+  const open = () => { if (href) window.open(href, '_blank', 'noopener') }
   return (
-    <article className="card pad stack up-email" style={{ gap: 6 }}>
+    <article className={'card pad stack up-email' + (href ? ' link' : '')} style={{ gap: 6 }} onClick={(e) => { if (!(e.target as HTMLElement).closest('button')) open() }}
+      role={href ? 'link' : undefined} tabIndex={href ? 0 : undefined} title={href ? 'Open this email in Gmail' : undefined}
+      onKeyDown={(e) => { if (href && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open() } }}>
       <div className="row between">
         <span className="pill">{KIND_LABEL.email}</span>
-        <span className="muted" style={{ fontSize: 13 }}>{fmtDate(u.created_at)}</span>
+        <span className="muted" style={{ fontSize: 13 }}>{href && <span className="up-email-open">Open in Gmail ↗ · </span>}{fmtDate(u.created_at)}</span>
       </div>
       <div className="row" style={{ gap: 8 }}>{u.title && <strong>{u.title}</strong>}
         {!u.visible_to_client && <span className="pill" style={{ borderColor: '#e4b4ad', color: 'var(--red)' }}>Staff only</span>}</div>
