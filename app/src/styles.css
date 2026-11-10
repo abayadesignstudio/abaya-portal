@@ -189,3 +189,5 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .stoday ul::-webkit-scrollbar-thumb:hover{background:rgba(200,191,159,.6)}
 .stoday ul::-webkit-scrollbar-button{display:none;height:0}
 @supports not selector(::-webkit-scrollbar){.stoday ul{scrollbar-width:thin;scrollbar-color:rgba(200,191,159,.45) transparent}}
+.up-bar{height:6px;border-radius:999px;background:#ece8de;overflow:hidden;max-width:420px}
+.up-bar > span{display:block;height:100%;background:var(--navy);transition:width .2s}
