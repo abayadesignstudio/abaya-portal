@@ -268,7 +268,7 @@ function GEventItem({ e, people, project, onOpen }: { e: GM; people: Person[]; m
     <Faces ids={e.people} people={people} /><span className="tk-title">{e.title}</span>{e.personal && <span className="tk-personal" title="From your personal calendar">{e.personal}</span>}
   </>
   return (
-    <li className={'tk tk-g' + (e.all_day ? ' allday' : '')} style={{ borderLeftColor: project ? sectorColor(project.sector) : '#9aa4b2' }}
+    <li className={'tk tk-g' + (e.all_day ? ' allday' : '') + (e.id.startsWith('pc:') ? ' tk-pers' : '')} style={{ borderLeftColor: project ? sectorColor(project.sector) : '#9aa4b2' }}
       {...dragProps(canDrag && e.can_edit, { kind: 'g', id: e.id, from: e.all_day ? e.start.slice(0, 10) : isoDate(new Date(e.start)) })}>
       <div className="tk-main">
         <span className="tk-ico tk-ico-static" aria-hidden="true"><Mark kind="event" done={false} color={project ? sectorColor(project.sector) : undefined} /></span>

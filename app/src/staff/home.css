@@ -214,3 +214,8 @@
 .tk.dragging{opacity:.45}
 .mc-cell.drop,.cv-adcell.drop,.cv-col.drop,.cv-sched > li.drop{background:#eef3f8;box-shadow:inset 0 0 0 2px #9ab3c9}
 .tk-personal{margin-left:4px;font-size:10.5px;font-weight:700;color:#5b6472;border:1px solid #d9d4c7;border-radius:999px;padding:0 5px;white-space:nowrap}
+/* events from a personal calendar (personal Gmail / iCloud / Outlook): green, like Google Calendar's personal color */
+.tk.tk-pers{background:#4f7a35;border-color:#4f7a35;border-left-color:#3b5d27 !important;color:#fff}
+.tk.tk-pers .tk-title,.tk.tk-pers .tk-time,.tk.tk-pers button{color:#fff}
+.tk.tk-pers .tk-personal{color:#e8f2df;border-color:rgba(255,255,255,.45)}
+.tk.tk-pers .tk-more-box{color:var(--text)}
