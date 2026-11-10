@@ -22,7 +22,7 @@ export type Inv = { id: string; number: string; status: string; total: number; a
 
 // Project sub-menu, Monograph-style: core pages, then client-facing content
 const NAV_MAIN = [['overview', 'Overview'], ['budget', 'Budget'], ['settings', 'Details'], ['drawings', 'Files']] as const
-const NAV_CLIENT = [['updates', 'Updates'], ['contract', 'Contract'], ['requests', 'Requests'], ['client', 'Client access']] as const
+const NAV_CLIENT = [['updates', 'Updates'], ['contract', 'Contract'], ['requests', 'Additional services'], ['client', 'Client access']] as const
 type Tab = typeof NAV_MAIN[number][0] | typeof NAV_CLIENT[number][0]
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -396,20 +396,51 @@ export function ContractTab({ projectId, phases, onSaved }: { projectId: string;
 
 /* ---------------- Requests ---------------- */
 export function RequestsTab({ projectId }: { projectId: string }) {
+  const { profile } = useAuth()
   const list = useLoad(async () => must(await supabase.from('service_requests').select('*').eq('project_id', projectId).order('created_at', { ascending: false })) as ServiceRequest[], [projectId])
   const save = async (r: ServiceRequest, patch: Partial<ServiceRequest>) => { await supabase.from('service_requests').update(patch).eq('id', r.id); list.reload() }
+  const [n, setN] = useState({ description: '', quote: '', status: 'quoted' }); const [err, setErr] = useState('')
+  const add = async (e: React.FormEvent) => {
+    e.preventDefault(); setErr('')
+    if (!n.description.trim()) return setErr('Describe the service.')
+    const { error } = await supabase.from('service_requests').insert({ project_id: projectId, requested_by: profile?.id, description: n.description.trim(), quote: n.quote ? Number(n.quote) : null, status: n.status })
+    if (error) return setErr(error.message)
+    setN({ description: '', quote: '', status: 'quoted' }); list.reload()
+  }
+  const remove = async (r: ServiceRequest) => {
+    if (!window.confirm(`Delete “${r.description.slice(0, 60)}”? The client will no longer see it. This can’t be undone.`)) return
+    const { error } = await supabase.from('service_requests').delete().eq('id', r.id)
+    if (error) return setErr(error.message)
+    list.reload()
+  }
+  const total = (list.data ?? []).filter((r) => r.status === 'approved' || r.status === 'done').reduce((a, r) => a + Number(r.quote ?? 0), 0)
   return (
-    <section className="card pad stack">
-      <h2>Additional service requests</h2>
-      {list.data?.length === 0 && <p className="muted"><em>No requests from the client yet.</em></p>}
-      {list.data?.map((r) => <div key={r.id} className="row between" style={{ padding: '10px 0', borderTop: '1px solid #efece6', alignItems: 'flex-start' }}>
-        <div style={{ flex: 1, minWidth: 240 }}><p style={{ margin: 0 }}>{r.description}</p><p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>{fmtDate(r.created_at)}</p></div>
-        <div className="row">
-          <label className="sr" htmlFor={'rq' + r.id}>Quote</label><input id={'rq' + r.id} className="input num" style={{ width: 120 }} placeholder="Quote $" defaultValue={r.quote ?? ''} onBlur={(e) => save(r, { quote: e.target.value ? Number(e.target.value) : null })} />
-          <label className="sr" htmlFor={'rs' + r.id}>Status</label><select id={'rs' + r.id} className="input" style={{ width: 'auto' }} value={r.status} onChange={(e) => save(r, { status: e.target.value })}>
-            <option value="requested">Requested</option><option value="quoted">Quoted</option><option value="approved">Approved</option><option value="declined">Declined</option><option value="done">Done</option></select>
-        </div></div>)}
-    </section>
+    <div className="stack">
+      <form onSubmit={add} className="card pad stack" aria-label="Add an additional service">
+        <h2>Add an additional service</h2>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>For work outside the agreement. It appears on the client’s project page under “Request additional services” with its quote and status.</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px,1fr) 140px 160px auto', gap: 10, alignItems: 'end' }}>
+          <div><label className="l" htmlFor="as-d">Service</label><input id="as-d" className="input" value={n.description} placeholder="e.g. Revised site plan for pond relocation" onChange={(e) => setN({ ...n, description: e.target.value })} /></div>
+          <div><label className="l" htmlFor="as-q">Fee</label><input id="as-q" className="input num" inputMode="decimal" placeholder="$" value={n.quote} onChange={(e) => setN({ ...n, quote: e.target.value })} /></div>
+          <div><label className="l" htmlFor="as-s">Status</label><select id="as-s" className="input" value={n.status} onChange={(e) => setN({ ...n, status: e.target.value })}>
+            <option value="quoted">Quoted (awaiting approval)</option><option value="approved">Approved</option><option value="done">Done</option></select></div>
+          <div><button className="btn">Add service</button></div>
+        </div>
+        {err && <p className="err" role="alert">{err}</p>}
+      </form>
+      <section className="card pad stack">
+        <div className="row between"><h2 style={{ margin: 0 }}>Additional services</h2>{total > 0 && <span className="muted">Approved: <strong className="num">{money(total)}</strong></span>}</div>
+        {list.data?.length === 0 && <p className="muted" style={{ margin: 0 }}><em>None yet — client requests also appear here.</em></p>}
+        {list.data?.map((r) => <div key={r.id} className="row between" style={{ padding: '10px 0', borderTop: '1px solid #efece6', alignItems: 'flex-start', flexWrap: 'nowrap' }}>
+          <div style={{ flex: 1, minWidth: 240 }}><p style={{ margin: 0 }}>{r.description}</p><p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>{fmtDate(r.created_at)}</p></div>
+          <div className="row" style={{ flexWrap: 'nowrap' }}>
+            <label className="sr" htmlFor={'rq' + r.id}>Fee</label><input id={'rq' + r.id} className="input num" style={{ width: 120 }} placeholder="Quote $" defaultValue={r.quote ?? ''} onBlur={(e) => save(r, { quote: e.target.value ? Number(e.target.value) : null })} />
+            <label className="sr" htmlFor={'rs' + r.id}>Status</label><select id={'rs' + r.id} className="input" style={{ width: 'auto' }} value={r.status} onChange={(e) => save(r, { status: e.target.value })}>
+              <option value="requested">Requested</option><option value="quoted">Quoted</option><option value="approved">Approved</option><option value="declined">Declined</option><option value="done">Done</option></select>
+            <RowMenu label="Service actions" items={[{ label: 'Delete…', danger: true, onSelect: () => remove(r) }]} />
+          </div></div>)}
+      </section>
+    </div>
   )
 }
 
