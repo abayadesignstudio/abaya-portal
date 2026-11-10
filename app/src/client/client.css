@@ -15,3 +15,18 @@
 .cp-inv{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .cp-inv li{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:1px solid var(--line);border-left:4px solid var(--line);border-radius:8px}
 .cp-inv li.late{border-left-color:var(--red);background:#fdf3f2}
+
+/* client top bar (shared by the client portal and the staff preview) */
+.ch{background:var(--navy);color:#ede6d6;height:64px;padding:0 clamp(16px,3vw,40px);display:flex;justify-content:space-between;align-items:center;gap:16px}
+.ch-left{display:flex;align-items:center;gap:32px;min-width:0;height:100%}
+.ch-brand{display:flex;align-items:center;gap:10px;text-decoration:none;flex:none}
+.ch-brand img{height:36px;width:36px}
+.ch-brand .ch-word{height:28px;width:auto}
+.ch-nav{display:flex;align-items:center;gap:22px;height:100%}
+.ch-link{display:flex;align-items:center;height:100%;box-sizing:border-box;border-bottom:2px solid transparent;border-top:2px solid transparent;color:#c5ccd8;text-decoration:none;font-size:14px;font-weight:700;line-height:1;letter-spacing:.01em}
+.ch-link:hover{color:#fff}
+.ch-link.on{color:#fff;border-bottom-color:#9a8f63}
+.ch-right{display:flex;align-items:center;gap:12px;font-size:13px}
+.ch-out{border:1px solid rgba(237,230,214,.45);background:transparent;color:#ede6d6;border-radius:8px;padding:5px 11px;font:inherit;font-weight:700;cursor:pointer}
+.ch-out:disabled{cursor:default}
+@media (max-width:640px){.ch-email,.ch-brand .ch-word{display:none}.ch-left{gap:18px}}

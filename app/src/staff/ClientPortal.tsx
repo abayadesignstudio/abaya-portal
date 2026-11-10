@@ -5,6 +5,7 @@ import { useLoad, must } from '../lib/useQuery'
 import { sortPhases, fmtDate, PHASE_STYLE } from '../lib/projectContent'
 import Combobox, { sectorColor } from '../components/Combobox'
 import { ClientProjectView, type EditSection } from '../client/ClientProject'
+import ClientHeader from '../client/ClientHeader'
 import { UpdatesTab, DrawingsTab, ContractTab, RequestsTab, ClientAccessTab, type Phase, type Project, type Inv } from './ProjectDetail'
 import './client-portal.css'
 
@@ -61,7 +62,7 @@ export default function ClientPortal() {
         <div className="cp-frame" aria-label="Client view preview">
           <div className="cp-chrome"><span /><span /><span /><em>Client view · {p.clients?.name ?? 'no client yet'}</em>
             <button type="button" className="cp-access" onClick={() => setEdit('access')}>Client access</button></div>
-          <ClientHeader />
+          <ClientHeader preview email={p.clients?.name ?? null} />
           <div className="cp-body">
             <ClientProjectView key={p.id} projectId={p.id} preview={{ onEdit: setEdit, active: edit === 'access' ? null : edit, reloadKey }} />
           </div>
@@ -85,17 +86,6 @@ export default function ClientPortal() {
   )
 }
 
-function ClientHeader() {
-  return (
-    <div className="cp-head">
-      <div className="row" style={{ gap: 28 }}>
-        <span className="cp-logo">ABAYA <span>DESIGN STUDIO</span></span>
-        <span className="cp-nav"><b>Projects</b><span>Invoices</span></span>
-      </div>
-      <span className="cp-btn">Sign out</span>
-    </div>
-  )
-}
 
 function Editor({ section, project, onSaved }: { section: Section; project: Project; onSaved: () => void }) {
   const d = useLoad(async () => ({

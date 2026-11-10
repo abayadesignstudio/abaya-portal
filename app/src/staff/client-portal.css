@@ -6,12 +6,6 @@
 .cp-chrome > span{width:10px;height:10px;border-radius:50%;background:#d0cabb}
 .cp-chrome em{margin-left:8px;font-style:normal;color:#5b6472;font-weight:600}
 .cp-access{margin-left:auto;border:1px solid #c9c2b0;background:#fff;border-radius:999px;padding:3px 10px;font:inherit;font-weight:700;color:var(--navy);cursor:pointer}
-.cp-head{background:var(--navy);color:#ede6d6;padding:12px 24px;display:flex;justify-content:space-between;align-items:center;gap:16px}
-.cp-logo{font-family:'EB Garamond',Georgia,serif;letter-spacing:.18em;font-size:20px}
-.cp-logo span{font-size:10px;letter-spacing:.3em}
-.cp-nav{display:flex;gap:20px;font-weight:700;color:#c5ccd8}
-.cp-nav b{color:#fff;border-bottom:2px solid #9a8f63;padding-bottom:4px}
-.cp-btn{border:1px solid rgba(237,230,214,.5);border-radius:8px;padding:4px 10px;font-size:13px;font-weight:700}
 .cp-body{padding:22px clamp(14px,2vw,28px) 40px;max-width:1200px;margin:0 auto}
 @media (max-width:1500px){.cp-wrap.editing .cp-body .cl-grid{grid-template-columns:minmax(0,1fr)}}
 
