@@ -134,10 +134,11 @@ function ModelPanel({ projectId, files }: { projectId: string; files: { name: st
   const show = tab ?? (glb ? 'model' : imgs.length ? 'renderings' : 'model')
   return (
     <section className="card" aria-label="3D model and renderings" style={{ overflow: 'hidden' }} onContextMenu={(e) => e.preventDefault()}>
-      {show === 'renderings' ? <Renderings images={imgs} />
-        : glb ? (url ? <Suspense fallback={<div className="mv"><div className="mv-msg">Loading viewer…</div></div>}><ModelViewer url={url} /></Suspense>
-          : <div className="mv"><div className="mv-msg">Loading model…</div></div>)
-        : <div className="mv"><div className="mv-msg" style={{ textAlign: 'center', padding: 24 }}><div><strong style={{ fontSize: 18 }}>3D model</strong><p style={{ color: '#c5ccd8', margin: '8px 0 0', fontWeight: 400 }}>Your project’s 3D model will appear here once it’s published, so you can orbit around it and step through saved views.</p></div></div></div>}
+      {show === 'renderings' && <Renderings images={imgs} />}
+      {/* the viewer stays mounted while renderings are shown, so switching back doesn't reload the model */}
+      {glb ? <div hidden={show !== 'model'}>{url ? <Suspense fallback={<div className="mv"><div className="mv-msg">Loading viewer…</div></div>}><ModelViewer url={url} /></Suspense>
+          : <div className="mv"><div className="mv-msg">Loading model…</div></div>}</div>
+        : show === 'model' && <div className="mv"><div className="mv-msg" style={{ textAlign: 'center', padding: 24 }}><div><strong style={{ fontSize: 18 }}>3D model</strong><p style={{ color: '#c5ccd8', margin: '8px 0 0', fontWeight: 400 }}>Your project’s 3D model will appear here once it’s published, so you can orbit around it and step through saved views.</p></div></div></div>}
       <div className="vis-tabs" role="tablist" aria-label="Project visuals">
         <button type="button" role="tab" aria-selected={show === 'model'} className={show === 'model' ? 'on' : ''} onClick={() => setTab('model')}>3D model</button>
         <button type="button" role="tab" aria-selected={show === 'renderings'} className={show === 'renderings' ? 'on' : ''} onClick={() => setTab('renderings')}>Renderings{imgs.length ? ` (${imgs.length})` : ''}</button>
