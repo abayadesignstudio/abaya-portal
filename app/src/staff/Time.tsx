@@ -39,7 +39,9 @@ export default function Time() {
     const rows = must(await supabase.from('timesheet_rows').select('id, project_id, phase_id, role_label, activity, bill_rate').eq('profile_id', me).order('created_at')) as RowDef[]
     const phaseIds = Array.from(new Set([...rows, ...entries].map((r) => r.phase_id).filter(Boolean))) as string[]
     const totals = phaseIds.length ? must(await supabase.from('time_entries').select('phase_id, minutes').eq('profile_id', me).in('phase_id', phaseIds)) as { phase_id: string; minutes: number }[] : []
-    return { entries, rows, totals }
+    // hours assigned to this person on each phase (project → Budget), spread over the phase's weekdays
+    const allocs = phaseIds.length ? must(await supabase.from('phase_allocations').select('phase_id, hours').eq('profile_id', me).in('phase_id', phaseIds)) as { phase_id: string; hours: number }[] : []
+    return { entries, rows, totals, allocs }
   }, [me, week])
   const reload = data.reload
   useEffect(() => { window.addEventListener(TIME_CHANGED, reload); return () => window.removeEventListener(TIME_CHANGED, reload) }, [reload])
@@ -57,6 +59,20 @@ export default function Time() {
   const cell = (r: RowDef, d: Date) => entries.filter((e) => keyOf(e) === keyOf(r) && e.work_date === iso(d)).reduce((a, e) => a + e.minutes, 0)
   const dayTotal = (d: Date) => entries.filter((e) => e.work_date === iso(d)).reduce((a, e) => a + e.minutes, 0)
   const weekTotal = entries.reduce((a, e) => a + e.minutes, 0)
+  /** This week's share of the hours allocated on a phase: allocation × (phase weekdays in this week ÷ all phase weekdays). */
+  const weekAlloc = (projectId: string, phaseId: string | null): number | null => {
+    if (!phaseId) return null
+    const a = (data.data?.allocs ?? []).find((x) => x.phase_id === phaseId)
+    if (!a || !Number(a.hours)) return null
+    const ph = pById[projectId]?.phases.find((x) => x.id === phaseId)
+    if (!ph?.start_date || !ph?.end_date) return null
+    const weekdays = (from: Date, to: Date) => { let n = 0; const d = new Date(from); while (d <= to) { const g = d.getDay(); if (g !== 0 && g !== 6) n++; d.setDate(d.getDate() + 1) } return n }
+    const [s0, e0] = [ph.start_date, ph.end_date].map((x) => { const [y, m, d] = x.split('-').map(Number); return new Date(y, m - 1, d) })
+    const total = weekdays(s0, e0); if (!total) return null
+    const ws = days[0], we = days[6]
+    const from = s0 > ws ? s0 : ws, to = e0 < we ? e0 : we
+    return from > to ? 0 : Number(a.hours) * weekdays(from, to) / total
+  }
   const phaseTotal = (phaseId: string | null) => phaseId ? (data.data?.totals ?? []).filter((t) => t.phase_id === phaseId).reduce((a, t) => a + t.minutes, 0) : 0
 
   // a note typed on a day with no hours yet waits here until hours go in
@@ -239,7 +255,17 @@ export default function Time() {
                       {isOH ? <strong>Overhead</strong> : <div style={{ minWidth: 0 }}>
                         <div>{code ? `${code} · ` : ''}{r.role_label ?? 'Role not set'}{r.bill_rate != null && <span className="muted"> · ${Number(r.bill_rate)}/hr</span>}</div>
                         <strong>{code ? PHASE_NAME[code] : legacyOf(data.data?.entries ?? [], r)}</strong></div>}
-                      {r.phase_id && <span title="Hours on this phase, all time" className="num ts-circle">{hrs(phaseTotal(r.phase_id))}</span>}
+                      {r.phase_id && (() => {
+                        // this week's allocated hours for this phase (from the phase timeline); the ring fills as hours are logged this week
+                        const alloc = weekAlloc(r.project_id, r.phase_id)
+                        const logged = days.reduce((a, d) => a + cell(r, d), 0) / 60
+                        const pct = alloc ? Math.min(1, logged / alloc) : 0
+                        const over = !!alloc && logged > alloc + 0.01
+                        return <span className={'num ts-circle' + (over ? ' over' : '')} style={{ ['--p' as string]: `${pct * 360}deg` }}
+                          title={alloc == null ? `No hours allocated to you on this phase (project → Budget). ${hrs(phaseTotal(r.phase_id))} h logged on it in total.`
+                            : `${alloc.toFixed(1)} h allocated this week from the phase timeline · ${logged.toFixed(1)} h logged this week · ${hrs(phaseTotal(r.phase_id))} h on the phase in total`}>
+                          {alloc == null ? '—' : (Math.round(alloc * 10) / 10).toLocaleString()}</span>
+                      })()}
                     </div>
                     <div className="cell ts-l">
                       <label className="sr" htmlFor={'act-' + keyOf(r)}>Activity</label>

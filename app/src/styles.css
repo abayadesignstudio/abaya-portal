@@ -171,14 +171,16 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .stoday-now{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#32d583}
 .ts-svc{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .ts-svc legend{padding:0;margin-bottom:6px}
-/* sidebar: Today's list grows upward until it meets the nav, then scrolls (slim pill scrollbar, no arrows) */
+/* sidebar: Today's list grows upward until it meets the nav, then scrolls (slim pill scrollbar, no arrows).
+   If the window is too short even for that, the whole sidebar scrolls instead of squeezing the timer. */
 .side > div:first-child{flex:none}
-.side-bottom{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;justify-content:flex-end;padding-top:12px}
-.side-bottom > .stimer{flex:0 1 auto;min-height:0;display:flex;flex-direction:column}
+.side-bottom{flex:1 1 auto;display:flex;flex-direction:column;justify-content:flex-end;padding-top:12px}
+.side-bottom > .stimer{flex:0 1 auto;display:flex;flex-direction:column;min-height:0}
 .side-bottom .me{flex:none}
-.stimer > .stoday{flex:0 1 auto;min-height:0;display:flex;flex-direction:column}
+.stimer > .stoday{flex:0 1 auto;display:flex;flex-direction:column;overflow:clip;min-height:0}
 .stoday > .stoday-h,.stimer > .stimer-bar{flex:none}
-.stoday > ul{flex:1 1 auto;min-height:0;max-height:none}
+.stoday > ul{flex:1 1 auto;min-height:min(100%, 92px);max-height:none}
+.side-bottom{min-height:min-content}
 .stoday ul::-webkit-scrollbar{width:6px}
 .stoday ul::-webkit-scrollbar-track{background:transparent;margin:4px 0}
 .stoday ul::-webkit-scrollbar-thumb{background:rgba(200,191,159,.38);border-radius:999px}

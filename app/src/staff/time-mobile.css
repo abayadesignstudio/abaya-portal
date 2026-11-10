@@ -30,3 +30,5 @@
 .ts-note p{margin:0;padding:10px 14px;font-size:14px}
 .ts-note a{font-weight:700}
 .ts-hasnote{position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:50%;background:#b54708;pointer-events:none}
+.ts-circle{border:0;background:radial-gradient(closest-side,#fff calc(100% - 4px),transparent calc(100% - 3px)),conic-gradient(var(--navy) var(--p,0deg),#e4e0d8 0)}
+.ts-circle.over{background:radial-gradient(closest-side,#fff calc(100% - 4px),transparent calc(100% - 3px)),conic-gradient(#b54708 var(--p,0deg),#e4e0d8 0)}
