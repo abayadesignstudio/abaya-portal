@@ -18,9 +18,14 @@ export type DocState = {
   /** manual page breaks: "s<section>" or "c<clause id>" */
   pb?: string[]
   custom: Custom[]
+  /** 'standard' (default): general clauses use the firm's standard wording and can't be edited or omitted here.
+   *  'custom': every clause is editable (e.g. a consulting / plan-review agreement). */
+  terms?: 'standard' | 'custom'
 }
 
 export const PHN: [string, string][] = [['CE', 'Conceptual / Exploratory'], ['SD', 'Schematic Design'], ['DD', 'Design Development'], ['CD', 'Construction Documents'], ['BN', 'Bidding & Negotiation'], ['PM', 'Permitting'], ['CA', 'Construction Administration']]
+/** Project-specific clauses: always editable. Every other standard clause is the firm's standard wording. */
+export const OPEN_CLAUSES = new Set(['1.1', '1.2', '1.3', '1.4', '2.2', '2.3', '2.10', '2.11', '2.12', '6.1', '6.2', '8.1', '8.3'])
 export const LBL: Record<string, string> = { projName: 'Project name', projAddr: 'Project address', consultants: 'Consultants', phases: 'Number of phases', validity: 'Days fee is valid' }
 
 const C = (id: string, title: string, body?: string[], kind?: string, sub?: boolean): Clause => ({

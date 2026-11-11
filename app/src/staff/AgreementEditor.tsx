@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { syncPctPhases } from '../lib/fees'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
-import { STANDARD, PHN, newDoc, type DocState, type Clause } from '../lib/agreementTemplate'
+import { STANDARD, PHN, OPEN_CLAUSES, newDoc, type DocState, type Clause } from '../lib/agreementTemplate'
 import LogoField, { loadFirmLogo } from './LogoField'
 import FillablePanel from './FillablePanel'
 import SignatureField from './SignatureField'
@@ -47,7 +47,7 @@ type SigRow = { signer_name: string; signer_title: string | null; signer_email: 
 type UI = { fillable: boolean; pages: boolean; mode: 'draft' | 'final'; changesIn: 'text' | 'report'; check: boolean; openSec: number; openCl: string; editing: string; draft: string; addFor: string; nTitle: string; nBody: string; newSecTitle: string; exNew: string }
 const UI0: UI = { fillable: false, pages: false, mode: 'draft', changesIn: 'text', check: false, openSec: 0, openCl: '', editing: '', draft: '', addFor: '', nTitle: '', nBody: '', newSecTitle: '', exNew: '' }
 
-type CView = Clause & { num: string; sec: number; cur: string; added: boolean; customIdx?: number; off: boolean; modified: boolean; missing: string[] }
+type CView = Clause & { num: string; sec: number; cur: string; added: boolean; customIdx?: number; off: boolean; modified: boolean; missing: string[]; locked?: boolean }
 type SView = { n: number; title: string; initial?: boolean; clauses: CView[] }
 
 /** Builds the document model (sections with current text, issues, report) from the saved state. */
@@ -63,9 +63,10 @@ export function build(doc: DocState) {
   const secs: SView[] = STANDARD.map((s) => ({ n: s.n, title: s.title, initial: s.initial, clauses: [] as CView[] }))
   const missingIn = (txt: string) => (txt.match(/\{[^}]+\}/g) || []).map((x) => x.slice(1, -1)).filter((l) => FP[l] && !FP[l][1])
   STANDARD.forEach((s, si) => s.clauses.forEach((c) => {
-    const off = !!doc.off[c.id]
-    const cur = doc.edits[c.id] !== undefined ? doc.edits[c.id] : c.std
-    secs[si].clauses.push({ ...c, num: c.num ?? c.id, sec: s.n, cur, added: false, off, modified: doc.edits[c.id] !== undefined && doc.edits[c.id] !== c.std, missing: off ? [] : missingIn(c.title + ' ' + cur) })
+    const locked = doc.terms !== 'custom' && !OPEN_CLAUSES.has(c.id) // general terms: firm standard wording
+    const off = !locked && !!doc.off[c.id]
+    const cur = !locked && doc.edits[c.id] !== undefined ? doc.edits[c.id] : c.std
+    secs[si].clauses.push({ ...c, locked, num: c.num ?? c.id, sec: s.n, cur, added: false, off, modified: !locked && doc.edits[c.id] !== undefined && doc.edits[c.id] !== c.std, missing: off ? [] : missingIn(c.title + ' ' + cur) })
   }))
   doc.custom.forEach((c, i) => {
     let sec = secs.find((x) => String(x.n) === String(c.sec))
@@ -341,7 +342,7 @@ function Outline({ doc, model, ui, patchUi, up, setV, firmLogo, setFirmLogo }: O
   const v = doc.v
   const inp = (k: string, label: string, type = 'text') => <Field id={'ag-' + k} label={label}><input id={'ag-' + k} type={type} className="input" value={v[k] ?? ''} onChange={setV(k)} /></Field>
   const ta = (k: string, label: string, rows = 3, hint?: string) => <Field id={'ag-' + k} label={label} hint={hint}><textarea id={'ag-' + k} className="input" rows={rows} value={v[k] ?? ''} onChange={setV(k)} /></Field>
-  const chipsOf = (c: CView) => [c.off ? ['Omitted', RED, '#fdecea'] : null, c.modified ? ['Modified', BLUE, '#e8f1fb'] : null, c.added ? ['Added', BLUE, '#e8f1fb'] : null, c.missing.length ? ['Needs info', '#8a4b00', '#fdf1dc'] : null].filter(Boolean) as string[][]
+  const chipsOf = (c: CView) => [c.off ? ['Omitted', RED, '#fdecea'] : null, c.modified ? ['Modified', BLUE, '#e8f1fb'] : null, c.added ? ['Added', BLUE, '#e8f1fb'] : null, c.missing.length ? ['Needs info', '#8a4b00', '#fdf1dc'] : null, c.locked ? ['🔒', '#777', 'transparent'] : null].filter(Boolean) as string[][]
   const label = (c: CView) => `${c.num} ${c.title.replace(/\{[^}]+\}/g, (x) => model.FP[x.slice(1, -1)]?.[1] || '…')}`
 
   return (
@@ -349,6 +350,14 @@ function Outline({ doc, model, ui, patchUi, up, setV, firmLogo, setFirmLogo }: O
       <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)', background: '#f6f5f2' }}>
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>Standard form · <strong style={{ color: 'var(--text)' }}>Owner–Architect Agreement</strong></p>
         <p style={{ margin: '6px 0 0', fontSize: 13, lineHeight: 1.4 }}>Grey text in the agreement is a <strong>fill point</strong>; orange still needs filling in. Click any clause to open it here. Standard text is locked until you choose <em>Edit wording</em>, and every change is tracked.</p>
+      </div>
+      <div style={{ padding: '10px 16px', borderBottom: '1px solid #ece9e3', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>Terms</span>
+        <div className="ag-seg" role="group" aria-label="Terms">
+          <button type="button" aria-pressed={doc.terms !== 'custom'} onClick={() => up((d) => { delete d.terms })}>Standard</button>
+          <button type="button" aria-pressed={doc.terms === 'custom'} onClick={() => { if (confirm('Switch this agreement to custom terms? Every clause becomes editable for this agreement only (use for consulting or other non-standard contracts).')) up((d) => { d.terms = 'custom' }) }}>Custom</button>
+        </div>
+        <span className="muted" style={{ fontSize: 12, flexBasis: '100%' }}>{doc.terms === 'custom' ? 'Every clause can be edited for this agreement.' : 'General clauses (🔒) use the firm standard; project, scope, consultants, phases, exclusions and fees stay editable.'}</span>
       </div>
       <div style={{ borderBottom: '1px solid #ece9e3' }}>
         <button type="button" className="ag-row" style={{ padding: '13px 16px', fontWeight: 700 }} aria-expanded={ui.openSec === 0} onClick={() => patchUi({ openSec: ui.openSec === 0 ? -1 : 0 })}>{ui.openSec === 0 ? '▾' : '▸'} Cover · Parties &amp; Project</button>
@@ -426,6 +435,13 @@ function ClausePanel({ c, doc, model, ui, patchUi, up, setV }: OutlineProps & { 
     if (c.added && c.customIdx !== undefined) d.custom[c.customIdx].body = ui.draft
     else if (ui.draft === c.std) delete d.edits[c.id]; else d.edits[c.id] = ui.draft
   })
+  if (c.locked) return (
+    <div className="ag-panel">
+      <p style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}>🔒 <strong>Standard terms.</strong> This clause uses the firm’s standard wording on every agreement, so it can’t be edited or omitted here.</p>
+      {tokens.map((l) => { const key = model.FP[l][0]; return key ? <Field key={l} id={`fp-${c.id}-${key}`} label={l}><input id={`fp-${c.id}-${key}`} className="input" style={{ background: '#f1f1f1' }} value={v[key] ?? ''} onChange={setV(key)} /></Field> : null })}
+      <p className="muted" style={{ margin: 0, fontSize: 12 }}>For a one-off contract that needs different terms (e.g. consulting), switch <em>Terms</em> to Custom at the top of this outline.</p>
+    </div>
+  )
   return (
     <div className="ag-panel">
       <div className="ag-seg" role="group" aria-label="Use this clause" style={{ alignSelf: 'flex-start' }}>
