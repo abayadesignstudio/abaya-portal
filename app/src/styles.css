@@ -218,3 +218,7 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 
 .cc-split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
 @media (max-width:1150px){.cc-split{grid-template-columns:1fr}}
+
+.gsi{display:flex;align-items:center;justify-content:center;gap:12px;background:#fff!important;color:#1f1f1f!important;border:1px solid #747775!important;min-height:52px;font-size:16px;font-weight:600}
+.gsi:hover{background:#f6f8fb!important}
+.gsi-or{display:flex;align-items:center;gap:10px;color:#8a8f98;font-size:13px}.gsi-or::before,.gsi-or::after{content:'';flex:1;border-top:1px solid #e4e0d8}
