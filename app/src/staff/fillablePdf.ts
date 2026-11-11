@@ -53,10 +53,14 @@ export async function makeFillable(bytes: ArrayBuffer, layout: Layout): Promise<
   if (pdf.getForm().getFields().length) throw new LayoutMismatch('This PDF already has fillable fields. Drop the plain export from Download PDF instead.')
 
   const form = pdf.getForm()
+  // A page can hold more than one Initial line (two short sections ending on the same page). Those lines share one
+  // field, so the Owner types the initials once and every line on that page fills in.
+  const made = new Map<string, ReturnType<typeof form.createTextField>>()
   layout.spots.forEach((s) => {
     const page = pages[s.page]
     const name = s.kind === 'initial' ? `Owner Initials - Page ${s.page + 1}` : s.kind === 'signature' ? 'Owner Signature' : 'Owner Printed Name'
-    const f = form.createTextField(name)
+    const f = made.get(name) ?? form.createTextField(name)
+    made.set(name, f)
     f.addToPage(page, {
       x: MARGIN_PT + s.x * PX, y: LETTER[1] - MARGIN_PT - (s.y + s.h) * PX, width: s.w * PX, height: s.h * PX,
       borderWidth: 0,
