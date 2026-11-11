@@ -5,6 +5,7 @@ import { useAuth } from '../lib/auth'
 import { type DocState } from '../lib/agreementTemplate'
 import { Document, build, type SignView } from '../staff/AgreementEditor'
 import { cleanSignature } from '../staff/SignatureField'
+import { agreementFileName, printFileName } from '../lib/printTitle'
 import { buildPrintPages, removePrintPages, sectionStartPages, sourceDoc } from '../staff/printPages'
 import '@fontsource/great-vibes/400.css'
 import '@fontsource/dancing-script/600.css'
@@ -62,10 +63,14 @@ export default function ClientAgreement() {
   // table of contents page numbers, and our own print layout (same as the staff Download PDF)
   const [toc, setToc] = useState<Record<number, number>>({})
   useEffect(() => { if (!doc) return; const t = setTimeout(() => document.fonts.ready.then(() => { const s = sourceDoc(); if (s) setToc(sectionStartPages(s)) }), 400); return () => clearTimeout(t) }, [doc, sig])
+  const fileName = useRef('')
+  fileName.current = doc ? agreementFileName(doc.v, row?.title ?? '', !!sig) : ''
   useEffect(() => {
-    const before = () => buildPrintPages(sourceDoc())
-    window.addEventListener('beforeprint', before); window.addEventListener('afterprint', removePrintPages)
-    return () => { window.removeEventListener('beforeprint', before); window.removeEventListener('afterprint', removePrintPages); removePrintPages() }
+    const t = printFileName(fileName)
+    const before = () => { t.before(); buildPrintPages(sourceDoc()) }
+    const after = () => { t.after(); removePrintPages() }
+    window.addEventListener('beforeprint', before); window.addEventListener('afterprint', after)
+    return () => { window.removeEventListener('beforeprint', before); window.removeEventListener('afterprint', after); removePrintPages() }
   }, [])
 
   if (err && !row) return <p className="err">{err}</p>

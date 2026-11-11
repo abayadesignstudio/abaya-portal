@@ -10,6 +10,7 @@ import SignatureField from './SignatureField'
 import TypePicker, { typeNames } from './TypePicker'
 import ProjectLink from './ProjectLink'
 import { measureLayout } from './fillablePdf'
+import { agreementFileName, printFileName } from '../lib/printTitle'
 import { buildPages, buildPrintPages, removePrintPages, sectionStartPages, sourceDoc } from './printPages'
 import '@fontsource/lato/700.css'
 import '@fontsource/lato/700-italic.css'
@@ -183,11 +184,15 @@ export default function AgreementEditor() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Printing (button or Ctrl+P): lay the document out into our own pages first (see printPages.ts).
+  const fileName = useRef('')
+  fileName.current = doc ? agreementFileName(doc.v, row?.title ?? '', row?.status === 'signed') : ''
   useEffect(() => {
-    const before = () => buildPrintPages(sourceDoc())
+    const t = printFileName(fileName)
+    const before = () => { t.before(); buildPrintPages(sourceDoc()) }
+    const after = () => { t.after(); removePrintPages() }
     window.addEventListener('beforeprint', before)
-    window.addEventListener('afterprint', removePrintPages)
-    return () => { window.removeEventListener('beforeprint', before); window.removeEventListener('afterprint', removePrintPages); removePrintPages() }
+    window.addEventListener('afterprint', after)
+    return () => { window.removeEventListener('beforeprint', before); window.removeEventListener('afterprint', after); removePrintPages() }
   }, [])
 
   const [firmLogo, setFirmLogo] = useState('')
@@ -364,6 +369,7 @@ function Outline({ doc, model, ui, patchUi, up, setV, firmLogo, setFirmLogo }: O
         {ui.openSec === 0 && <div className="ag-f" style={{ padding: '4px 16px 16px', background: '#fbfaf8' }}>
           <LogoField value={v.logo ?? ''} firmLogo={firmLogo ?? ''} onFirmLogo={setFirmLogo ?? (() => {})} onChange={(u) => up((d) => { if (u) d.v.logo = u; else delete d.v.logo })} />
           {inp('date', 'Agreement date', 'date')}
+          <Field id="ag-version" label="Version" hint="Used in the PDF file name: Project – Date – Agreement – V1."><input id="ag-version" className="input" style={{ maxWidth: 120 }} value={v.version ?? ''} placeholder="1" onChange={setV('version')} /></Field>
           {inp('ownerName', 'Owner name')}
           {ta('ownerAddr', 'Owner business address')}
           {inp('ownerPhone', 'Owner telephone', 'tel')}
