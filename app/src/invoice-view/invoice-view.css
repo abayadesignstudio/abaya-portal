@@ -67,3 +67,4 @@ body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 Arial,Helveti
 .qr-code svg{width:100%;height:100%;display:block}
 .iv-zelle .iv-small{margin:10px 0 0}
 @media (max-width:560px){.iv-zelle-qr{display:none}}
+.iv-sample{margin:0 0 14px;padding:10px 14px;border-radius:8px;background:#fff4e5;border:1px solid #f5c37a;font-size:14px;text-align:center}

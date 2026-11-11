@@ -6,7 +6,7 @@ import QrCode from '../components/QrCode'
 type Line = { kind: string; description: string; pct_to_date: number | null; amount: number }
 type PublicInvoice = {
   number: string; status: string; issue_date: string | null; due_date: string | null; terms_days: number
-  period_start: string | null; period_end: string | null; total: number; amount_paid: number; note: string | null
+  sample?: boolean; period_start: string | null; period_end: string | null; total: number; amount_paid: number; note: string | null
   allow_card: boolean; allow_ach: boolean; pass_card_fee?: boolean; pass_ach_fee?: boolean; pay_online?: boolean; advance?: boolean; card_limited?: boolean;
   wire?: { bank_name: string | null; bank_address: string | null; account_name: string | null; routing: string; account: string; swift: string | null; notes: string | null; phone: string | null } | null; zelle?: { name: string | null; email: string | null; phone: string | null; qr: string | null } | null
   project: { number: string; name: string; sector: string | null }; client: string | null; lines: Line[]
@@ -35,6 +35,7 @@ export default function InvoiceView() {
   const returned = new URLSearchParams(location.search).get('paid') // back from Stripe: 'card' | 'ach'
   const pay = async (method: 'card' | 'ach') => {
     const q = new URLSearchParams(location.search)
+    if (inv?.sample) { setPayErr('This is a sample invoice, so payment is turned off. On a real invoice this button opens Stripe’s secure checkout.'); return }
     setPaying(method); setPayErr('')
     try {
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/invoice-pay`, {
@@ -85,6 +86,7 @@ export default function InvoiceView() {
   return <>
     {header}
     <main className="iv-main">
+      {inv.sample && <p className="iv-sample" role="note"><strong>Sample invoice.</strong> This is what clients see. The client and amounts are made up, and card and bank payment are turned off.</p>}
       <section className="iv-pay iv-card" aria-label="Amount due">
         <p className="iv-muted">Invoice {inv.number} · {inv.project.name}</p>
         <p className="iv-amt">{paid ? 'Paid' : money(balance)}</p>

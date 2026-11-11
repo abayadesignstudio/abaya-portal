@@ -6,6 +6,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   const q = new URL(req.url).searchParams
   const token = q.get('token') ?? '', r = q.get('r') ?? ''
+  if (token === 'sample') return json(await sample())
   if (!/^[0-9a-f-]{36}$/i.test(token)) return json({ error: 'Not found' }, 404)
   const db = admin()
   const { data: inv } = await db.from('invoices')
@@ -52,3 +53,23 @@ Deno.serve(async (req) => {
     lines: (lines ?? []).map((l) => ({ kind: l.kind, description: l.description, pct_to_date: l.pct_to_date === null ? null : Number(l.pct_to_date), amount: Number(l.amount) })),
   })
 })
+
+// Sample invoice for previewing the page (?t=sample). Made-up client and amounts; only the Zelle details are real
+// (they're meant to be shared). Wire details are never included here. The page turns payment buttons off for it.
+async function sample() {
+  const { data: zs } = await admin().from('firm_settings').select('zelle_name, zelle_email, zelle_phone, zelle_qr').eq('id', 1).maybeSingle()
+  const d = (n: number) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10)
+  return {
+    sample: true, number: 'SAMPLE-001', status: 'open', issue_date: d(0), due_date: d(30), terms_days: 30, period_start: d(-30), period_end: d(-1),
+    total: 4850, amount_paid: 0, note: null, allow_card: true, card_limited: false, allow_ach: true, pass_card_fee: false, pass_ach_fee: false,
+    pay_online: !!Deno.env.get('STRIPE_SECRET_KEY'), advance: false, wire: null,
+    zelle: zs?.zelle_email || zs?.zelle_phone ? { name: zs.zelle_name, email: zs.zelle_email, phone: zs.zelle_phone, qr: zs.zelle_qr } : null,
+    project: { number: '2611A', name: 'Sample Residence', sector: 'residential' }, client: 'Sample Client',
+    lines: [
+      { kind: 'phase', description: 'Schematic Design', pct_to_date: 100, amount: 2400 },
+      { kind: 'phase', description: 'Design Development', pct_to_date: 50, amount: 2100 },
+      { kind: 'hourly', description: 'Site visit — 2.0 h', pct_to_date: null, amount: 300 },
+      { kind: 'expense', description: 'Printing', pct_to_date: null, amount: 50 },
+    ],
+  }
+}
