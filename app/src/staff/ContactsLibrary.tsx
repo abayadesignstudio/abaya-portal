@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import RowMenu, { type RowMenuItem } from '../components/RowMenu'
-import CCTabs from '../components/CCTabs'
+import { ClientsCard } from './Clients'
 import ContactForm from '../components/ContactForm'
 import { TRADES, contactName, type LibContact } from '../lib/contacts'
 
@@ -14,7 +14,7 @@ type Row = LibContact & {
 }
 
 /** Everyone the firm works with, one row per person. A person can belong to any number of clients and projects. */
-export default function ContactsLibrary() {
+export function ContactsCard() {
   const d = useLoad(async () => {
     const people = must(await supabase.from('contacts').select('*, project_contacts(trade, projects(id, number, name)), client_contacts(id, clients(id, name, projects(id, number, name, status)))').order('name')) as unknown as Row[]
     const clients = must(await supabase.from('clients').select('id, name').order('name')) as { id: string; name: string }[]
@@ -37,24 +37,23 @@ export default function ContactsLibrary() {
     const { error } = await supabase.from('client_contacts').delete().eq('id', linkId); setErr(error?.message ?? ''); d.reload()
   }
   return (
-    <div className="stack">
-      <h1>Clients/Contacts</h1>
-      <div className="row between"><CCTabs />{!open && <button className="btn" onClick={() => setOpen('new')}>+ Add contact</button>}</div>
-      <p className="muted" style={{ margin: 0 }}>Everyone you work with, stored once. Add a person to any number of clients (they then see that client’s projects in the portal) or to projects as a trade or consultant from the project’s Contacts tab.</p>
-      {open && <section className="card pad stack"><h2 style={{ margin: 0 }}>{open === 'new' ? 'New contact' : `Edit ${contactName(open)}`}</h2>
+    <section className="card pad stack" aria-labelledby="ct-h">
+      <div className="row between"><h2 id="ct-h" style={{ margin: 0 }}>Contacts</h2>{!open && <button className="btn small" onClick={() => setOpen('new')}>+ Add contact</button>}</div>
+      <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>Everyone you work with, stored once. A person can be on any number of clients, and on projects as a trade or consultant.</p>
+      {open && <section className="stack pc-form"><h3 style={{ margin: 0 }}>{open === 'new' ? 'New contact' : `Edit ${contactName(open)}`}</h3>
         {open !== 'new' && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Changes show on every client and project this person is on.</p>}
         <ContactForm key={open === 'new' ? 'new' : open.id} edit={open === 'new' ? null : open} onCancel={() => setOpen(null)} onSaved={() => { setOpen(null); d.reload() }} /></section>}
       {addTo && <AddToClient person={addTo} clients={(d.data?.clients ?? []).filter((x) => !clientsOf(addTo).some((y) => y.id === x.id))} onClose={() => setAddTo(null)} onDone={() => { setAddTo(null); d.reload() }} />}
       <div className="row" style={{ gap: 8 }}>
         <label className="sr" htmlFor="cl-q">Search contacts</label>
-        <input id="cl-q" className="input" style={{ flex: 1, minWidth: 220 }} placeholder="Search name, company, client, email, phone…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input id="cl-q" className="input" style={{ flex: 1, minWidth: 180 }} placeholder="Search name, company, client, email, phone…" value={q} onChange={(e) => setQ(e.target.value)} />
         <label className="sr" htmlFor="cl-t">Type</label>
         <select id="cl-t" className="input" style={{ width: 'auto' }} value={trade} onChange={(e) => setTrade(e.target.value)}><option value="">Everyone</option>{TRADES.map((t) => <option key={t} value={t}>{t === 'Client' ? 'Clients' : t}</option>)}</select>
       </div>
       {err && <p className="err" role="alert">{err}</p>}
-      <section className="card" style={{ overflowX: 'auto' }}>
-        <table className="table" style={{ minWidth: 900 }}>
-          <thead><tr><th>Name</th><th>Company</th><th>Type</th><th>Email</th><th>Phone</th><th>Clients</th><th>Projects</th><th /></tr></thead>
+      <div className="tablewrap">
+        <table className="table">
+          <thead><tr><th>Name</th><th>Email / phone</th><th>Clients &amp; projects</th><th /></tr></thead>
           <tbody>
             {rows.map((c) => {
               const cls = clientsOf(c)
@@ -66,19 +65,29 @@ export default function ContactsLibrary() {
                 ...c.client_contacts.filter((x) => x.clients).map((x) => ({ label: `Remove from ${x.clients!.name}`, onSelect: () => unlinkClient(c, x.id, x.clients!.name) })),
                 'divider', { label: 'Delete', danger: true, onSelect: () => del(c) }]
               return <tr key={c.id}>
-                <td><strong>{c.name ?? '—'}</strong>{c.notes && <div className="muted" style={{ fontSize: 12.5 }}>{c.notes}</div>}</td><td>{c.company ?? '—'}</td><td>{c.trade}</td>
-                <td>{c.email ? <a href={`mailto:${c.email}`}>{c.email}</a> : '—'}</td><td>{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : '—'}</td>
-                <td>{cls.length ? cls.map((x) => <span key={x.id} className="pill" style={{ marginRight: 4, display: 'inline-block', marginBottom: 2 }}>{x.name}</span>) : <span className="muted">—</span>}</td>
-                <td>{projs.size ? [...projs.values()].map((x) => <Link key={x.id} to={`/projects/${x.id}`} state={{ tab: 'contacts' }} className="pill" style={{ marginRight: 4 }} title={x.name}>{x.number}</Link>) : <span className="muted">—</span>}</td>
+                <td><strong>{c.name || c.company || c.email}</strong><div className="muted" style={{ fontSize: 12.5 }}>{[c.name ? c.company : null, c.trade].filter(Boolean).join(' · ')}</div>
+                  {c.notes && <div className="muted" style={{ fontSize: 12, fontStyle: 'italic' }}>{c.notes}</div>}</td>
+                <td style={{ fontSize: 13.5 }}>{c.email ? <a href={`mailto:${c.email}`}>{c.email}</a> : <span className="muted">—</span>}{c.phone && <div><a href={`tel:${c.phone}`}>{c.phone}</a></div>}</td>
+                <td>{cls.map((x) => <span key={x.id} className="pill" style={{ marginRight: 4, display: 'inline-block', marginBottom: 3 }}>{x.name}</span>)}
+                  {projs.size > 0 && <div>{[...projs.values()].map((x) => <Link key={x.id} to={`/projects/${x.id}`} state={{ tab: 'contacts' }} className="pill" style={{ marginRight: 4, display: 'inline-block', marginBottom: 3 }} title={x.name}>{x.number}</Link>)}</div>}
+                  {!cls.length && !projs.size && <span className="muted">—</span>}</td>
                 <td><RowMenu label={`Actions for ${contactName(c)}`} items={items} /></td>
               </tr>
             })}
-            {d.data && rows.length === 0 && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center', padding: 24 }}><em>{d.data.people.length ? 'No contacts match.' : 'No contacts yet.'}</em></td></tr>}
+            {d.data && rows.length === 0 && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center', padding: 24 }}><em>{d.data.people.length ? 'No contacts match.' : 'No contacts yet.'}</em></td></tr>}
           </tbody>
         </table>
-      </section>
-    </div>
+      </div>
+    </section>
   )
+}
+
+/** Clients/Contacts: clients on the left, everyone you work with on the right. */
+export default function ClientsContacts() {
+  return <div className="stack">
+    <h1>Clients/Contacts</h1>
+    <div className="cc-split"><ClientsCard /><ContactsCard /></div>
+  </div>
 }
 
 function AddToClient({ person, clients, onClose, onDone }: { person: Row; clients: { id: string; name: string }[]; onClose: () => void; onDone: () => void }) {

@@ -16,7 +16,6 @@ import AgreementEditor from './staff/AgreementEditor'
 import ClientUpdates from './staff/ClientUpdates'
 import Bills from './staff/Bills'
 import Expenses from './staff/Expenses'
-import Clients from './staff/Clients'
 import Settings from './staff/Settings'
 import SiteEditor from './editor/SiteEditor'
 import ClientPortal from './staff/ClientPortal'
@@ -68,8 +67,8 @@ function Gate() {
         <Route path="client-updates" element={<Navigate to="/notifications" />} />
         <Route path="bills" element={<Bills />} />
         <Route path="expenses" element={<Expenses />} />
-        <Route path="clients" element={<Clients />} />
-        <Route path="contacts" element={<ContactsLibrary />} />
+        <Route path="clients" element={<ContactsLibrary />} />
+        <Route path="contacts" element={<Navigate to="/clients" replace />} />
         <Route path="settings" element={<Settings />} />
         <Route path="site" element={<SiteEditor />} />
         <Route path="client-portal" element={<ClientPortal />} />

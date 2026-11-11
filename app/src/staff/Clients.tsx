@@ -6,7 +6,6 @@ import './admin.css'
 import RowMenu from '../components/RowMenu'
 import PhoneCell from '../components/PhoneCell'
 import PickPerson from '../components/PickPerson'
-import CCTabs from '../components/CCTabs'
 
 type Contact = { id: string; name: string | null; email: string; phone: string | null; receives_invoices: boolean; receives_updates: boolean }
 type Client = { id: string; name: string; billing_email: string | null; phone: string | null; address: string | null; client_contacts: Contact[]; projects: { id: string; status: string }[] }
@@ -15,7 +14,7 @@ type FormContact = { id?: string; name: string; email: string; phone: string; re
 const blankContact = (): FormContact => ({ name: '', email: '', phone: '', receives_invoices: true, receives_updates: true })
 const blankClient = { name: '', billing_email: '', phone: '', address: '', contacts: [blankContact()] as FormContact[] }
 
-export default function Clients() {
+export function ClientsCard() {
   const { profile } = useAuth()
   const admin = profile?.role === 'admin'
   const [q, setQ] = useState('')
@@ -74,11 +73,10 @@ export default function Clients() {
   }
 
   return (
-    <div className="stack">
-      <h1>Clients/Contacts</h1>
-      <div className="row between"><CCTabs />{<button className="btn" onClick={() => { setForm(form ? null : { ...blankClient, contacts: [blankContact()] }); setErr('') }}>{form ? 'Close' : '+ Add client'}</button>}</div>
+    <section className="card pad stack" aria-labelledby="cl-h">
+      <div className="row between"><h2 id="cl-h" style={{ margin: 0 }}>Clients</h2>{<button className="btn small" onClick={() => { setForm(form ? null : { ...blankClient, contacts: [blankContact()] }); setErr('') }}>{form ? 'Close' : '+ Add client'}</button>}</div>
       {form && (
-        <form onSubmit={saveClient} className="card pad stack">
+        <form onSubmit={saveClient} className="stack pc-form">
           <h2>{form.id ? 'Edit client' : 'Add client'}</h2>
           <div className="formgrid">
             <div style={{ gridColumn: 'span 2' }}><label className="l" htmlFor="c-n">Name</label><input id="c-n" className="input" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
@@ -105,39 +103,37 @@ export default function Clients() {
           {err && <p className="err" role="alert">{err}</p>}
           <div><button className="btn">Save client</button></div>
         </form>)}
-      <div className="row between">
-        <p className="muted" style={{ margin: 0 }}>{rows.length} clients · {money([...bal.values()].reduce((a, b) => a + b.open, 0))} open · <span style={{ color: 'var(--red, #b42318)' }}>{money([...bal.values()].reduce((a, b) => a + b.late, 0))} past due</span></p>
-        <div style={{ width: 280, maxWidth: '100%' }}><label className="sr" htmlFor="cq">Search</label><input id="cq" className="input" placeholder="Search clients or contacts" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <div className="row between" style={{ gap: 8 }}>
+        <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>{rows.length} clients · {money([...bal.values()].reduce((a, b) => a + b.open, 0))} open · <span style={{ color: 'var(--red, #b42318)' }}>{money([...bal.values()].reduce((a, b) => a + b.late, 0))} past due</span></p>
+        <div style={{ width: 240, maxWidth: '100%' }}><label className="sr" htmlFor="cq">Search</label><input id="cq" className="input" placeholder="Search clients or contacts" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       </div>
       {msg && <p className="ok" role="status">{msg}</p>}
       {(error || (!form && err)) && <p className="err" role="alert">{error || err}</p>}
-      <div className="card tablewrap">
-        <table className="table" style={{ minWidth: 820 }}>
-          <thead><tr><th>Client</th><th>Contacts</th><th className="r">Projects</th><th className="r">Open balance</th><th className="r">Past due</th><th></th></tr></thead>
+      <div className="tablewrap">
+        <table className="table">
+          <thead><tr><th>Client</th><th className="r">Projects</th><th className="r">Balance</th><th></th></tr></thead>
           <tbody>
             {rows.map((c) => { const b = bal.get(c.id); const active = c.projects.filter((p) => p.status === 'active').length; const isOpen = open === c.id
               return [
                 <tr key={c.id}>
-                  <td><strong>{c.name}</strong>{c.billing_email && <div className="muted" style={{ fontSize: 13 }}>{c.billing_email}</div>}</td>
-                  <td>{c.client_contacts.length ? c.client_contacts.map((x) => x.name || x.email).join(', ') : <span className="muted">None yet</span>}</td>
-                  <td className="r num">{c.projects.length}{active > 0 && <span className="muted"> ({active} active)</span>}</td>
-                  <td className="r num">{b?.open ? money(b.open) : <span className="muted">—</span>}</td>
-                  <td className="r num">{b?.late ? <strong style={{ color: 'var(--red, #b42318)' }}>{money(b.late)}</strong> : <span className="muted">—</span>}</td>
+                  <td><strong>{c.name}</strong><div className="muted" style={{ fontSize: 12.5 }}>{c.client_contacts.length ? c.client_contacts.map((x) => x.name || x.email).join(', ') : 'No contacts yet'}</div></td>
+                  <td className="r num">{c.projects.length}{active > 0 && <div className="muted" style={{ fontSize: 12 }}>{active} active</div>}</td>
+                  <td className="r num">{b?.open ? money(b.open) : <span className="muted">—</span>}{b?.late ? <div style={{ fontSize: 12, color: 'var(--red, #b42318)', fontWeight: 700 }}>{money(b.late)} past due</div> : null}</td>
                   <td><div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
-                    <button className="btn small secondary" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : c.id)}>{isOpen ? 'Hide' : 'Contacts'}</button>
+                    <button className="btn small secondary" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : c.id)}>{isOpen ? 'Hide' : 'People'}</button>
                     {admin && <button className="btn small secondary" onClick={() => { setForm({ id: c.id, name: c.name, billing_email: c.billing_email ?? '', phone: c.phone ?? '', address: c.address ?? '',
                       contacts: c.client_contacts.length ? c.client_contacts.map((x) => ({ id: x.id, name: x.name ?? '', email: x.email, phone: x.phone ?? '', receives_invoices: x.receives_invoices, receives_updates: x.receives_updates })) : [blankContact()] }); setErr(''); window.scrollTo({ top: 0 }) }}>Edit</button>}
                   </div></td>
                 </tr>,
-                isOpen && <tr key={c.id + '-x'}><td colSpan={6} style={{ background: 'var(--bg-soft, #f7f6f1)' }}>
+                isOpen && <tr key={c.id + '-x'}><td colSpan={4} style={{ background: 'var(--bg-soft, #f7f6f1)' }}>
                   <Contacts client={c} admin={admin} invited={data!.invited} joined={data!.joined} onInvite={invite} onChange={reload} />
                 </td></tr>,
               ] })}
-            {data && rows.length === 0 && <tr><td colSpan={6} className="muted" style={{ textAlign: 'center', padding: 24 }}><em>No clients found.</em></td></tr>}
+            {data && rows.length === 0 && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center', padding: 24 }}><em>No clients found.</em></td></tr>}
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
   )
 }
 

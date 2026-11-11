@@ -215,3 +215,6 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .cc-tabs a{padding:8px 16px;font-weight:700;font-size:14px;text-decoration:none;color:var(--text);background:#fff}
 .cc-tabs a+a{border-left:1px solid #d0d5dd}
 .cc-tabs a.on{background:#02253d;color:#fff}
+
+.cc-split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:1150px){.cc-split{grid-template-columns:1fr}}
