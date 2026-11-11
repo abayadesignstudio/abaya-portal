@@ -281,7 +281,7 @@ export default function InvoiceBuilder() {
                 <span>Phase</span><span style={{ textAlign: 'right' }}>Fee</span><span style={{ textAlign: 'right' }}>Billed before</span><span>Status</span><span style={{ textAlign: 'right' }}>{advance ? '% billed to date' : '% complete'}</span><span style={{ textAlign: 'right' }}>This invoice ($)</span><span style={{ textAlign: 'right' }}>Remaining</span></div>
               {phaseRows.map((r) => { const s = STATUS_STYLE[r.ph.status] ?? STATUS_STYLE.not_started; return (
                 <div key={r.ph.id} className="ib-cols" style={{ padding: '10px 0', borderBottom: '1px solid #efece6' }}>
-                  <strong>{phaseLabel(r.ph)}</strong>
+                  <PhaseName ph={r.ph} />
                   <span className="num" style={{ textAlign: 'right' }}>{money(r.fee)}</span>
                   <span className="num" style={{ textAlign: 'right' }}>{money(r.prev)} <span className="muted">({r.fee ? Math.round(r.prev / r.fee * 100) : 0}%)</span></span>
                   <span><span className="status" style={{ color: s[1], background: s[2] }}>{s[0]}</span></span>
@@ -299,10 +299,10 @@ export default function InvoiceBuilder() {
           {warn.length > 0 && <div role="alert" className="err">{warn.map((w) => <p key={w} style={{ margin: 0 }}>{w}</p>)}</div>}
         </section>
         {hourlyRows.length > 0 && <section className="card stack" style={sec}>
-          <div className="row between"><h2>Hourly phases</h2><strong className="num">{money(hourly)}</strong></div>
-          <p className="muted" style={{ margin: 0, fontSize: 13 }}>Hours logged to hourly phases that haven’t been billed yet, at each person’s rate. Untick any you don’t want on this invoice; they stay available for the next one.</p>
+          <div className="row between"><h2>Architecture services — hourly</h2><strong className="num">{money(hourly)}</strong></div>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>Hours logged to hourly phases and services that haven’t been billed yet, at each person’s rate. Untick any you don’t want on this invoice; they stay available for the next one.</p>
           {hourlyRows.map((r) => <div key={r.ph.id} className="stack" style={{ gap: 4, borderTop: '1px solid #efece6', paddingTop: 8 }}>
-            <div className="row between"><strong>{phaseLabel(r.ph)}</strong><span className="num">{r.hrs.toFixed(2)} h · <strong>{money(r.amt)}</strong>{Number(r.ph.fee) > 0 && <span className="muted"> · budget {money(Number(r.ph.fee))}</span>}</span></div>
+            <div className="row between"><PhaseName ph={r.ph} /><span className="num">{r.hrs.toFixed(2)} h · <strong>{money(r.amt)}</strong>{Number(r.ph.fee) > 0 && <span className="muted"> · budget {money(Number(r.ph.fee))}</span>}</span></div>
             {r.all.length === 0 && <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>No unbilled hours on this phase.</em></p>}
             {r.all.length > 0 && <div style={{ maxHeight: 220, overflow: 'auto' }}><table className="tbl" style={{ fontSize: 13 }}><tbody>
               {r.all.map((t) => <tr key={t.id}><td style={{ width: 28 }}><input type="checkbox" aria-label={`Bill ${t.work_date} ${t.profiles?.full_name ?? ''}`} disabled={locked} checked={!!hrOn[t.id]} onChange={(e) => setHrOn({ ...hrOn, [t.id]: e.target.checked })} /></td>
@@ -412,13 +412,17 @@ export default function InvoiceBuilder() {
                 <h2 style={{ margin: '24px 0 6px', fontSize: 16 }}>Architecture Services{advance ? ' — Down Payment' : ''}</h2>
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) repeat(4, minmax(0,1fr))' }}>
                   {['Phase', 'Fee', 'Billed before', advance ? 'Billed in advance' : 'Complete', 'This invoice'].map((h, i) => <div key={h} className="ib-th" style={{ textAlign: i ? 'right' : 'left' }}>{h}</div>)}
-                  {phaseRows.map((r) => [<div key={r.ph.id + 'a'} style={{ padding: '8px 10px', borderBottom: '1px solid #efefef' }}>{phaseLabel(r.ph)}</div>,
+                  {phaseRows.map((r) => [<div key={r.ph.id + 'a'} style={{ padding: r.ph.code === 'AS' ? '8px 10px 8px 26px' : '8px 10px', borderBottom: '1px solid #efefef' }}>{r.ph.code === 'AS' ? <>↳ {phaseLabel(r.ph)} <span className="muted" style={{ fontSize: 12 }}>· Additional service</span></> : phaseLabel(r.ph)}</div>,
                     <div key={r.ph.id + 'b'} className="num" style={{ padding: '8px 10px', borderBottom: '1px solid #efefef', textAlign: 'right' }}>{money(r.fee)}</div>,
                     <div key={r.ph.id + 'c'} className="num" style={{ padding: '8px 10px', borderBottom: '1px solid #efefef', textAlign: 'right' }}>{money(r.prev)}</div>,
                     <div key={r.ph.id + 'd'} className="num" style={{ padding: '8px 10px', borderBottom: '1px solid #efefef', textAlign: 'right' }}>{Math.round(r.pct)}%</div>,
                     <div key={r.ph.id + 'e'} className="num" style={{ padding: '8px 10px', borderBottom: '1px solid #efefef', textAlign: 'right', fontWeight: 700 }}>{money(r.d)}</div>])}
                   <div style={{ padding: '8px 10px', gridColumn: '1 / 5', textAlign: 'right', fontWeight: 700 }}>{advance ? 'Down payment' : 'Architecture services'}</div><div className="num" style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700 }}>{money(fixed)}</div>
                 </div></>}
+              {hourlyRows.some((r) => r.amt) && <><h2 style={{ margin: '18px 0 6px', fontSize: 16 }}>Hourly Services</h2>
+                {hourlyRows.filter((r) => r.amt).map((r) => <div key={r.ph.id} style={{ padding: r.ph.code === 'AS' ? '6px 10px 6px 26px' : '6px 10px', borderBottom: '1px solid #efefef' }}>
+                  <div className="row between"><span>{r.ph.code === 'AS' ? '↳ ' : ''}{phaseLabel(r.ph)}{r.ph.code === 'AS' && <span className="muted" style={{ fontSize: 12 }}> · Additional service</span>}</span><span className="num" style={{ fontWeight: 700 }}>{money(r.amt)}</span></div>
+                  <div className="muted" style={{ fontSize: 12 }}>{r.groups.map((g) => `${g.who} ${g.hrs.toFixed(2).replace(/\.?0+$/, '')} h × ${money(g.rate)}`).join('; ')}</div></div>)}</>}
               {exSel.length > 0 && <><h2 style={{ margin: '18px 0 6px', fontSize: 16 }}>Reimbursable Expenses</h2>
                 {exSel.map((x) => <div key={x.id} className="row between" style={{ padding: '6px 10px', borderBottom: '1px solid #efefef' }}><span>{x.description}</span><span className="num">{money(x.amount)}</span></div>)}
                 {exMark > 0 && <div className="row between" style={{ padding: '6px 10px', borderBottom: '1px solid #efefef' }}><span>Service fee, 10% (Agreement §8.2)</span><span className="num">{money(exMark)}</span></div>}</>}
@@ -478,4 +482,12 @@ function PctInput({ value, disabled, bad, label, onCommit }: { value: number; di
     <input className="input num" inputMode="decimal" disabled={disabled} style={{ textAlign: 'right', paddingRight: 26, borderColor: bad ? '#d92d20' : undefined }} value={t}
       onChange={(e) => setT(e.target.value)} onBlur={() => onCommit(t)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
     <span aria-hidden="true" className="muted" style={{ position: 'absolute', right: 10, top: 12 }}>%</span></label>
+}
+
+/** Phase name shown the same way as on the project page: code + name; additional services inset under their phase. */
+function PhaseName({ ph }: { ph: Phase }) {
+  if (ph.code === 'AS') return <span style={{ paddingLeft: 14, display: 'inline-block' }}><span className="muted">↳ </span><strong>AS</strong> <span className="muted">{phaseLabel(ph)}</span>
+    <span className="muted" style={{ display: 'block', fontSize: 12 }}>Additional service</span></span>
+  if (ph.code === 'CU') return <span><strong>{ph.name || 'Custom phase'}</strong> <span className="muted">· custom</span></span>
+  return <span><strong>{ph.code}</strong> <span className="muted">{phaseLabel(ph)}</span></span>
 }

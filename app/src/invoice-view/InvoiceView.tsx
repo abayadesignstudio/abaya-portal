@@ -78,7 +78,7 @@ export default function InvoiceView() {
   const late = !paid && inv.due_date && inv.due_date < todayIso
   const groups: [string, Line[]][] = []
   for (const l of inv.lines) {
-    const h = KIND_HEAD[l.kind] ?? 'Other Items'
+    const h = (l.kind === 'phase' || l.kind === 'hourly') && /^AS · /.test(l.description) ? 'Additional Services' : KIND_HEAD[l.kind] ?? 'Other Items'
     const g = groups.find(([k]) => k === h)
     if (g) g[1].push(l); else groups.push([h, [l]])
   }
@@ -140,8 +140,8 @@ export default function InvoiceView() {
         {groups.map(([h, ls]) => <section key={h}>
           <h2>{h}{inv.advance && h === 'Architecture Services' ? ' — Down Payment' : ''}</h2>
           <table className="iv-lines">
-            <thead><tr><th scope="col">Description</th>{h === 'Architecture Services' && <th scope="col" className="r">{inv.advance ? 'Billed in advance' : 'Complete'}</th>}<th scope="col" className="r">Amount</th></tr></thead>
-            <tbody>{ls.map((l, i) => <tr key={i}><td>{l.description}</td>{h === 'Architecture Services' && <td className="r">{l.pct_to_date === null ? '' : `${Math.round(l.pct_to_date)}%`}</td>}<td className="r">{money(l.amount)}</td></tr>)}</tbody>
+            <thead><tr><th scope="col">Description</th>{(h === 'Architecture Services' || h === 'Additional Services') && <th scope="col" className="r">{inv.advance ? 'Billed in advance' : 'Complete'}</th>}<th scope="col" className="r">Amount</th></tr></thead>
+            <tbody>{ls.map((l, i) => <tr key={i}><td>{l.description}</td>{(h === 'Architecture Services' || h === 'Additional Services') && <td className="r">{l.pct_to_date === null ? '' : `${Math.round(l.pct_to_date)}%`}</td>}<td className="r">{money(l.amount)}</td></tr>)}</tbody>
           </table>
         </section>)}
         <div className="iv-tot">
