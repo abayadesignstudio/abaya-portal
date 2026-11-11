@@ -68,8 +68,8 @@ export function ContactsCard() {
                 <td><strong>{c.name || c.company || c.email}</strong><div className="muted" style={{ fontSize: 12.5 }}>{[c.name ? c.company : null, c.trade].filter(Boolean).join(' · ')}</div>
                   {c.notes && <div className="muted" style={{ fontSize: 12, fontStyle: 'italic' }}>{c.notes}</div>}</td>
                 <td style={{ fontSize: 13.5 }}>{c.email ? <a href={`mailto:${c.email}`}>{c.email}</a> : <span className="muted">—</span>}{c.phone && <div><a href={`tel:${c.phone}`}>{c.phone}</a></div>}</td>
-                <td>{cls.map((x) => <span key={x.id} className="pill" style={{ marginRight: 4, display: 'inline-block', marginBottom: 3 }}>{x.name}</span>)}
-                  {projs.size > 0 && <div>{[...projs.values()].map((x) => <Link key={x.id} to={`/projects/${x.id}`} state={{ tab: 'contacts' }} className="pill" style={{ marginRight: 4, display: 'inline-block', marginBottom: 3 }} title={x.name}>{x.number}</Link>)}</div>}
+                <td style={{ fontSize: 13 }}>{cls.map((x) => <div key={x.id} style={{ fontWeight: 700 }}>{x.name}</div>)}
+                  {projs.size > 0 && <div style={{ marginTop: 3 }}>{[...projs.values()].map((x) => <Link key={x.id} to={`/projects/${x.id}`} state={{ tab: 'contacts' }} className="pill" style={{ marginRight: 4, display: 'inline-block', marginBottom: 3 }} title={x.name}>{x.number}</Link>)}</div>}
                   {!cls.length && !projs.size && <span className="muted">—</span>}</td>
                 <td><RowMenu label={`Actions for ${contactName(c)}`} items={items} /></td>
               </tr>
