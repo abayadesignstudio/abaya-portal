@@ -183,7 +183,7 @@ export default function SidebarTimer({ me }: { me: string }) {
   return (
     <div ref={box} className="stimer">
       {pip.win && <TimerPipView api={api} win={pip.win} onBack={() => { window.focus(); pip.close() }} />}
-      {pipSupported() && <button type="button" className="stimer-pop" onClick={() => (pip.win ? pip.close() : pip.open())} aria-pressed={!!pip.win}
+      {pipSupported() && <button type="button" className="stimer-popout" onClick={() => (pip.win ? pip.close() : pip.open())} aria-pressed={!!pip.win}
         title={pip.win ? 'Close the floating timer' : 'Pop out: a small timer window that stays on top of other windows'}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><rect x="11" y="11" width="8" height="8" rx="1.5" /></svg>
         {pip.win ? 'Floating timer on' : 'Pop out timer'}</button>}
