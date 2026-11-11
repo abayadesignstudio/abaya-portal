@@ -65,3 +65,9 @@ button.m-card{cursor:pointer}
 .m-chips button{flex:none;border:1.5px solid #1c1f23;background:#fff;border-radius:999px;padding:8px 16px;font:inherit;font-size:15px;cursor:pointer;min-height:40px}
 .m-chips button.on{background:#02253d;border-color:#02253d;color:#fff}
 .m-inv{gap:3px}
+/* Calendar tab: the Home calendar in Schedule view, day cards stacked */
+.mapp-cal > .card{border-radius:0;box-shadow:none;border:0;padding:12px}
+.cv-phone .cv-seg{display:none}
+.cv-phone .cv-sched > li{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px}
+.cv-phone .cv-sched > li.today{border-color:var(--navy);box-shadow:0 0 0 1px var(--navy) inset}
+.cv-phone .cv-sd{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}

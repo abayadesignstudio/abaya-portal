@@ -8,9 +8,11 @@ import { useTimer, type TimerApi, type TodayTask } from '../components/useTimer'
 import { TimerPanel, ManualPanel, parseDuration } from '../components/Timer'
 import Combobox, { sectorColor } from '../components/Combobox'
 import Avatar from '../components/Avatar'
+import { MonthCalendar, useStaff } from '../staff/HomeCalendars'
+import '../staff/home.css'
 import './mobile.css'
 
-type Tab = 'time' | 'expenses' | 'invoices'
+type Tab = 'calendar' | 'time' | 'expenses' | 'invoices'
 type Sheet = null | 'add' | 'timeMenu' | 'timer' | 'manual' | 'expense' | 'note' | 'me' | { edit: Card } | { expense: Exp }
 const keep = (k: string, v: string) => { try { localStorage.setItem(k, v) } catch { /* private mode */ } }
 const remember = (k: string, d: string) => { try { return localStorage.getItem(k) ?? d } catch { return d } }
@@ -28,7 +30,7 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
   const detail = loc.pathname !== '/'
   useEffect(() => { document.body.style.overflow = sheet ? 'hidden' : ''; return () => { document.body.style.overflow = '' } }, [sheet])
   useEffect(() => { if (!sheet) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setSheet(null) }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k) }, [sheet])
-  const title = detail ? '' : tab === 'time' ? 'Time' : tab === 'expenses' ? 'Expenses' : 'Invoices'
+  const title = detail ? '' : tab === 'calendar' ? 'Calendar' : tab === 'time' ? 'Time' : tab === 'expenses' ? 'Expenses' : 'Invoices'
   const ini = profile?.initials || (profile?.full_name || profile?.email || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
   const full = sheet === 'timer' || sheet === 'manual' || sheet === 'expense' || sheet === 'note' || (typeof sheet === 'object' && sheet !== null)
 
@@ -42,6 +44,7 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
       </header>
       <main className="mapp-main">
         {detail ? <div className="mapp-detail"><Outlet /></div>
+          : tab === 'calendar' ? <CalendarScreen me={me} admin={profile!.role === 'admin'} />
           : tab === 'time' ? <TimeScreen api={api} me={me} onEdit={(c) => setSheet({ edit: c })} />
           : tab === 'expenses' ? <ExpensesScreen me={me} onOpen={(e) => setSheet({ expense: e })} />
           : <InvoicesScreen me={me} />}
@@ -49,7 +52,7 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
 
       {!full && <nav className="mapp-tabs" aria-label="Sections">
         <div className="mapp-pill">
-          {([['time', 'Time', IconClock], ['expenses', 'Expenses', IconReceipt], ['invoices', 'Invoices', IconDollar]] as const).map(([k, l, I]) =>
+          {([['calendar', 'Calendar', IconCal], ['time', 'Time', IconClock], ['expenses', 'Expenses', IconReceipt], ['invoices', 'Invoices', IconDollar]] as const).map(([k, l, I]) =>
             <button key={k} type="button" className={!detail && tab === k ? 'on' : ''} aria-current={!detail && tab === k ? 'page' : undefined} onClick={() => setTab(k)}><span className="ic"><I /></span>{l}</button>)}
         </div>
         <button type="button" className="mapp-fab" aria-label={sheet ? 'Close' : 'Add'} aria-expanded={!!sheet} onClick={() => setSheet(sheet ? (sheet === 'timeMenu' ? 'add' : null) : 'add')}>
@@ -358,6 +361,14 @@ function NoteForm({ me, api, onDone }: { me: string; api: TimerApi; onDone: () =
     {err && <p className="err" role="alert" style={{ margin: 0 }}>{err}</p>}
     <button type="button" className="btn m-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save to project'}</button>
   </div>
+}
+
+// ---------------------------------------------------------------- calendar
+/** Calendar: my days as stacked cards (meetings, tasks, milestones, deliverables), same data and filters as Home. */
+function CalendarScreen({ me, admin }: { me: string; admin: boolean }) {
+  const staff = useStaff()
+  const projects = useLoad(async () => must(await supabase.from('projects').select('id, number, name, sector').in('status', ['active', 'paused']).order('number', { ascending: false })) as { id: string; number: string; name: string; sector: string | null }[])
+  return <div className="mapp-cal"><MonthCalendar me={me} admin={admin} people={staff.data ?? []} projects={projects.data ?? []} phone /></div>
 }
 
 // ---------------------------------------------------------------- icons

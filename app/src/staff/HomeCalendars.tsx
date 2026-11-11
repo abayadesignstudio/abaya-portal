@@ -615,9 +615,10 @@ type Open = { kind: 'new'; day: string } | { kind: 'task'; task: Task } | { kind
 
 /** Home: month calendar of everyone's tasks and Google meetings, shown as "Name: item", filterable by person.
  *  Works like Google Calendar: click an empty spot on a day to add an event or a task; click an item for details. */
-export function MonthCalendar({ me, admin, people, projects }: { me: string; admin: boolean; people: Person[]; projects: Proj[] }) {
+export function MonthCalendar({ me, admin, people, projects, phone }: { me: string; admin: boolean; people: Person[]; projects: Proj[]; phone?: boolean }) {
   // Google Calendar-style views; the choice is remembered on this device
-  const [view, setViewRaw] = useState<View>(() => { try { const v = localStorage.getItem('abaya:cal-view'); return (VIEWS.some(([k]) => k === v) ? v : 'month') as View } catch { return 'month' } })
+  const [savedView, setViewRaw] = useState<View>(() => { try { const v = localStorage.getItem('abaya:cal-view'); return (VIEWS.some(([k]) => k === v) ? v : 'month') as View } catch { return 'month' } })
+  const view: View = phone ? 'schedule' : savedView // phone: day cards stacked
   const setView = (v: View) => { setViewRaw(v); try { localStorage.setItem('abaya:cal-view', v) } catch { /* private mode */ } }
   const expanded = view === 'month'
   // Week shows 1, 2 or 3 weeks (remembered); 1 = hourly timeline, 2–3 = tall day boxes
@@ -763,7 +764,7 @@ export function MonthCalendar({ me, admin, people, projects }: { me: string; adm
   ] }
   return (
     <CanDrag.Provider value={true}>
-    <section className="card pad stack" aria-labelledby="mc-h">
+    <section className={'card pad stack' + (phone ? ' cv-phone' : '')} aria-labelledby="mc-h">
       <div className="row between">
         <h2 id="mc-h">{heading}</h2>
         <div className="row">

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Avatar from '../components/Avatar'
 import { Link } from 'react-router-dom'
 import { supabase, SECTOR_COLOR } from '../lib/supabase'
@@ -27,6 +27,7 @@ export default function StaffHome() {
   const me = profile!.id
   const admin = profile?.role === 'admin'
   const staff = useStaff()
+  const phone = usePhoneWidth() // phones: no Gantt; calendar as stacked day cards
   const todayIso = isoDate(new Date())
   const [dFilter, setDFilter] = useState<'week' | 'all'>('week')
   // My hours card: my year, or the whole team's billable week, remembered on this device
@@ -130,8 +131,8 @@ export default function StaffHome() {
           {admin && <BillsPanel />}
         </div>
         <div className="stack" style={{ minWidth: 0 }}>
-          <MyProjectsGantt me={me} />
-          <MonthCalendar me={me} admin={admin} people={staff.data ?? []} projects={projects.data ?? []} />
+          {!phone && <MyProjectsGantt me={me} />}
+          <MonthCalendar me={me} admin={admin} people={staff.data ?? []} projects={projects.data ?? []} phone={phone} />
 
           <section className="card pad stack" aria-labelledby="hm-dl">
             <div className="row between">
@@ -169,4 +170,11 @@ export default function StaffHome() {
       </div>
     </div>
   )
+}
+
+function usePhoneWidth() {
+  const q = '(max-width: 760px)'
+  const [m, setM] = useState(() => window.matchMedia(q).matches)
+  useEffect(() => { const mq = window.matchMedia(q); const f = () => setM(mq.matches); mq.addEventListener('change', f); return () => mq.removeEventListener('change', f) }, [])
+  return m
 }
