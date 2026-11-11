@@ -1,20 +1,21 @@
 /* Minimal phone app */
 .mapp{min-height:100dvh;background:#f3f3f2;color:#1c1f23;padding-bottom:calc(110px + env(safe-area-inset-bottom))}
-.mapp-head{position:sticky;top:0;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:calc(10px + env(safe-area-inset-top)) 14px 10px;background:#fff;border-bottom:1px solid #d9d9d6}
+.mapp-head{position:sticky;top:0;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:calc(8px + env(safe-area-inset-top)) 14px 8px;background:var(--navy);color:#ede6d6}
+.mapp-crest{height:40px;width:auto;display:block}
 .mapp-head h1{margin:0;font-size:19px;font-weight:700}
 .mapp-me{border:0;background:none;padding:0;width:44px;height:44px;display:flex;align-items:center;cursor:pointer}
-.mapp-back{border:0;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.08);border-radius:999px;padding:8px 16px;font:inherit;font-size:16px;font-weight:600;color:#1c1f23;cursor:pointer;min-height:40px}
+.mapp-back{border:0;background:rgba(255,255,255,.14);color:#ede6d6 !important;box-shadow:none;border-radius:999px;padding:8px 16px;font:inherit;font-size:16px;font-weight:600;color:#1c1f23;cursor:pointer;min-height:40px}
 .mapp-detail{padding:12px}
 .mapp-detail .card{border-radius:12px}
 /* bottom bar */
 .mapp-tabs{position:fixed;left:0;right:0;bottom:0;z-index:40;display:flex;align-items:center;gap:10px;padding:10px 14px calc(12px + env(safe-area-inset-bottom));pointer-events:none}
-.mapp-pill{pointer-events:auto;flex:1;display:flex;background:rgba(40,42,45,.94);border-radius:999px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.25);backdrop-filter:blur(8px)}
-.mapp-pill button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;border:0;background:none;color:#fff;font:inherit;font-size:12px;font-weight:600;padding:6px 0;border-radius:999px;cursor:pointer;min-height:54px}
-.mapp-pill button .ic{display:flex;align-items:center;justify-content:center;width:34px;height:30px;border-radius:999px}
+.mapp-pill{pointer-events:auto;flex:1;display:flex;background:var(--navy);border-radius:999px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.25);backdrop-filter:blur(8px)}
+.mapp-pill button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;border:0;background:none;color:#fff;font:inherit;font-size:12px;font-weight:600;padding:6px 0;border-radius:999px;cursor:pointer;min-height:52px;justify-content:center}
+.mapp-pill button .ic{display:flex;align-items:center;justify-content:center;width:46px;height:40px;border-radius:999px;color:rgba(237,230,214,.75)}
 .mapp-pill button.on{background:rgba(255,255,255,.14)}
 .mapp-pill button.on .ic{background:#ede6d6;color:#02253d}
 .mapp-pill button.on{color:#ede6d6}
-.mapp-fab{pointer-events:auto;flex:none;width:66px;height:66px;border-radius:50%;border:0;background:rgba(40,42,45,.94);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,0,0,.25);cursor:pointer}
+.mapp-fab{pointer-events:auto;flex:none;width:64px;height:64px;border-radius:50%;border:0;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,0,0,.25);cursor:pointer}
 .mapp-scrim{position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.28)}
 .mapp-menu{position:fixed;right:14px;bottom:calc(96px + env(safe-area-inset-bottom));z-index:45;width:min(300px,calc(100vw - 28px));background:#fff;border-radius:22px;overflow:hidden;box-shadow:0 12px 32px rgba(0,0,0,.22)}
 .mapp-menu-top{top:calc(64px + env(safe-area-inset-top));bottom:auto;left:14px;right:auto}
@@ -71,3 +72,10 @@ button.m-card{cursor:pointer}
 .cv-phone .cv-sched > li{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px}
 .cv-phone .cv-sched > li.today{border-color:var(--navy);box-shadow:0 0 0 1px var(--navy) inset}
 .cv-phone .cv-sd{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+.mapp-pill button.on{background:none}
+/* phone calendar toolbar */
+.cvp-bar{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px}
+.cvp-bar h2{margin:0;font-size:17px;text-align:center}
+.cvp-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:8px;align-items:center}
+.cvp-row .input{min-height:40px;font-size:15px}
+.cvp-ic{width:40px;height:40px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:20px}

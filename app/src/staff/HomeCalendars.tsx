@@ -765,7 +765,26 @@ export function MonthCalendar({ me, admin, people, projects, phone }: { me: stri
   return (
     <CanDrag.Provider value={true}>
     <section className={'card pad stack' + (phone ? ' cv-phone' : '')} aria-labelledby="mc-h">
-      <div className="row between">
+      {phone && <>
+        <div className="cvp-bar">
+          <button className="btn secondary cvp-ic" aria-label="Previous period" onClick={() => shift(-1)}>‹</button>
+          <h2 id="mc-h">{heading}</h2>
+          <button className="btn secondary cvp-ic" aria-label="Next period" onClick={() => shift(1)}>›</button>
+        </div>
+        <div className="cvp-row">
+          <button className="btn small secondary" style={{ minHeight: 40 }} onClick={() => setCursor(new Date())}>Today</button>
+          <label className="sr" htmlFor="cvp-who">Show calendar for</label>
+          <select id="cvp-who" className="input" value={who} onChange={(e) => setWho(e.target.value)}>
+            <option value="all">Everyone</option>
+            {order.map((p) => <option key={p.id} value={p.id}>{p.id === me ? 'Me' : firstName(p)}</option>)}
+          </select>
+          <button type="button" className="btn secondary cvp-ic" aria-label="Calendars to show" aria-haspopup="dialog" onClick={(e) => setCalsOpen(e.currentTarget.getBoundingClientRect())}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4" /></svg></button>
+          <button className="btn cvp-ic" aria-label="Create an event or task" onClick={(e) => pop({ kind: 'new', day: today }, e.currentTarget)}>+</button>
+        </div>
+        {calsOpen && <Pop anchor={calsOpen} label="Calendars" onClose={() => setCalsOpen(null)}><CalendarsPanel me={me} admin={admin} people={people} events={feed.data?.events ?? []} /></Pop>}
+      </>}
+      {!phone && <><div className="row between">
         <h2 id="mc-h">{heading}</h2>
         <div className="row">
           <div className="cv-seg" role="group" aria-label="Calendar view">{VIEWS.map(([k, l]) => k === 'week'
@@ -789,6 +808,7 @@ export function MonthCalendar({ me, admin, people, projects, phone }: { me: stri
         <button type="button" className="btn small secondary" style={{ marginLeft: 'auto' }} aria-haspopup="dialog" onClick={(e) => setCalsOpen(e.currentTarget.getBoundingClientRect())}>Calendars ▾</button>
         {calsOpen && <Pop anchor={calsOpen} label="Calendars" onClose={() => setCalsOpen(null)}><CalendarsPanel me={me} admin={admin} people={people} events={feed.data?.events ?? []} /></Pop>}
       </div>
+      </>}
       {feed.data && !connected && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Your Google Calendar meetings can show here, and events you add go to your Google Calendar: <a href="#/account">connect Google on My account</a>.</p>}
       {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
       {(tasks.error || evs.error) && <p className="err">{tasks.error || evs.error}</p>}

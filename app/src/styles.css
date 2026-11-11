@@ -41,7 +41,7 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .side .me button{background:none;border:0;color:#b6bfcd;padding:0;font:14px Arial;cursor:pointer}
 .main{min-width:0;padding:26px clamp(16px,2.6vw,36px) 60px;display:flex;flex-direction:column;gap:18px}
 .topbar{display:none}
-@media (max-width:900px){.shell{grid-template-columns:minmax(0,1fr)}.side{display:none}.side.open{display:flex;position:fixed;inset:0 30% 0 0;z-index:20}.topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--navy);color:#fff}}
+@media (max-width:900px){.shell{grid-template-columns:minmax(0,1fr)}.side{display:none}.side.open{display:flex;position:fixed;inset:0 30% 0 0;z-index:20}.topbar{display:flex;align-items:center;justify-content:space-between;padding:calc(10px + env(safe-area-inset-top)) 16px 10px;background:var(--navy);color:#fff}}
 .linkbtn{background:none;border:0;padding:0;color:#3b5bdb;font:700 14px Arial;cursor:pointer}
 .recent{display:flex;flex-direction:column;gap:2px;width:100%;text-align:left;padding:10px 12px;border:0;border-radius:8px;background:#fff;cursor:pointer;font:14px Arial;color:var(--text)}
 .recent:hover{background:#f3f1ec}

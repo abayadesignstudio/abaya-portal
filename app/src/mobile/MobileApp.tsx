@@ -9,6 +9,7 @@ import { TimerPanel, ManualPanel, parseDuration } from '../components/Timer'
 import Combobox, { sectorColor } from '../components/Combobox'
 import Avatar from '../components/Avatar'
 import { MonthCalendar, useStaff } from '../staff/HomeCalendars'
+import crest from '../assets/abaya-crest-light-192.png'
 import '../staff/home.css'
 import './mobile.css'
 
@@ -39,7 +40,8 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
       <header className="mapp-head">
         {detail ? <button type="button" className="mapp-back" onClick={() => (window.history.length > 1 ? nav(-1) : nav('/'))}>‹ Back</button>
           : <button type="button" className="mapp-me" onClick={() => setSheet('me')} aria-label="Account"><Avatar url={profile?.avatar_url} initials={ini} size={36} /></button>}
-        <h1>{title}</h1>
+        <h1 className="sr">{title}</h1>
+        <img className="mapp-crest" src={crest} alt="Abaya Design Studio" />
         <span style={{ width: 44 }} />
       </header>
       <main className="mapp-main">
@@ -53,7 +55,7 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
       {!full && <nav className="mapp-tabs" aria-label="Sections">
         <div className="mapp-pill">
           {([['calendar', 'Calendar', IconCal], ['time', 'Time', IconClock], ['expenses', 'Expenses', IconReceipt], ['invoices', 'Invoices', IconDollar]] as const).map(([k, l, I]) =>
-            <button key={k} type="button" className={!detail && tab === k ? 'on' : ''} aria-current={!detail && tab === k ? 'page' : undefined} onClick={() => setTab(k)}><span className="ic"><I /></span>{l}</button>)}
+            <button key={k} type="button" className={!detail && tab === k ? 'on' : ''} aria-current={!detail && tab === k ? 'page' : undefined} onClick={() => setTab(k)}><span className="ic"><I /></span><span className="sr">{l}</span></button>)}
         </div>
         <button type="button" className="mapp-fab" aria-label={sheet ? 'Close' : 'Add'} aria-expanded={!!sheet} onClick={() => setSheet(sheet ? (sheet === 'timeMenu' ? 'add' : null) : 'add')}>
           {sheet === 'timeMenu' ? <IconBack /> : sheet ? <IconX /> : <IconPlus />}</button>

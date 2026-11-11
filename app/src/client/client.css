@@ -17,7 +17,7 @@
 .cp-inv li.late{border-left-color:var(--red);background:#fdf3f2}
 
 /* client top bar (shared by the client portal and the staff preview) */
-.ch{background:var(--navy);color:#ede6d6;height:64px;padding:0 clamp(16px,3vw,40px);display:flex;justify-content:space-between;align-items:center;gap:16px}
+.ch{background:var(--navy);color:#ede6d6;height:calc(64px + env(safe-area-inset-top));padding-top:env(safe-area-inset-top) !important;box-sizing:border-box;padding:0 clamp(16px,3vw,40px);display:flex;justify-content:space-between;align-items:center;gap:16px}
 .ch-left{display:flex;align-items:center;gap:32px;min-width:0;height:100%}
 .ch-brand{display:flex;align-items:center;gap:10px;text-decoration:none;flex:none}
 .ch-brand img{height:36px;width:36px}
