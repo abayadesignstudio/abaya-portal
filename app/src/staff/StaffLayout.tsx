@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import Avatar from '../components/Avatar'
 import GearIcon from '../components/GearIcon'
 import { useState } from 'react'
@@ -11,10 +11,11 @@ import './admin.css'
 
 // Time stays last, right above the timer
 const LINKS: [string, string][] = [['/', 'Home'], ['/projects', 'Projects'], ['/employees', 'Employees'], ['/proposals', 'Proposals/Agreements'], ['/invoices', 'Invoices'],
-  ['/bills', 'Bills'], ['/expenses', 'Expenses'], ['/clients', 'Clients'], ['/contacts', 'Contacts'], ['/notifications', 'Notifications'], ['/site', 'Website'], ['/client-portal', 'Client portal'], ['/time', 'Time']]
+  ['/bills', 'Bills'], ['/expenses', 'Expenses'], ['/clients', 'Clients/Contacts'], ['/notifications', 'Notifications'], ['/site', 'Website'], ['/client-portal', 'Client portal'], ['/time', 'Time']]
 
 export default function StaffLayout() {
   const { profile, signOut } = useAuth()
+  const loc = useLocation()
   const [open, setOpen] = useState(false)
   const ini = profile?.initials || (profile?.full_name || profile?.email || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
   return (
@@ -28,7 +29,7 @@ export default function StaffLayout() {
           </a>
           <p className="side-label">Studio</p>
           <nav onClick={() => setOpen(false)}>
-            {LINKS.map(([to, label]) => <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>{label}</NavLink>)}
+            {LINKS.map(([to, label]) => <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => (isActive || (to === '/clients' && loc.pathname.startsWith('/contacts')) ? 'active' : '')}>{label}</NavLink>)}
           </nav>
         </div>
         <div className="side-bottom">

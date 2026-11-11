@@ -210,3 +210,8 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .pc-pick li+li{border-top:1px solid #efece6}
 .pc-pick button{display:flex;align-items:center;gap:4px;width:100%;padding:9px 12px;border:0;background:#fff;font:inherit;text-align:left;cursor:pointer}
 .pc-pick button:hover,.pc-pick button:focus-visible{background:#f5f8fb}
+
+.cc-tabs{display:inline-flex;border:1px solid #d0d5dd;border-radius:8px;overflow:hidden!important}
+.cc-tabs a{padding:8px 16px;font-weight:700;font-size:14px;text-decoration:none;color:var(--text);background:#fff}
+.cc-tabs a+a{border-left:1px solid #d0d5dd}
+.cc-tabs a.on{background:#02253d;color:#fff}

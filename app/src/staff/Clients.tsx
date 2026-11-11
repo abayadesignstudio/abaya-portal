@@ -5,6 +5,7 @@ import { useLoad, must } from '../lib/useQuery'
 import './admin.css'
 import RowMenu from '../components/RowMenu'
 import PhoneCell from '../components/PhoneCell'
+import CCTabs from '../components/CCTabs'
 
 type Contact = { id: string; name: string | null; email: string; phone: string | null; receives_invoices: boolean; receives_updates: boolean }
 type Client = { id: string; name: string; billing_email: string | null; phone: string | null; address: string | null; client_contacts: Contact[]; projects: { id: string; status: string }[] }
@@ -73,7 +74,8 @@ export default function Clients() {
 
   return (
     <div className="stack">
-      <div className="row between"><h1>Clients</h1>{<button className="btn" onClick={() => { setForm(form ? null : { ...blankClient, contacts: [blankContact()] }); setErr('') }}>{form ? 'Close' : '+ Add client'}</button>}</div>
+      <h1>Clients/Contacts</h1>
+      <div className="row between"><CCTabs />{<button className="btn" onClick={() => { setForm(form ? null : { ...blankClient, contacts: [blankContact()] }); setErr('') }}>{form ? 'Close' : '+ Add client'}</button>}</div>
       {form && (
         <form onSubmit={saveClient} className="card pad stack">
           <h2>{form.id ? 'Edit client' : 'Add client'}</h2>

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import RowMenu from '../components/RowMenu'
+import CCTabs from '../components/CCTabs'
 import ContactForm from '../components/ContactForm'
 import { TRADES, contactName, type LibContact } from '../lib/contacts'
 
@@ -26,8 +27,9 @@ export default function ContactsLibrary() {
   }
   return (
     <div className="stack">
-      <div className="row between"><h1>Contacts</h1>{!open && <button className="btn" onClick={() => setOpen('new')}>+ Add contact</button>}</div>
-      <p className="muted" style={{ margin: 0 }}>Everyone you work with. Client contacts belong to their client (edit them under <Link to="/clients">Clients</Link>); contractors, engineers, consultants and vendors are added here and linked to projects from each project’s Contacts tab.</p>
+      <h1>Clients/Contacts</h1>
+      <div className="row between"><CCTabs />{!open && <button className="btn" onClick={() => setOpen('new')}>+ Add contact</button>}</div>
+      <p className="muted" style={{ margin: 0 }}>Everyone you work with. Client contacts belong to their client (edit them on the <Link to="/clients">Clients</Link> tab); contractors, engineers, consultants and vendors are added here and linked to projects from each project’s Contacts tab.</p>
       {open && <section className="card pad stack"><h2 style={{ margin: 0 }}>{open === 'new' ? 'New contact' : `Edit ${contactName(open)}`}</h2>
         <ContactForm key={open === 'new' ? 'new' : open.id} edit={open === 'new' ? null : open} onCancel={() => setOpen(null)} onSaved={() => { setOpen(null); d.reload() }} /></section>}
       <div className="row" style={{ gap: 8 }}>
@@ -52,7 +54,7 @@ export default function ContactsLibrary() {
               <td><strong>{c.name ?? '—'}</strong></td><td>{c.clients?.name ?? '—'}</td><td><span className="pill">Client</span></td>
               <td><a href={`mailto:${c.email}`}>{c.email}</a></td><td>{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : '—'}</td>
               <td>{(c.clients?.projects ?? []).filter((x) => x.status !== 'complete').map((x) => <Link key={x.id} to={`/projects/${x.id}`} state={{ tab: 'contacts' }} className="pill" style={{ marginRight: 4 }} title={x.name}>{x.number}</Link>)}</td>
-              <td><RowMenu label={`Actions for ${c.name ?? c.email}`} items={[{ label: 'Edit in Clients', onSelect: () => nav('/clients') }]} /></td>
+              <td><RowMenu label={`Actions for ${c.name ?? c.email}`} items={[{ label: 'Edit in Clients tab', onSelect: () => nav('/clients') }]} /></td>
             </tr>)}
             {d.data && cc.data && rows.length + crows.length === 0 && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center', padding: 24 }}><em>{d.data.length + cc.data.length ? 'No contacts match.' : 'No contacts yet.'}</em></td></tr>}
           </tbody>
