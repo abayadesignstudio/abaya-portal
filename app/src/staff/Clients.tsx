@@ -4,12 +4,13 @@ import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import './admin.css'
 import RowMenu from '../components/RowMenu'
+import PhoneCell from '../components/PhoneCell'
 
-type Contact = { id: string; name: string | null; email: string; receives_invoices: boolean; receives_updates: boolean }
+type Contact = { id: string; name: string | null; email: string; phone: string | null; receives_invoices: boolean; receives_updates: boolean }
 type Client = { id: string; name: string; billing_email: string | null; phone: string | null; address: string | null; client_contacts: Contact[]; projects: { id: string; status: string }[] }
 type Inv = { client_id: string; status: string; total: number; amount_paid: number | null; due_date: string | null }
-type FormContact = { id?: string; name: string; email: string; receives_invoices: boolean; receives_updates: boolean }
-const blankContact = (): FormContact => ({ name: '', email: '', receives_invoices: true, receives_updates: true })
+type FormContact = { id?: string; name: string; email: string; phone: string; receives_invoices: boolean; receives_updates: boolean }
+const blankContact = (): FormContact => ({ name: '', email: '', phone: '', receives_invoices: true, receives_updates: true })
 const blankClient = { name: '', billing_email: '', phone: '', address: '', contacts: [blankContact()] as FormContact[] }
 
 export default function Clients() {
@@ -20,7 +21,7 @@ export default function Clients() {
   const [form, setForm] = useState<(typeof blankClient & { id?: string }) | null>(null)
   const [msg, setMsg] = useState(''); const [err, setErr] = useState('')
   const { data, error, reload } = useLoad(async () => {
-    const clients = must(await supabase.from('clients').select('id, name, billing_email, phone, address, client_contacts(id, name, email, receives_invoices, receives_updates), projects(id, status)').order('name')) as unknown as Client[]
+    const clients = must(await supabase.from('clients').select('id, name, billing_email, phone, address, client_contacts(id, name, email, phone, receives_invoices, receives_updates), projects(id, status)').order('name')) as unknown as Client[]
     const inv = must(await supabase.from('invoices').select('client_id, status, total, amount_paid, due_date').eq('status', 'open')) as Inv[]
     const invites = admin ? (must(await supabase.from('invites').select('email, role')) as { email: string; role: string }[]) : []
     const users = admin ? (must(await supabase.from('profiles').select('email')) as { email: string }[]) : []
@@ -57,7 +58,7 @@ export default function Clients() {
     const gone = before.filter((x) => !kept.has(x.id)).map((x) => x.id)
     if (gone.length) { const r = await supabase.from('client_contacts').delete().in('id', gone); if (r.error) return setErr(r.error.message) }
     for (const x of people) {
-      const v = { name: x.name.trim() || null, email: x.email.trim().toLowerCase(), receives_invoices: x.receives_invoices, receives_updates: x.receives_updates }
+      const v = { name: x.name.trim() || null, email: x.email.trim().toLowerCase(), phone: x.phone.trim() || null, receives_invoices: x.receives_invoices, receives_updates: x.receives_updates }
       const r = x.id ? await supabase.from('client_contacts').update(v).eq('id', x.id) : await supabase.from('client_contacts').insert({ ...v, client_id: clientId })
       if (r.error) return setErr(r.error.message)
     }
@@ -90,6 +91,7 @@ export default function Clients() {
                 <div key={x.id ?? 'n' + i} className="row" style={{ alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
                   <div style={{ flex: '1 1 200px' }}><label className="l" htmlFor={`fc-n${i}`}>Name</label><input id={`fc-n${i}`} className="input" value={x.name} onChange={(e) => set('name', e.target.value)} /></div>
                   <div style={{ flex: '1 1 240px' }}><label className="l" htmlFor={`fc-e${i}`}>Email</label><input id={`fc-e${i}`} type="email" className="input" value={x.email} onChange={(e) => set('email', e.target.value)} /></div>
+                  <div style={{ flex: '1 1 150px' }}><label className="l" htmlFor={`fc-p${i}`}>Phone</label><input id={`fc-p${i}`} type="tel" className="input" value={x.phone} onChange={(e) => set('phone', e.target.value)} /></div>
                   <label className="row" style={{ gap: 6, fontSize: 14, minHeight: 44 }}><input type="checkbox" checked={x.receives_invoices} onChange={(e) => set('receives_invoices', e.target.checked)} style={{ width: 18, height: 18 }} /> Gets invoices</label>
                   <label className="row" style={{ gap: 6, fontSize: 14, minHeight: 44 }}><input type="checkbox" checked={x.receives_updates} onChange={(e) => set('receives_updates', e.target.checked)} style={{ width: 18, height: 18 }} /> Gets updates</label>
                   <span style={{ marginBottom: 5 }}><RowMenu label={`Actions for ${x.name || x.email || 'this person'}`} items={[{ label: 'Remove', danger: true, onSelect: () => setForm({ ...form, contacts: form.contacts.length > 1 ? form.contacts.filter((_, j) => j !== i) : [blankContact()] }) }]} /></span>
@@ -121,7 +123,7 @@ export default function Clients() {
                   <td><div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
                     <button className="btn small secondary" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : c.id)}>{isOpen ? 'Hide' : 'Contacts'}</button>
                     {admin && <button className="btn small secondary" onClick={() => { setForm({ id: c.id, name: c.name, billing_email: c.billing_email ?? '', phone: c.phone ?? '', address: c.address ?? '',
-                      contacts: c.client_contacts.length ? c.client_contacts.map((x) => ({ id: x.id, name: x.name ?? '', email: x.email, receives_invoices: x.receives_invoices, receives_updates: x.receives_updates })) : [blankContact()] }); setErr(''); window.scrollTo({ top: 0 }) }}>Edit</button>}
+                      contacts: c.client_contacts.length ? c.client_contacts.map((x) => ({ id: x.id, name: x.name ?? '', email: x.email, phone: x.phone ?? '', receives_invoices: x.receives_invoices, receives_updates: x.receives_updates })) : [blankContact()] }); setErr(''); window.scrollTo({ top: 0 }) }}>Edit</button>}
                   </div></td>
                 </tr>,
                 isOpen && <tr key={c.id + '-x'}><td colSpan={6} style={{ background: 'var(--bg-soft, #f7f6f1)' }}>
@@ -137,22 +139,23 @@ export default function Clients() {
 }
 
 function Contacts({ client, admin, invited, joined, onInvite, onChange }: { client: Client; admin: boolean; invited: Set<string>; joined: Set<string>; onInvite: (c: Client, x: Contact) => void; onChange: () => void }) {
-  const [n, setN] = useState(''); const [e, setE] = useState(''); const [err, setErr] = useState('')
+  const [n, setN] = useState(''); const [e, setE] = useState(''); const [ph, setPh] = useState(''); const [err, setErr] = useState('')
   const add = async (ev: React.FormEvent) => {
     ev.preventDefault(); if (!e.trim()) return setErr('Enter an email.')
-    const r = await supabase.from('client_contacts').insert({ client_id: client.id, name: n.trim() || null, email: e.trim().toLowerCase() })
+    const r = await supabase.from('client_contacts').insert({ client_id: client.id, name: n.trim() || null, email: e.trim().toLowerCase(), phone: ph.trim() || null })
     if (r.error) return setErr(r.error.message)
-    setN(''); setE(''); setErr(''); onChange()
+    setN(''); setE(''); setPh(''); setErr(''); onChange()
   }
   const toggle = async (x: Contact, k: 'receives_invoices' | 'receives_updates') => { const r = await supabase.from('client_contacts').update({ [k]: !x[k] }).eq('id', x.id); setErr(r.error?.message ?? ''); onChange() }
   const del = async (x: Contact) => { const r = await supabase.from('client_contacts').delete().eq('id', x.id); setErr(r.error?.message ?? ''); onChange() }
   return (
     <div className="stack" style={{ padding: '8px 0' }}>
       {client.client_contacts.length > 0 && <table className="table">
-        <thead><tr><th>Name</th><th>Email</th><th>Gets invoices</th><th>Gets updates</th><th>Portal</th>{admin && <th></th>}</tr></thead>
+        <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Gets invoices</th><th>Gets updates</th><th>Portal</th>{admin && <th></th>}</tr></thead>
         <tbody>{client.client_contacts.map((x) => { const em = x.email.toLowerCase(); return (
           <tr key={x.id}>
             <td>{x.name || <span className="muted">—</span>}</td><td>{x.email}</td>
+            <td>{admin ? <PhoneCell id={x.id} value={x.phone} label={`Phone for ${x.email}`} onSaved={onChange} /> : x.phone ? <a href={`tel:${x.phone}`}>{x.phone}</a> : '—'}</td>
             <td><input type="checkbox" aria-label={`${x.email} gets invoices`} checked={x.receives_invoices} disabled={!admin} onChange={() => toggle(x, 'receives_invoices')} style={{ width: 18, height: 18 }} /></td>
             <td><input type="checkbox" aria-label={`${x.email} gets updates`} checked={x.receives_updates} disabled={!admin} onChange={() => toggle(x, 'receives_updates')} style={{ width: 18, height: 18 }} /></td>
             <td>{joined.has(em) ? <span className="badge b-paid">Signed in</span> : invited.has(em) ? <span className="badge b-sched">Invited</span> : admin ? <button className="btn small" onClick={() => onInvite(client, x)}>Invite to portal</button> : <span className="muted">Not invited</span>}</td>
@@ -162,6 +165,7 @@ function Contacts({ client, admin, invited, joined, onInvite, onChange }: { clie
       {admin && <form onSubmit={add} className="row" style={{ alignItems: 'flex-end' }}>
         <div><label className="l" htmlFor={`cn-${client.id}`}>Contact name</label><input id={`cn-${client.id}`} className="input" value={n} onChange={(ev) => setN(ev.target.value)} /></div>
         <div><label className="l" htmlFor={`ce-${client.id}`}>Email</label><input id={`ce-${client.id}`} type="email" className="input" required value={e} onChange={(ev) => setE(ev.target.value)} /></div>
+        <div><label className="l" htmlFor={`cp-${client.id}`}>Phone</label><input id={`cp-${client.id}`} type="tel" className="input" value={ph} onChange={(ev) => setPh(ev.target.value)} /></div>
         <button className="btn secondary">Add contact</button>
       </form>}
       {err && <p className="err" role="alert">{err}</p>}

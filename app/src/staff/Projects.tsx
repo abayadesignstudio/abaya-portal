@@ -6,6 +6,8 @@ import { useLoad, must } from '../lib/useQuery'
 import { useAuth } from '../lib/auth'
 import ProjectsGantt, { Grip, type Reorder } from './ProjectsGantt'
 import './admin.css'
+import RowMenu from '../components/RowMenu'
+import DuplicateProject from './DuplicateProject'
 
 type Row = { id: string; number: string; name: string; status: string; category: string | null; categories: string[] | null; sector: string | null; next_milestone: string | null
   clients: { name: string } | null; phases: { id: string; code: string; status: string; fee: number; start_date: string | null; end_date: string | null }[] }
@@ -38,6 +40,7 @@ const remember = (k: string, d: string) => { try { return localStorage.getItem(k
 const keep = (k: string, v: string) => { try { localStorage.setItem(k, v) } catch { /* private mode */ } }
 
 export default function Projects() {
+  const [dup, setDup] = useState<{ id: string; number: string; name: string } | null>(null)
   // status and type filters are remembered on this device, so they're still set when you come back to Projects
   const [status, setStatusRaw] = useState(() => remember('abaya.projects.status', 'active'))
   const setStatus = (v: string) => { setStatusRaw(v); keep('abaya.projects.status', v) }
@@ -120,6 +123,7 @@ export default function Projects() {
     <div className="stack">
       <div className="row between"><h1>Projects</h1><button className="btn" onClick={() => setAdding(!adding)}>{adding ? 'Close' : '+ New project'}</button></div>
       {adding && <NewProject onDone={() => { setAdding(false); reload() }} />}
+      {dup && <DuplicateProject project={dup} onClose={() => setDup(null)} />}
       <div className="row between">
         <div className="row" role="group" aria-label="Status">
           {['active', 'paused', 'complete', 'all'].map((s) => (
@@ -151,7 +155,7 @@ export default function Projects() {
       }} />}
       {view === 'table' && <><div className="card tablewrap">
         <table className="table" style={{ minWidth: 1100 }}>
-          <thead><tr>{reorder && <th style={{ width: 28 }}><span className="sr">Reorder</span></th>}<th>Project</th><th>Phases</th><th>Fee used</th><th className="r">Outstanding</th><th>Status</th></tr></thead>
+          <thead><tr>{reorder && <th style={{ width: 28 }}><span className="sr">Reorder</span></th>}<th>Project</th><th>Phases</th><th>Fee used</th><th className="r">Outstanding</th><th>Status</th><th><span className="sr">Actions</span></th></tr></thead>
           <tbody>
             {rows.map((p) => {
               const st = STATUS_STYLE[p.status] ?? STATUS_STYLE.active
@@ -185,9 +189,10 @@ export default function Projects() {
                     <div className="muted num" style={{ fontSize: 12, marginTop: 4 }}>{pct.toFixed(0)}% of {money(fee)}</div></> : <span className="muted" style={{ fontSize: 13 }}>No phase fees yet</span>}</td>
                   <td className="r num">{o && o.amt > 0.005 ? <><strong style={{ color: o.late ? 'var(--red)' : 'var(--text)' }}>{money(o.amt)}</strong><div style={{ fontSize: 12, color: o.late ? 'var(--red)' : 'var(--muted)' }}>{o.late ? 'past due' : 'outstanding'}</div></> : <span className="muted">—</span>}</td>
                   <td><span className="status" style={{ color: st[1], background: st[2] }}>{st[0]}</span></td>
+                  <td><RowMenu label={`Actions for ${p.name}`} items={[{ label: 'Duplicate project…', onSelect: () => setDup(p) }]} /></td>
                 </tr>)
             })}
-            {data && rows.length === 0 && <tr><td colSpan={reorder ? 6 : 5} className="muted" style={{ textAlign: 'center', padding: 28 }}><em>No projects match.</em></td></tr>}
+            {data && rows.length === 0 && <tr><td colSpan={reorder ? 7 : 6} className="muted" style={{ textAlign: 'center', padding: 28 }}><em>No projects match.</em></td></tr>}
           </tbody>
         </table>
       </div>

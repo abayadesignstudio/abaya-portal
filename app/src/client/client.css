@@ -98,8 +98,6 @@
 .ag-sign-btn{font:inherit;font-size:12px;font-weight:700;color:#fff;background:#c97a12;border:0;border-radius:6px;padding:4px 10px;cursor:pointer;animation:cs-pulse 1.6s ease-in-out infinite}
 .ag-sign-btn.big{font-size:14px;padding:8px 18px}
 @keyframes cs-pulse{50%{box-shadow:0 0 0 5px rgba(201,122,18,.25)}}
-.cs-modal{position:fixed;inset:0;background:rgba(2,37,61,.45);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px}
-.cs-modal-box{width:100%;max-width:520px;max-height:92vh;overflow:auto}
 .cs-tabs{align-self:flex-start}
 .cs-style{display:flex;align-items:center;gap:16px;padding:10px 14px;border:1px solid var(--line);border-radius:8px;cursor:pointer;color:#10213a}
 .cs-style.on{border-color:#02253d;box-shadow:0 0 0 2px rgba(2,37,61,.15)}

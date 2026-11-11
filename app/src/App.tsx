@@ -20,6 +20,7 @@ import Clients from './staff/Clients'
 import Settings from './staff/Settings'
 import SiteEditor from './editor/SiteEditor'
 import ClientPortal from './staff/ClientPortal'
+import ContactsLibrary from './staff/ContactsLibrary'
 import ClientLayout from './client/ClientLayout'
 import ClientProject from './client/ClientProject'
 import ClientInvoices from './client/ClientInvoices'
@@ -68,6 +69,7 @@ function Gate() {
         <Route path="bills" element={<Bills />} />
         <Route path="expenses" element={<Expenses />} />
         <Route path="clients" element={<Clients />} />
+        <Route path="contacts" element={<ContactsLibrary />} />
         <Route path="settings" element={<Settings />} />
         <Route path="site" element={<SiteEditor />} />
         <Route path="client-portal" element={<ClientPortal />} />

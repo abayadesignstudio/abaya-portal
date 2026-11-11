@@ -37,11 +37,12 @@ Deno.serve(async (req) => {
     db.from('profiles').select('id, full_name, email').in('role', ['admin', 'staff']),
     db.from('client_contacts').select('client_id, name, email'),
     db.from('projects').select('id, number, client_id, status'),
-    db.from('project_contacts').select('project_id, name, email, trade'),
+    db.from('project_contacts').select('project_id, trade, contacts(name, email)'),
   ])
   // project contacts (trades) by email → their projects
   const pcBy = new Map<string, { name: string | null; projects: string[] }>()
-  for (const c of pcs ?? []) { if (!c.email) continue; const k = String(c.email).toLowerCase(); const v = pcBy.get(k) ?? { name: c.name, projects: [] }; v.projects.push(c.project_id); pcBy.set(k, v) }
+  // deno-lint-ignore no-explicit-any
+  for (const c of (pcs ?? []) as any[]) { const ct = Array.isArray(c.contacts) ? c.contacts[0] : c.contacts; if (!ct?.email) continue; const k = String(ct.email).toLowerCase(); const v = pcBy.get(k) ?? { name: ct.name, projects: [] }; v.projects.push(c.project_id); pcBy.set(k, v) }
   const staffBy = new Map((staff ?? []).map((p) => [String(p.email).toLowerCase(), p]))
   const contactBy = new Map((contacts ?? []).filter((c) => c.email).map((c) => [String(c.email).toLowerCase(), c]))
   const live = (projects ?? []).filter((p) => p.client_id && ['active', 'paused', 'proposal'].includes(p.status))

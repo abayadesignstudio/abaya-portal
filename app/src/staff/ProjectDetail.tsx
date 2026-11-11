@@ -2,6 +2,10 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import TypePicker, { typeCodes } from './TypePicker'
 import Avatar from '../components/Avatar'
 import RowMenu from '../components/RowMenu'
+import ContactForm from '../components/ContactForm'
+import PhoneCell from '../components/PhoneCell'
+import DuplicateProject from './DuplicateProject'
+import { TRADES, contactName, backfillEmail, type LibContact } from '../lib/contacts'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import ModelUpload from './ModelUpload'
 import RenderingsUpload from './RenderingsUpload'
@@ -41,6 +45,7 @@ export default function ProjectDetail() {
   const [armed, setArmed] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState<string | null>(null)
   const [reorderErr, setReorderErr] = useState('')
+  const [dup, setDup] = useState(false)
   useEffect(() => { setTab(startTab) }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
   const { data, error, reload } = useLoad(async () => {
     const p = must(await supabase.from('projects').select('id, number, name, status, category, categories, sector, address, next_milestone, client_id, clients(name), outside_firm').eq('id', id!).single()) as unknown as Project
@@ -130,6 +135,8 @@ export default function ProjectDetail() {
           <label className="row" style={{ gap: 6, fontSize: 14 }} title="One person’s own work: it stays in the portal, but its hours and money aren’t counted in firm totals (utilization, time this week, what we need, collected).">
             <input type="checkbox" checked={!!p.outside_firm} onChange={async (e) => { await supabase.from('projects').update({ outside_firm: e.target.checked }).eq('id', p.id); reload() }} />Outside the firm</label>
           <StatusSelect id={p.id} value={p.status} onSaved={reload} />
+          <RowMenu label="Project actions" items={[{ label: 'Duplicate project…', onSelect: () => setDup(true) }]} />
+          {dup && <DuplicateProject project={p} onClose={() => setDup(false)} />}
         </div>
       </div>
       <p className="muted" style={{ margin: 0 }}>{p.clients?.name ?? 'No client'}{p.address ? ` · ${p.address}` : ''}</p>
@@ -503,35 +510,31 @@ export function RequestsTab({ projectId, phases: allPhases = [], onChanged }: { 
 }
 
 /* ---------------- Client access ---------------- */
-/** After a contact is added: pull the last 90 days of email with them into Updates (runs in the background). */
-const backfill = (email: string) => { const e = email.trim().toLowerCase(); if (e) supabase.functions.invoke('email-sync', { body: { only: [e], days: 90 } }).catch(() => {}) }
+type PLink = { id: string; trade: string; show_to_client: boolean; contact_id: string; contacts: LibContact }
 
-const TRADES = ['General Contractor', 'Structural Engineer', 'MEP Engineer', 'Civil Engineer', 'Landscape Architect', 'Interior Designer', 'Surveyor', 'Geotechnical Engineer', 'Consultant', 'Owner’s Rep', 'Other']
-type PContact = { id: string; trade: string; name: string | null; company: string | null; email: string | null; phone: string | null; notes: string | null; show_to_client: boolean }
-const BLANK_PC = { trade: 'General Contractor', name: '', company: '', email: '', phone: '', notes: '', show_to_client: true }
-
-/** Everyone on the project: the client (from Clients) and the trades/consultants added here.
+/** Everyone on the project: the client (from Clients) and the trades/consultants linked from the contact library.
  *  Emails and Google Calendar meetings with any of these people are logged to Updates automatically. */
 export function ContactsTab({ project }: { project: Project }) {
   const d = useLoad(async () => {
-    const client = project.client_id ? (must(await supabase.from('clients').select('name, billing_email, phone, address, client_contacts(id, name, email)').eq('id', project.client_id).maybeSingle()) as
-      { name: string; billing_email: string | null; phone: string | null; address: string | null; client_contacts: { id: string; name: string | null; email: string }[] } | null) : null
-    const trades = must(await supabase.from('project_contacts').select('*').eq('project_id', project.id).order('created_at')) as PContact[]
-    return { client, trades }
+    const client = project.client_id ? (must(await supabase.from('clients').select('name, billing_email, phone, address').eq('id', project.client_id).maybeSingle()) as
+      { name: string; billing_email: string | null; phone: string | null; address: string | null } | null) : null
+    const links = must(await supabase.from('project_contacts').select('id, trade, show_to_client, contact_id, contacts(*)').eq('project_id', project.id).order('created_at')) as unknown as PLink[]
+    const lib = must(await supabase.from('contacts').select('*').order('company').order('name')) as LibContact[]
+    return { client, links, lib }
   }, [project.id, project.client_id])
-  const [f, setF] = useState(BLANK_PC); const [edit, setEdit] = useState<string | null>(null); const [open, setOpen] = useState(false); const [err, setErr] = useState('')
-  const save = async (e: React.FormEvent) => { e.preventDefault(); setErr('')
-    const row = { trade: f.trade, name: f.name.trim() || null, company: f.company.trim() || null, email: f.email.trim().toLowerCase() || null, phone: f.phone.trim() || null, notes: f.notes.trim() || null, show_to_client: f.show_to_client }
-    if (!row.name && !row.company) { setErr('Add a name or a company.'); return }
-    const { error } = edit ? await supabase.from('project_contacts').update(row).eq('id', edit) : await supabase.from('project_contacts').insert({ ...row, project_id: project.id })
-    if (error) setErr(error.message); else { if (row.email) backfill(row.email); setF(BLANK_PC); setEdit(null); setOpen(false); d.reload() } }
-  const startEdit = (c: PContact) => { setEdit(c.id); setOpen(true); setF({ trade: c.trade, name: c.name ?? '', company: c.company ?? '', email: c.email ?? '', phone: c.phone ?? '', notes: c.notes ?? '', show_to_client: c.show_to_client }) }
-  const del = async (c: PContact) => {
-    if (!window.confirm(`Remove ${c.name || c.company} (${c.trade}) from this project? Updates already logged stay. This can’t be undone.`)) return
-    await supabase.from('project_contacts').delete().eq('id', c.id); d.reload() }
-  const toggleShow = async (c: PContact) => { await supabase.from('project_contacts').update({ show_to_client: !c.show_to_client }).eq('id', c.id); d.reload() }
+  const [mode, setMode] = useState<null | 'pick' | 'new'>(null); const [q, setQ] = useState(''); const [editing, setEditing] = useState<LibContact | null>(null); const [err, setErr] = useState('')
+  const linked = new Set((d.data?.links ?? []).map((l) => l.contact_id))
+  const link = async (c: LibContact) => { setErr('')
+    const { error } = await supabase.from('project_contacts').insert({ project_id: project.id, contact_id: c.id, trade: c.trade })
+    if (error) return setErr(error.message)
+    backfillEmail(c.email); setMode(null); setQ(''); d.reload() }
+  const unlink = async (l: PLink) => {
+    if (!window.confirm(`Remove ${contactName(l.contacts)} from this project? They stay in the contact library, and updates already logged stay.`)) return
+    await supabase.from('project_contacts').delete().eq('id', l.id); d.reload() }
+  const patch = async (l: PLink, v: Partial<PLink>) => { await supabase.from('project_contacts').update(v).eq('id', l.id); d.reload() }
   const cl = d.data?.client
-  const set = (k: keyof typeof BLANK_PC) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value })
+  const needle = q.trim().toLowerCase()
+  const matches = (d.data?.lib ?? []).filter((c) => !linked.has(c.id) && (!needle || [c.name, c.company, c.email, c.trade, c.phone].some((x) => (x ?? '').toLowerCase().includes(needle)))).slice(0, 30)
   return (
     <div className="stack">
       <section className="card pad stack">
@@ -547,29 +550,33 @@ export function ContactsTab({ project }: { project: Project }) {
       </section>
       <section className="card pad stack">
         <div className="row between"><h2 style={{ margin: 0 }}>Trades &amp; consultants</h2>
-          {!open && <button type="button" className="btn small" onClick={() => { setEdit(null); setF(BLANK_PC); setOpen(true) }}>+ Add contact</button>}</div>
-        <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>Emails and Google Calendar meetings with anyone listed here (with an email address) show up in Updates automatically.</p>
-        <table className="table"><thead><tr><th>Trade</th><th>Name</th><th>Company</th><th>Email</th><th>Phone</th><th>Client sees</th><th /></tr></thead><tbody>
-          {d.data?.trades.map((c) => <tr key={c.id}>
-            <td><strong>{c.trade}</strong></td><td>{c.name ?? '—'}</td><td>{c.company ?? '—'}</td>
-            <td>{c.email ? <a href={`mailto:${c.email}`}>{c.email}</a> : '—'}</td><td>{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : '—'}</td>
-            <td><input type="checkbox" aria-label={`Client sees ${c.name || c.company}`} checked={c.show_to_client} onChange={() => toggleShow(c)} style={{ width: 18, height: 18 }} /></td>
-            <td><RowMenu label={`Actions for ${c.name || c.company}`} items={[{ label: 'Edit', onSelect: () => startEdit(c) }, { label: 'Remove', danger: true, onSelect: () => del(c) }]} /></td></tr>)}
-          {d.data?.trades.length === 0 && <tr><td colSpan={7} className="muted"><em>No trades yet — add the general contractor, engineers and other consultants.</em></td></tr>}
-        </tbody></table>
-        {open && <form onSubmit={save} className="stack pc-form">
-          <div className="pc-grid">
-            <div><label className="l" htmlFor="pc-t">Trade</label><select id="pc-t" className="input" value={f.trade} onChange={set('trade')}>
-              {[...new Set([...TRADES, f.trade])].map((t) => <option key={t}>{t}</option>)}</select></div>
-            <div><label className="l" htmlFor="pc-n">Name</label><input id="pc-n" className="input" value={f.name} onChange={set('name')} /></div>
-            <div><label className="l" htmlFor="pc-c">Company</label><input id="pc-c" className="input" value={f.company} onChange={set('company')} /></div>
-            <div><label className="l" htmlFor="pc-e">Email</label><input id="pc-e" type="email" className="input" value={f.email} onChange={set('email')} /></div>
-            <div><label className="l" htmlFor="pc-p">Phone</label><input id="pc-p" type="tel" className="input" value={f.phone} onChange={set('phone')} /></div>
-            <div><label className="l" htmlFor="pc-o">Notes</label><input id="pc-o" className="input" value={f.notes} onChange={set('notes')} /></div>
+          {!mode && <button type="button" className="btn small" onClick={() => { setMode('pick'); setEditing(null) }}>+ Add contact</button>}</div>
+        <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>People come from the <Link to="/contacts">contact library</Link>. Emails and Google Calendar meetings with them show up in Updates automatically.</p>
+        <div style={{ overflowX: 'auto' }}><table className="table"><thead><tr><th>Role</th><th>Name</th><th>Company</th><th>Email</th><th>Phone</th><th>Client sees</th><th /></tr></thead><tbody>
+          {d.data?.links.map((l) => <tr key={l.id}>
+            <td><label className="sr" htmlFor={`pr-${l.id}`}>Role on this project</label><select id={`pr-${l.id}`} className="input inline-select" value={l.trade} onChange={(e) => patch(l, { trade: e.target.value })}>
+              {[...new Set([...TRADES, l.trade])].map((t) => <option key={t}>{t}</option>)}</select></td>
+            <td>{l.contacts.name ?? '—'}</td><td>{l.contacts.company ?? '—'}</td>
+            <td>{l.contacts.email ? <a href={`mailto:${l.contacts.email}`}>{l.contacts.email}</a> : '—'}</td><td>{l.contacts.phone ? <a href={`tel:${l.contacts.phone}`}>{l.contacts.phone}</a> : '—'}</td>
+            <td><input type="checkbox" aria-label={`Client sees ${contactName(l.contacts)}`} checked={l.show_to_client} onChange={() => patch(l, { show_to_client: !l.show_to_client })} style={{ width: 18, height: 18 }} /></td>
+            <td><RowMenu label={`Actions for ${contactName(l.contacts)}`} items={[{ label: 'Edit contact details', onSelect: () => { setEditing(l.contacts); setMode(null) } }, { label: 'Remove from project', danger: true, onSelect: () => unlink(l) }]} /></td></tr>)}
+          {d.data?.links.length === 0 && <tr><td colSpan={7} className="muted"><em>No trades yet — add the general contractor, engineers and other consultants.</em></td></tr>}
+        </tbody></table></div>
+        {editing && <><p className="muted" style={{ margin: 0, fontSize: 13 }}>Editing {contactName(editing)} in the library — the change shows on every project they’re on.</p>
+          <ContactForm key={editing.id} edit={editing} onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); d.reload() }} /></>}
+        {mode === 'pick' && <div className="stack pc-form" style={{ gap: 8 }}>
+          <div className="row" style={{ gap: 8 }}>
+            <label className="sr" htmlFor="pc-q">Search the contact library</label>
+            <input id="pc-q" className="input" style={{ flex: 1, minWidth: 220 }} autoFocus placeholder="Search the library: name, company, email, trade…" value={q} onChange={(e) => setQ(e.target.value)} />
+            <button type="button" className="btn secondary" onClick={() => setMode('new')}>+ New contact</button>
+            <button type="button" className="btn secondary" onClick={() => { setMode(null); setQ('') }}>Cancel</button>
           </div>
-          <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={f.show_to_client} onChange={(e) => setF({ ...f, show_to_client: e.target.checked })} style={{ width: 18, height: 18 }} /> Show in the client portal</label>
-          <div className="row"><button className="btn">{edit ? 'Save' : 'Add contact'}</button><button type="button" className="btn secondary" onClick={() => { setOpen(false); setEdit(null); setErr('') }}>Cancel</button></div>
-        </form>}
+          <ul className="pc-pick">{matches.map((c) => <li key={c.id}><button type="button" onClick={() => link(c)}>
+            <strong>{contactName(c)}</strong>{c.name && c.company && <span className="muted"> · {c.company}</span>}<span className="pill" style={{ marginLeft: 8 }}>{c.trade}</span>
+            <span className="muted" style={{ marginLeft: 'auto', fontSize: 13 }}>{[c.email, c.phone].filter(Boolean).join(' · ')}</span></button></li>)}
+            {matches.length === 0 && <li className="muted" style={{ padding: 8 }}><em>{(d.data?.lib.length ?? 0) === 0 ? 'The library is empty — add the first contact.' : 'No match — add them as a new contact.'}</em></li>}</ul>
+        </div>}
+        {mode === 'new' && <ContactForm saveLabel="Add to library & project" onCancel={() => setMode('pick')} onSaved={(c) => link(c)} />}
         {err && <p className="err" role="alert">{err}</p>}
       </section>
     </div>
@@ -581,18 +588,18 @@ export function ClientAccessTab({ project, embedded }: { project: Project; embed
   const isAdmin = profile?.role === 'admin'
   const d = useLoad(async () => {
     if (!project.client_id) return { contacts: [], invites: [], users: [] }
-    const contacts = must(await supabase.from('client_contacts').select('*').eq('client_id', project.client_id).order('name')) as { id: string; name: string | null; email: string; receives_invoices: boolean; receives_updates: boolean }[]
+    const contacts = must(await supabase.from('client_contacts').select('*').eq('client_id', project.client_id).order('name')) as { id: string; name: string | null; email: string; phone: string | null; receives_invoices: boolean; receives_updates: boolean }[]
     const invites = isAdmin ? (must(await supabase.from('invites').select('email').eq('client_id', project.client_id)) as { email: string }[]) : []
     const users = must(await supabase.from('profiles').select('email').eq('client_id', project.client_id)) as { email: string }[]
     return { contacts, invites, users }
   }, [project.client_id, isAdmin])
-  const [nc, setNc] = useState({ name: '', email: '' }); const [err, setErr] = useState(''); const [msg, setMsg] = useState('')
+  const [nc, setNc] = useState({ name: '', email: '', phone: '' }); const [err, setErr] = useState(''); const [msg, setMsg] = useState('')
   if (!project.client_id) return <p className="card pad muted">Set a client on the Settings tab first.</p>
   const invited = new Set([...(d.data?.invites ?? []), ...(d.data?.users ?? [])].map((x) => x.email.toLowerCase()))
   const signedIn = new Set((d.data?.users ?? []).map((x) => x.email.toLowerCase()))
   const add = async (e: React.FormEvent) => { e.preventDefault(); setErr('')
-    const { error } = await supabase.from('client_contacts').insert({ client_id: project.client_id, name: nc.name.trim() || null, email: nc.email.trim().toLowerCase() })
-    if (error) setErr(error.message); else { backfill(nc.email); setNc({ name: '', email: '' }); d.reload() } }
+    const { error } = await supabase.from('client_contacts').insert({ client_id: project.client_id, name: nc.name.trim() || null, email: nc.email.trim().toLowerCase(), phone: nc.phone.trim() || null })
+    if (error) setErr(error.message); else { backfillEmail(nc.email); setNc({ name: '', email: '', phone: '' }); d.reload() } }
   const invite = async (email: string, name: string | null) => { setErr(''); setMsg('')
     const { error } = await supabase.from('invites').upsert({ email: email.toLowerCase(), role: 'client', client_id: project.client_id, full_name: name, invited_by: profile?.id })
     if (error) setErr(error.message); else { setMsg(`${email} can now sign in at the portal with their email.`); d.reload() } }
@@ -601,17 +608,18 @@ export function ClientAccessTab({ project, embedded }: { project: Project; embed
     <section className={embedded ? 'stack' : 'card pad stack'}>
       {!embedded && <h2>Client access — {project.clients?.name}</h2>}
       <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>Client contacts belong to {project.clients?.name}, so they see every project for this client. Emails with them are logged to Updates.</p>
-      <table className="table"><thead><tr><th>Name</th><th>Email</th><th>Invoices</th><th>Updates</th><th>Portal</th></tr></thead><tbody>
-        {d.data?.contacts.map((c) => <tr key={c.id}><td>{c.name ?? '—'}</td><td>{c.email}</td>
+      <div style={{ overflowX: 'auto' }}><table className="table"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Invoices</th><th>Updates</th><th>Portal</th></tr></thead><tbody>
+        {d.data?.contacts.map((c) => <tr key={c.id}><td>{c.name ?? '—'}</td><td>{c.email}</td><td><PhoneCell id={c.id} value={c.phone} label={`Phone for ${c.email}`} onSaved={d.reload} /></td>
           <td><input type="checkbox" aria-label={`${c.email} receives invoices`} checked={c.receives_invoices} onChange={(e) => toggle(c.id, 'receives_invoices', e.target.checked)} style={{ width: 18, height: 18 }} /></td>
           <td><input type="checkbox" aria-label={`${c.email} receives updates`} checked={c.receives_updates} onChange={(e) => toggle(c.id, 'receives_updates', e.target.checked)} style={{ width: 18, height: 18 }} /></td>
           <td>{signedIn.has(c.email.toLowerCase()) ? <span style={{ color: 'var(--green)', fontWeight: 700 }}>Signed in</span> : invited.has(c.email.toLowerCase()) ? <span className="muted">Invited</span>
             : isAdmin ? <button className="btn small secondary" onClick={() => invite(c.email, c.name)}>Invite to portal</button> : <span className="muted">Admin can invite</span>}</td></tr>)}
-        {d.data?.contacts.length === 0 && <tr><td colSpan={5} className="muted"><em>No contacts yet.</em></td></tr>}
-      </tbody></table>
+        {d.data?.contacts.length === 0 && <tr><td colSpan={6} className="muted"><em>No contacts yet.</em></td></tr>}
+      </tbody></table></div>
       <form onSubmit={add} className="row" style={{ alignItems: 'flex-end' }}>
         <div><label className="l" htmlFor="cc-n">Name</label><input id="cc-n" className="input" value={nc.name} onChange={(e) => setNc({ ...nc, name: e.target.value })} /></div>
         <div style={{ minWidth: 260 }}><label className="l" htmlFor="cc-e">Email</label><input id="cc-e" type="email" required className="input" value={nc.email} onChange={(e) => setNc({ ...nc, email: e.target.value })} /></div>
+        <div><label className="l" htmlFor="cc-p">Phone</label><input id="cc-p" type="tel" className="input" value={nc.phone} onChange={(e) => setNc({ ...nc, phone: e.target.value })} /></div>
         <button className="btn secondary">+ Add contact</button>
       </form>
       {err && <p className="err" role="alert">{err}</p>}{msg && <p className="ok" role="status">{msg}</p>}

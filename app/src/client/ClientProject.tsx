@@ -43,7 +43,7 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
     requests: must(await supabase.from('service_requests').select('*').eq('project_id', id!).order('created_at', { ascending: false })) as ServiceRequest[],
     invoices: must(await supabase.from('invoices').select('id, number, status, issue_date, total, amount_paid, due_date').eq('project_id', id!).order('issue_date', { ascending: false })) as Inv[],
     agreements: must(await supabase.from('agreements').select('id, title, status, signed_at').eq('project_id', id!).in('status', ['sent', 'signed']).order('created_at', { ascending: false })) as { id: string; title: string; status: string; signed_at: string | null }[],
-    team: must(await supabase.from('project_contacts').select('id, trade, name, company, email, phone').eq('project_id', id!).eq('show_to_client', true).order('created_at')) as Team[],
+    team: must(await supabase.from('project_contacts').select('id, trade, contacts(name, company, email, phone)').eq('project_id', id!).eq('show_to_client', true).order('created_at')) as unknown as Team[],
     models: ((await supabase.storage.from('models').list(id!)).data ?? []).filter((f) => f.id && f.name && !f.name.startsWith('.')),
   }), [id])
   const reloadKey = pv?.reloadKey ?? 0
@@ -239,13 +239,13 @@ function RequestPanel({ projectId, me, requests, onSent, preview }: { projectId:
 }
 
 const INV_ST: Record<string, [string, string]> = { open: ['Open', 'var(--amber)'], paid: ['Paid', 'var(--green)'], void: ['Void', 'var(--muted)'], uncollectible: ['Closed', 'var(--muted)'] }
-type Team = { id: string; trade: string; name: string | null; company: string | null; email: string | null; phone: string | null }
+type Team = { id: string; trade: string; contacts: { name: string | null; company: string | null; email: string | null; phone: string | null } | null }
 /** The trades and consultants on the project (only the ones staff marked "Client sees"). */
 function TeamPanel({ team }: { team: Team[] }) {
   return (
     <section className="card pad stack" aria-labelledby="tm-h" style={{ gap: 10 }}>
       <h2 id="tm-h">Project team</h2>
-      {team.map((c) => <div key={c.id} className="cp-team">
+      {team.filter((t) => t.contacts).map((t) => ({ ...t.contacts!, id: t.id, trade: t.trade })).map((c) => <div key={c.id} className="cp-team">
         <div className="muted" style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase' }}>{c.trade}</div>
         <div><strong>{c.name || c.company}</strong>{c.name && c.company && <span className="muted"> · {c.company}</span>}</div>
         <div style={{ fontSize: 13.5 }}>{c.email && <a href={`mailto:${c.email}`}>{c.email}</a>}{c.email && c.phone && ' · '}{c.phone && <a href={`tel:${c.phone}`}>{c.phone}</a>}</div>
