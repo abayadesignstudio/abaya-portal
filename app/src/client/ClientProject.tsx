@@ -233,7 +233,7 @@ function RequestPanel({ projectId, me, requests, onSent, preview }: { projectId:
         {err && <p className="err" role="alert">{err}</p>}{ok && <p className="ok" role="status">{ok}</p>}
       </form>
       {requests.length > 0 && <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{requests.map((r) => <li key={r.id} style={{ padding: '6px 0', borderTop: '1px solid #efece6', fontSize: 14 }}>
-        <div className="row between"><span>{r.description}</span><strong>{L[r.status] ?? r.status}{r.quote != null ? ` · ${money(r.quote)}` : ''}</strong></div></li>)}</ul>}
+        <div className="row between"><span>{r.description}</span><strong>{L[r.status] ?? r.status}{r.billing === 'hourly' ? ` · hourly${r.quote ? `, est. ${money(r.quote)}` : ''}` : r.quote != null ? ` · ${money(r.quote)}` : ''}</strong></div></li>)}</ul>}
     </section>
   )
 }

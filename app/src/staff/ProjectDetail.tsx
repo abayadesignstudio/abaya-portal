@@ -461,13 +461,13 @@ export function RequestsTab({ projectId, phases: allPhases = [], onChanged }: { 
   const { profile } = useAuth()
   const list = useLoad(async () => must(await supabase.from('service_requests').select('*').eq('project_id', projectId).order('created_at', { ascending: false })) as ServiceRequest[], [projectId])
   const save = async (r: ServiceRequest, patch: Partial<ServiceRequest>) => { const { error } = await supabase.from('service_requests').update(patch).eq('id', r.id); if (error) setErr(error.message); list.reload(); onChanged?.() }
-  const [n, setN] = useState({ description: '', quote: '', status: 'quoted', phase_id: '' }); const [err, setErr] = useState('')
+  const [n, setN] = useState({ description: '', quote: '', status: 'quoted', phase_id: '', billing: 'fixed' }); const [err, setErr] = useState('')
   const add = async (e: React.FormEvent) => {
     e.preventDefault(); setErr('')
     if (!n.description.trim()) return setErr('Describe the service.')
-    const { error } = await supabase.from('service_requests').insert({ project_id: projectId, requested_by: profile?.id, description: n.description.trim(), quote: n.quote ? Number(n.quote) : null, status: n.status, phase_id: n.phase_id || null })
+    const { error } = await supabase.from('service_requests').insert({ project_id: projectId, requested_by: profile?.id, description: n.description.trim(), quote: n.quote ? Number(n.quote) : null, status: n.status, phase_id: n.phase_id || null, billing: n.billing })
     if (error) return setErr(error.message)
-    setN({ description: '', quote: '', status: 'quoted', phase_id: '' }); list.reload(); onChanged?.()
+    setN({ description: '', quote: '', status: 'quoted', phase_id: '', billing: 'fixed' }); list.reload(); onChanged?.()
   }
   const remove = async (r: ServiceRequest) => {
     if (!window.confirm(`Delete “${r.description.slice(0, 60)}”? The client will no longer see it. This can’t be undone.`)) return
@@ -480,12 +480,14 @@ export function RequestsTab({ projectId, phases: allPhases = [], onChanged }: { 
     <div className="stack">
       <form onSubmit={add} className="card pad stack" aria-label="Add an additional service">
         <h2>Add an additional service</h2>
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}>For work outside the agreement. It appears on the client’s project page with its fee and status. Once <strong>Approved</strong>, it becomes its own line in the Phases table (under the phase you pick), so the team can log time to it and you can bill it.</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px,1fr) 180px 120px 180px auto', gap: 10, alignItems: 'end' }}>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>For work outside the agreement. It appears on the client’s project page with its fee and status. Once <strong>Approved</strong>, it becomes its own line in the Phases table (under the phase you pick), so the team can log time to it and you can bill it. <strong>Hourly</strong> services bill the hours logged to them at each person’s rate; the amount is your estimate.</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px,1fr) 170px 130px 120px 180px auto', gap: 10, alignItems: 'end' }}>
           <div><label className="l" htmlFor="as-d">Service</label><input id="as-d" className="input" value={n.description} placeholder="e.g. Revised site plan for pond relocation" onChange={(e) => setN({ ...n, description: e.target.value })} /></div>
           <div><label className="l" htmlFor="as-p">Under phase</label><select id="as-p" className="input" value={n.phase_id} onChange={(e) => setN({ ...n, phase_id: e.target.value })}>
             <option value="">— None —</option>{parents.map((p) => <option key={p.id} value={p.id}>{p.code} · {PHASE_NAME[p.code]}</option>)}</select></div>
-          <div><label className="l" htmlFor="as-q">Fee</label><input id="as-q" className="input num" inputMode="decimal" placeholder="$" value={n.quote} onChange={(e) => setN({ ...n, quote: e.target.value })} /></div>
+          <div><label className="l" htmlFor="as-b">Billing</label><select id="as-b" className="input" value={n.billing} onChange={(e) => setN({ ...n, billing: e.target.value })}>
+            <option value="fixed">Fixed fee</option><option value="hourly">Hourly</option></select></div>
+          <div><label className="l" htmlFor="as-q">{n.billing === 'hourly' ? 'Estimate (optional)' : 'Fee'}</label><input id="as-q" className="input num" inputMode="decimal" placeholder="$" value={n.quote} onChange={(e) => setN({ ...n, quote: e.target.value })} /></div>
           <div><label className="l" htmlFor="as-s">Status</label><select id="as-s" className="input" value={n.status} onChange={(e) => setN({ ...n, status: e.target.value })}>
             <option value="quoted">Quoted (awaiting approval)</option><option value="approved">Approved</option><option value="done">Done</option></select></div>
           <div><button className="btn">Add service</button></div>
@@ -500,7 +502,9 @@ export function RequestsTab({ projectId, phases: allPhases = [], onChanged }: { 
           <div className="row" style={{ flexWrap: 'nowrap' }}>
             <label className="sr" htmlFor={'rp' + r.id}>Under phase</label><select id={'rp' + r.id} className="input" style={{ width: 'auto', maxWidth: 190 }} value={r.phase_id ?? ''} onChange={(e) => save(r, { phase_id: e.target.value || null })}>
               <option value="">No phase</option>{parents.map((p) => <option key={p.id} value={p.id}>{p.code}</option>)}</select>
-            <label className="sr" htmlFor={'rq' + r.id}>Fee</label><input id={'rq' + r.id} className="input num" style={{ width: 120 }} placeholder="Quote $" defaultValue={r.quote ?? ''} onBlur={(e) => save(r, { quote: e.target.value ? Number(e.target.value) : null })} />
+            <label className="sr" htmlFor={'rb' + r.id}>Billing</label><select id={'rb' + r.id} className="input" style={{ width: 'auto' }} value={r.billing ?? 'fixed'} onChange={(e) => save(r, { billing: e.target.value as 'fixed' | 'hourly' })}>
+              <option value="fixed">Fixed fee</option><option value="hourly">Hourly</option></select>
+            <label className="sr" htmlFor={'rq' + r.id}>{r.billing === 'hourly' ? 'Estimate' : 'Fee'}</label><input id={'rq' + r.id} className="input num" style={{ width: 120 }} placeholder={r.billing === 'hourly' ? 'Estimate $' : 'Quote $'} defaultValue={r.quote ?? ''} onBlur={(e) => save(r, { quote: e.target.value ? Number(e.target.value) : null })} />
             <label className="sr" htmlFor={'rs' + r.id}>Status</label><select id={'rs' + r.id} className="input" style={{ width: 'auto' }} value={r.status} onChange={(e) => save(r, { status: e.target.value })}>
               <option value="requested">Requested</option><option value="quoted">Quoted</option><option value="approved">Approved</option><option value="declined">Declined</option><option value="done">Done</option></select>
             <RowMenu label="Service actions" items={[{ label: 'Delete…', danger: true, onSelect: () => remove(r) }]} />

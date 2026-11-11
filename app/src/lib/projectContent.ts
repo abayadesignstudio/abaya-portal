@@ -6,7 +6,7 @@ export type Update = { id: string; project_id: string; author: string | null; ki
 export type Drawing = { id: string; project_id: string; phase_id: string | null; title: string; sheet_count: number | null; issued_on: string; storage_path: string; locked_until_invoice: string | null }
 export type ContractItem = { id: string; project_id: string; phase_id: string | null; title: string; status: string; sort: number }
 export type Meeting = { id: string; project_id: string; phase_id: string | null; held_on: string; title: string | null }
-export type ServiceRequest = { id: string; project_id: string; description: string; status: string; quote: number | null; created_at: string; phase_id?: string | null }
+export type ServiceRequest = { id: string; project_id: string; description: string; status: string; quote: number | null; created_at: string; phase_id?: string | null; billing?: 'fixed' | 'hourly' }
 
 /** Standard phases in CE→CA order; additional-service lines (AS) right after the phase they belong to, unassigned ones last. */
 /** Phases in project order: the order set by dragging on the project page (sort), else the standard order by code.
