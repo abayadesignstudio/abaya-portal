@@ -4,6 +4,7 @@ import { supabase, money, SECTOR_COLOR } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import { type InvoiceRow, type InvEvent, displayStatus, activityOf, fmtDate, todayIso, daysBetween, eventLabel, EVENT_STYLE, num, emailInvoice } from '../lib/invoices'
+import { useRemembered } from '../lib/useRemembered'
 import './invoices.css'
 
 type Recipient = { invoice_id: string; email: string; kind: string }
@@ -12,10 +13,10 @@ const FILTERS: [string, string][] = [['all', 'All'], ['unpaid', 'Unpaid'], ['pas
 export default function Invoices() {
   const nav = useNavigate()
   const { profile } = useAuth()
-  const [f, setF] = useState('all')
+  const [f, setF] = useRemembered('abaya.invoices.filter', 'all')
   const [q, setQ] = useState('')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
+  const [from, setFrom] = useRemembered('abaya.invoices.from', '')
+  const [to, setTo] = useRemembered('abaya.invoices.to', '')
   const [sel, setSel] = useState<string | null>(null)
   const data = useLoad(async () => {
     const inv = must(await supabase.from('invoice_summary').select('id, number, project_id, client_id, status, issue_date, due_date, paid_at, total, amount_paid, payment_method, project_number, project_name, sector, client_name, best_activity, days_past_due')

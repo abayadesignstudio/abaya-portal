@@ -5,6 +5,7 @@ import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
 import { newDoc } from '../lib/agreementTemplate'
 import RowMenu, { type RowMenuItem } from '../components/RowMenu'
+import { useRemembered } from '../lib/useRemembered'
 import FeeTriangulator, { type FeeSeed } from './FeeTriangulator'
 
 type Row = { id: string; title: string; status: string; total_fee: number | null; updated_at: string
@@ -19,7 +20,7 @@ const STATUS: Record<string, [string, string, string]> = {
 export default function Proposals() {
   const nav = useNavigate()
   const { profile } = useAuth()
-  const [filter, setFilter] = useState('all')
+  const [filter, setFilter] = useRemembered('abaya.proposals.filter', 'all')
   const [projectId, setProjectId] = useState('')
   // "+ New project…": every proposal belongs to a project; a prospective job starts as a project with status Proposal
   const [np, setNp] = useState({ number: '', name: '', client: '', newClient: '', category: 'S', sector: 'commercial' })
