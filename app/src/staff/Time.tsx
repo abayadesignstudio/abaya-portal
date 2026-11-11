@@ -45,6 +45,19 @@ export default function Time() {
     return { entries, rows, totals, allocs }
   }, [me, week])
   const reload = data.reload
+  // Past weeks lock (enforced by the database too); an admin can unlock a week for 24 hours.
+  const thisMonday = iso(mondayOf(new Date()))
+  const past = iso(week) < thisMonday
+  const unlock = useLoad(async () => past ? (must(await supabase.from('time_unlocks').select('expires_at').eq('profile_id', me).eq('week_start', iso(week)).maybeSingle()) as { expires_at: string } | null) : null, [me, week, past])
+  const unlockedUntil = unlock.data && new Date(unlock.data.expires_at) > new Date() ? new Date(unlock.data.expires_at) : null
+  const locked = past && !unlockedUntil
+  const setLock = async (open: boolean) => {
+    setErr('')
+    const { error } = open
+      ? await supabase.from('time_unlocks').upsert({ profile_id: me, week_start: iso(week), unlocked_by: profile!.id, unlocked_at: new Date().toISOString(), expires_at: new Date(Date.now() + 24 * 3600e3).toISOString() })
+      : await supabase.from('time_unlocks').delete().eq('profile_id', me).eq('week_start', iso(week))
+    if (error) setErr(error.message); else unlock.reload()
+  }
   useEffect(() => { window.addEventListener(TIME_CHANGED, reload); return () => window.removeEventListener(TIME_CHANGED, reload) }, [reload])
   const [err, setErr] = useState('')
 
@@ -175,7 +188,7 @@ export default function Time() {
       </div>
       {!self && <p className="ts-other" role="status">You’re entering hours for <strong>{whoName}</strong>. Rows and hours you add here go on their timesheet. <button type="button" className="linkbtn" onClick={() => setMe(profile!.id)}>Back to mine</button></p>}
       <div className="row between">
-        <div className="row" style={phone ? { width: '100%' } : undefined}>
+        <div className="row" style={{ ...(phone ? { width: '100%' } : {}), ...(locked ? { visibility: 'hidden' } : {}) }}>
           <Combobox id="ts-add" label="Add project and phase" placeholder="Search for project and add phase" style={{ width: phone ? '100%' : 380 }} clearOnSelect value=""
             options={phaseOptions} onChange={(x) => { const [project_id, phase_id] = x.split('|'); if (project_id) addRow({ project_id, phase_id: phase_id || null, role_label: defaultRole(project_id) || null, activity: null }) }} />
           <label className="sr" htmlFor="ts-oh">Add overhead</label>
@@ -191,7 +204,17 @@ export default function Time() {
         </div>
       </div>
       {err && <p className="err" role="alert">{err}</p>}
+      {past && <div className={'ts-lock' + (locked ? '' : ' open')} role="status">
+        <span aria-hidden="true">{locked ? '🔒' : '🔓'}</span>
+        <span style={{ flex: 1 }}>{locked
+          ? <><strong>This week is locked.</strong> Past weeks can’t be changed{admin ? '' : ' — ask an admin to unlock it if something needs fixing'}.</>
+          : <><strong>Unlocked</strong> for changes until {unlockedUntil!.toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}. It locks again automatically.</>}</span>
+        {admin && (locked
+          ? <button type="button" className="btn small" onClick={() => setLock(true)}>Unlock week</button>
+          : <button type="button" className="btn small secondary" onClick={() => setLock(false)}>Lock now</button>)}
+      </div>}
 
+      <fieldset disabled={locked} className="ts-fs" style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       {phone ? (
         <>
           <div className="ts-days" role="group" aria-label="Day">
@@ -290,6 +313,7 @@ export default function Time() {
           </section>)
       })}
       </>)}
+      </fieldset>
       {data.data && rows.length === 0 && <p className="muted card pad" style={{ textAlign: 'center' }}><em>Nothing on this week yet. Add a project and phase above, or start the timer in the sidebar.</em></p>}
     </div>
   )
