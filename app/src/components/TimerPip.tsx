@@ -48,14 +48,14 @@ export function TimerPipView({ api, win, onBack }: { api: TimerApi; win: Window;
         : <div className="pip-label" title={label}>{proj && proj.number !== 'OH' && <span className="pip-chip" style={{ background: sectorColor(proj.sector) }} />}{label}</div>}
       <div className="pip-btns">
         {r ? <>
-          <button type="button" className="pip-btn main" disabled={api.busy} onClick={() => (api.paused ? api.resume() : api.pause())} aria-label={api.paused ? 'Resume' : 'Pause'} title={api.paused ? 'Resume' : 'Pause'}>
+          <button type="button" className="pip-btn pip-go" disabled={api.busy} onClick={() => (api.paused ? api.resume() : api.pause())} aria-label={api.paused ? 'Resume' : 'Pause'} title={api.paused ? 'Resume' : 'Pause'}>
             {api.paused ? <Play /> : <svg width="14" height="16" viewBox="0 0 12 13" aria-hidden="true"><rect x="1" width="3.6" height="13" rx="1" fill="currentColor" /><rect x="7.4" width="3.6" height="13" rx="1" fill="currentColor" /></svg>}</button>
           <button type="button" className="pip-btn" disabled={api.busy} onClick={() => api.stop()} aria-label="End and log the time" title="End & log">
             <svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true"><rect width="12" height="12" rx="2" fill="currentColor" /></svg></button>
           <button type="button" className="pip-btn" disabled={api.busy} onClick={() => { if (win.confirm('Restart this timer from 00:00? The time so far won’t be logged.')) api.restart() }} aria-label="Restart from zero" title="Restart">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 12a8 8 0 108-8H8M8 1L5 4l3 3" /></svg></button>
         </> : chosen
-          ? <button type="button" className="pip-btn main" disabled={api.busy} onClick={() => api.pickUp(chosen)} aria-label={`Start ${taskName(chosen)}`} title="Start"><Play /></button>
+          ? <button type="button" className="pip-btn pip-go" disabled={api.busy} onClick={() => api.pickUp(chosen)} aria-label={`Start ${taskName(chosen)}`} title="Start"><Play /></button>
           : <span className="pip-hint">Start a timer in the portal first.</span>}
       </div>
     </div>, win.document.body)
