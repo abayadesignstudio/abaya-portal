@@ -22,8 +22,14 @@ export default function SignIn() {
   const go = (m: Mode) => { setMode(m); setErr(''); setSent(''); rememberWay(m === 'google' ? 'google' : 'email') }
   const google = async () => {
     setErr(''); setBusy(true); rememberWay('google')
-    const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: back(), queryParams: { hd: 'abayadesignstudio.com', prompt: 'select_account' } } })
-    if (error) { setBusy(false); setErr(/not enabled|unsupported provider/i.test(error.message) ? 'Google sign-in isn’t switched on yet. Use “Sign in with email” for now.' : error.message) }
+    const off = 'Google sign-in isn’t switched on yet. Use “Sign in with email” for now.'
+    // ask Supabase first, so a switched-off provider shows a message here instead of a raw error page
+    const on = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string } })
+      .then((r) => r.json()).then((j) => !!j?.external?.google).catch(() => true)
+    if (!on) { setBusy(false); setErr(off); return }
+    const { data, error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: back(), skipBrowserRedirect: true, queryParams: { hd: 'abayadesignstudio.com', prompt: 'select_account' } } })
+    if (error || !data?.url) { setBusy(false); setErr(error?.message ?? off); return }
+    window.location.assign(data.url)
   }
 
   const submit = async (e: React.FormEvent) => {
