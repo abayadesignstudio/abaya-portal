@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { usePreviewNav } from './preview'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { type DocState } from '../lib/agreementTemplate'
@@ -37,8 +38,10 @@ async function renderStyled(text: string, font: string, scale: number) {
 }
 
 /** Client: review the published agreement, initial each section, sign. */
-export default function ClientAgreement() {
-  const { id } = useParams()
+export default function ClientAgreement({ previewId }: { previewId?: string } = {}) {
+  const params = useParams()
+  const id = previewId ?? params.id
+  const pnav = usePreviewNav() // staff "Client portal" preview: a demo — nothing is saved or signed
   const { profile } = useAuth()
   const [row, setRow] = useState<Row | null>(null)
   const [sig, setSig] = useState<Sig | null>(null)
@@ -75,9 +78,9 @@ export default function ClientAgreement() {
 
   if (err && !row) return <p className="err">{err}</p>
   if (!row || !doc || !model) return <p>Loading…</p>
-  if (row.status !== 'sent' && row.status !== 'signed') return <p className="card pad">This agreement isn’t open for signing.</p>
+  if (row.status !== 'sent' && row.status !== 'signed' && !previewId) return <p className="card pad">This agreement isn’t open for signing.</p>
 
-  const need = row.initial_sections
+  const need = row.initial_sections?.length ? row.initial_sections : previewId ? (model?.secs ?? []).map((x) => x.n) : (row.initial_sections ?? [])
   const done = need.filter((n) => initials[String(n)]).length
   const ready = done === need.length && signedHere
   const withAdopted = (f: (a: Adopted) => void) => (adopted ? f(adopted) : setAdopt({ then: (a) => { setAdopted(a); setAdopt(null); f(a) } }))
@@ -87,6 +90,7 @@ export default function ClientAgreement() {
   }
   const submit = async () => {
     if (!adopted) return
+    if (previewId) { setFinish(false); setErr('Preview only — the client signs here. Nothing was saved.'); return }
     setBusy(true); setErr('')
     const { error } = await supabase.rpc('sign_agreement', { p_id: row.id, p_hash: row.doc_hash, p_name: adopted.name, p_title: adopted.title, p_method: adopted.method,
       p_signature: adopted.sig, p_initials_img: adopted.init, p_initials: initials })
@@ -106,7 +110,9 @@ export default function ClientAgreement() {
   return (
     <div className="stack" style={{ gap: 12 }}>
       <div className="no-print">
-        {row.project_id && <Link to={`/projects/${row.project_id}`} style={{ fontWeight: 700, textDecoration: 'none' }}>‹ Back to project</Link>}
+        {pnav ? <a href="#" onClick={(e) => { e.preventDefault(); pnav.go('/projects') }} style={{ fontWeight: 700, textDecoration: 'none' }}>‹ Back to project</a>
+          : row.project_id && <Link to={`/projects/${row.project_id}`} style={{ fontWeight: 700, textDecoration: 'none' }}>‹ Back to project</Link>}
+        {previewId && <p className="card pad" style={{ margin: '8px 0 0', borderLeft: '4px solid var(--amber)', fontSize: 14 }}><strong>Preview.</strong> This is what the client sees{row.status === 'draft' ? ' once you publish it — this draft isn’t in their portal yet' : ''}. You can try initialing and signing; nothing is saved.</p>}
         <h1 style={{ marginTop: 6 }}>{row.title}</h1>
       </div>
       {signed
