@@ -98,6 +98,7 @@ export default function AgreementEditor() {
   const [sig, setSig] = useState<SigRow | null>(null)
   const [doc, setDoc] = useState<DocState | null>(null)
   const [ui, setUi] = useState<UI>(UI0)
+  const [askPublish, setAskPublish] = useState(false)
   const [err, setErr] = useState('')
   const [saved, setSaved] = useState<'saved' | 'saving' | 'unsaved'>('saved')
   const loaded = useRef(false)
@@ -231,9 +232,12 @@ export default function AgreementEditor() {
     if (!row.client_id) return setErr('Link this agreement to a project (and its client) first.')
     if (!doc.v.archSig && !window.confirm('Your signature isn’t on the Architect line yet. Publish anyway?')) return
     if (model.issues.length && !window.confirm(`There are ${model.issues.length} open issues (empty fill points or payment totals). Publish anyway?`)) return
-    if (!window.confirm('Publish to the client portal? The client’s contacts are emailed, and the text is locked until you unpublish it.')) return
+    setAskPublish(true) // choose: tell the client now, or publish quietly and send it yourself
+  }
+  const doPublish = async (notify: boolean) => {
+    setAskPublish(false)
     await flushNow()
-    const { error } = await supabase.rpc('publish_agreement', { p_id: row.id, p_sections: model.secs.map((x) => x.n), p_logo: doc.v.logo ? '' : firmLogo })
+    const { error } = await supabase.rpc('publish_agreement', { p_id: row.id, p_sections: model.secs.map((x) => x.n), p_logo: doc.v.logo ? '' : firmLogo, p_notify: notify })
     if (error) setErr(error.message); else setRow({ ...row, status: 'sent', sent_at: new Date().toISOString() })
   }
   const unpublish = async () => {
@@ -328,6 +332,19 @@ export default function AgreementEditor() {
             {row.status === 'signed' && sig && <p style={{ margin: 0, fontSize: 13, color: 'var(--green)' }}><strong>Signed by {sig.signer_name}</strong> on {new Date(sig.signed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}. Download PDF includes the signing certificate.</p>}
           </div>
           {err && <p className="err" role="alert" style={{ margin: 0, fontSize: 13 }}>{err}</p>}
+          {askPublish && <div className="cs-modal" role="dialog" aria-modal="true" aria-labelledby="pub-h" onMouseDown={(e) => { if (e.target === e.currentTarget) setAskPublish(false) }}>
+            <div className="cs-modal-box card pad stack">
+              <h2 id="pub-h" style={{ margin: 0 }}>Publish to the client portal</h2>
+              <p style={{ margin: 0 }}>The agreement appears in the client’s portal, ready to initial and sign, and its text is locked until you unpublish it. Should the client be told now?</p>
+              <div className="stack" style={{ gap: 8 }}>
+                <button type="button" className="btn" onClick={() => doPublish(true)}>Publish and notify the client</button>
+                <p className="muted" style={{ margin: '-4px 0 4px', fontSize: 12 }}>Emails the client’s contacts “Your agreement is ready to sign” and posts it in their updates.</p>
+                <button type="button" className="btn secondary" onClick={() => doPublish(false)}>Publish without notifying</button>
+                <p className="muted" style={{ margin: '-4px 0 4px', fontSize: 12 }}>No email or update. The agreement is waiting in their portal when you tell them yourself.</p>
+              </div>
+              <button type="button" className="linkbtn" style={{ alignSelf: 'flex-start' }} onClick={() => setAskPublish(false)}>Cancel</button>
+            </div>
+          </div>}
         </aside>
       </div>
     </div>
