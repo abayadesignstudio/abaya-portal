@@ -7,9 +7,11 @@ import { useLoad, must } from '../lib/useQuery'
 import { useRates, type Rate } from './budget/BudgetTab'
 import './admin.css'
 import RowMenu from '../components/RowMenu'
+import QrCode from '../components/QrCode'
 
 type FS = { digest_time: string; digest_enabled: boolean; reminder_days: number[]; late_rate_monthly: number; firm_name: string | null; address: string | null; phone: string | null; billing_email: string | null; check_payee: string | null
-  wire_bank_name: string | null; wire_bank_address: string | null; wire_account_name: string | null; wire_routing: string | null; wire_account: string | null; wire_swift: string | null; wire_notes: string | null }
+  wire_bank_name: string | null; wire_bank_address: string | null; wire_account_name: string | null; wire_routing: string | null; wire_account: string | null; wire_swift: string | null; wire_notes: string | null
+  zelle_name: string | null; zelle_email: string | null; zelle_phone: string | null; zelle_qr: string | null }
 type Person = { id: string; email: string; full_name: string | null; initials: string | null; title: string | null; role: 'admin' | 'staff' | 'client' | 'none'; util_target: number | null; bill_rate: number | null; rate_id?: string | null; color?: string | null }
 type Invite = { email: string; role: string; full_name: string | null; created_at: string }
 
@@ -117,7 +119,7 @@ function OnlinePayments() {
 }
 
 function FirmSettings({ admin }: { admin: boolean }) {
-  const { data, error } = useLoad(async () => must(await supabase.from('firm_settings').select('digest_time, digest_enabled, reminder_days, late_rate_monthly, firm_name, address, phone, billing_email, check_payee, wire_bank_name, wire_bank_address, wire_account_name, wire_routing, wire_account, wire_swift, wire_notes').eq('id', 1).single()) as FS)
+  const { data, error } = useLoad(async () => must(await supabase.from('firm_settings').select('digest_time, digest_enabled, reminder_days, late_rate_monthly, firm_name, address, phone, billing_email, check_payee, wire_bank_name, wire_bank_address, wire_account_name, wire_routing, wire_account, wire_swift, wire_notes, zelle_name, zelle_email, zelle_phone, zelle_qr').eq('id', 1).single()) as FS)
   const [f, setF] = useState<FS & { days: string } | null>(null)
   const [msg, setMsg] = useState(''); const [err, setErr] = useState('')
   useEffect(() => { if (data) setF({ ...data, digest_time: data.digest_time.slice(0, 5), days: data.reminder_days.join(', ') }) }, [data])
@@ -130,9 +132,11 @@ function FirmSettings({ admin }: { admin: boolean }) {
     const rate = Number(f.late_rate_monthly); if (!(rate >= 0 && rate <= 10)) return setErr('Late rate must be between 0 and 10 percent.')
     const t = (s: string | null) => (s ?? '').trim() || null
     if (f.wire_routing?.trim() && !/^\d{9}$/.test(f.wire_routing.trim())) return setErr('The wire routing number must be 9 digits.')
+    if (f.zelle_qr?.trim() && !/^https:\/\/enroll\.zellepay\.com\//.test(f.zelle_qr.trim())) return setErr('The Zelle QR link must start with https://enroll.zellepay.com/ — it’s the link inside the QR code your bank gives you.')
     const r = await supabase.from('firm_settings').update({ digest_time: f.digest_time, digest_enabled: f.digest_enabled, reminder_days: [...new Set(days)].sort((a, b) => a - b), late_rate_monthly: rate,
       firm_name: t(f.firm_name), address: t(f.address), phone: t(f.phone), billing_email: t(f.billing_email), check_payee: t(f.check_payee),
-      wire_bank_name: t(f.wire_bank_name), wire_bank_address: t(f.wire_bank_address), wire_account_name: t(f.wire_account_name), wire_routing: t(f.wire_routing), wire_account: t(f.wire_account), wire_swift: t(f.wire_swift), wire_notes: t(f.wire_notes) }).eq('id', 1)
+      wire_bank_name: t(f.wire_bank_name), wire_bank_address: t(f.wire_bank_address), wire_account_name: t(f.wire_account_name), wire_routing: t(f.wire_routing), wire_account: t(f.wire_account), wire_swift: t(f.wire_swift), wire_notes: t(f.wire_notes),
+      zelle_name: t(f.zelle_name), zelle_email: t(f.zelle_email), zelle_phone: t(f.zelle_phone), zelle_qr: t(f.zelle_qr) }).eq('id', 1)
     if (r.error) setErr(r.error.message); else setMsg('Saved.')
   }
   const dis = !admin
@@ -157,6 +161,17 @@ function FirmSettings({ admin }: { admin: boolean }) {
           <div><label className="l" htmlFor="s-wa">Account number</label><input id="s-wa" className="input num" inputMode="numeric" autoComplete="off" value={f.wire_account ?? ''} onChange={(e) => setF({ ...f, wire_account: e.target.value })} /></div>
           <div><label className="l" htmlFor="s-ws">SWIFT code (international, optional)</label><input id="s-ws" className="input" autoComplete="off" value={f.wire_swift ?? ''} onChange={(e) => setF({ ...f, wire_swift: e.target.value })} /></div>
           <div style={{ gridColumn: 'span 3' }}><label className="l" htmlFor="s-wo">Other instructions (optional)</label><input id="s-wo" className="input" value={f.wire_notes ?? ''} onChange={(e) => setF({ ...f, wire_notes: e.target.value })} placeholder="e.g. Include the invoice number in the wire memo." /></div>
+        </div>
+        <h3 style={{ margin: '8px 0 0' }}>Zelle</h3>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>Shown on the client’s invoice page when they choose “Pay with Zelle.” No fee; you mark the invoice paid when the money arrives. Leave the email and phone blank to hide Zelle.</p>
+        <div className="row" style={{ alignItems: 'flex-start', gap: 16 }}>
+          <div className="formgrid" style={{ flex: 1 }}>
+            <div style={{ gridColumn: 'span 2' }}><label className="l" htmlFor="s-zn">Name clients will see in Zelle</label><input id="s-zn" className="input" value={f.zelle_name ?? ''} onChange={(e) => setF({ ...f, zelle_name: e.target.value })} placeholder="Abaya Design & Studio LLC" /></div>
+            <div><label className="l" htmlFor="s-ze">Zelle email</label><input id="s-ze" type="email" className="input" value={f.zelle_email ?? ''} onChange={(e) => setF({ ...f, zelle_email: e.target.value })} /></div>
+            <div><label className="l" htmlFor="s-zp">Zelle phone</label><input id="s-zp" type="tel" className="input" value={f.zelle_phone ?? ''} onChange={(e) => setF({ ...f, zelle_phone: e.target.value })} /></div>
+            <div style={{ gridColumn: 'span 3' }}><label className="l" htmlFor="s-zq">QR code link (optional)</label><input id="s-zq" className="input" value={f.zelle_qr ?? ''} onChange={(e) => setF({ ...f, zelle_qr: e.target.value })} placeholder="https://enroll.zellepay.com/qr-codes?data=…" /></div>
+          </div>
+          {f.zelle_qr?.trim() && <QrCode value={f.zelle_qr.trim()} size={112} label="Zelle QR code preview" />}
         </div>
         <h3 style={{ margin: '8px 0 0' }}>Emails and reminders</h3>
         <div className="formgrid">

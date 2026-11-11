@@ -1,13 +1,15 @@
 // Public, no-login invoice page. The link in the invoice email carries ?t=<view token>&r=<recipient token>.
 // Data comes from the invoice-public function, which only returns the invoice for that token and logs the view.
 import { useEffect, useState } from 'react'
+import QrCode from '../components/QrCode'
 
 type Line = { kind: string; description: string; pct_to_date: number | null; amount: number }
 type PublicInvoice = {
   number: string; status: string; issue_date: string | null; due_date: string | null; terms_days: number
   period_start: string | null; period_end: string | null; total: number; amount_paid: number; note: string | null
   allow_card: boolean; allow_ach: boolean; pass_card_fee?: boolean; pass_ach_fee?: boolean; pay_online?: boolean; advance?: boolean; card_limited?: boolean;
-  wire?: { bank_name: string | null; bank_address: string | null; account_name: string | null; routing: string; account: string; swift: string | null; notes: string | null; phone: string | null } | null; project: { number: string; name: string; sector: string | null }; client: string | null; lines: Line[]
+  wire?: { bank_name: string | null; bank_address: string | null; account_name: string | null; routing: string; account: string; swift: string | null; notes: string | null; phone: string | null } | null; zelle?: { name: string | null; email: string | null; phone: string | null; qr: string | null } | null
+  project: { number: string; name: string; sector: string | null }; client: string | null; lines: Line[]
 }
 
 const SECTOR_COLOR: Record<string, string> = { commercial: '#2b5c8a', residential: '#a32d2d', medical: '#2e7d4f', consultation: '#6b7280', civic: '#5b4b8a', internal: '#02253d' }
@@ -28,7 +30,8 @@ export default function InvoiceView() {
   const [err, setErr] = useState('')
   const [paying, setPaying] = useState<'' | 'card' | 'ach'>('')
   const [payErr, setPayErr] = useState('')
-  const [showWire, setShowWire] = useState(false)
+  const [panel, setPanel] = useState<'' | 'wire' | 'zelle'>('')
+  const toggle = (p: 'wire' | 'zelle') => setPanel(panel === p ? '' : p)
   const returned = new URLSearchParams(location.search).get('paid') // back from Stripe: 'card' | 'ach'
   const pay = async (method: 'card' | 'ach') => {
     const q = new URLSearchParams(location.search)
@@ -76,6 +79,7 @@ export default function InvoiceView() {
     const g = groups.find(([k]) => k === h)
     if (g) g[1].push(l); else groups.push([h, [l]])
   }
+  const online = !!inv.pay_online && (inv.allow_ach || inv.allow_card)
   const ways = [inv.allow_ach && 'bank (ACH)', inv.allow_card && 'card'].filter(Boolean).join(' or ')
 
   return <>
@@ -88,29 +92,26 @@ export default function InvoiceView() {
         {returned && !paid && <p className="iv-thanks" role="status">{returned === 'ach'
           ? 'Thank you! Your bank (ACH) payment is on its way. It usually takes about 4 business days to clear; we’ll mark the invoice paid when it does.'
           : 'Thank you! Your payment went through. It can take a minute to show here.'}</p>}
-        {!paid && !returned && (inv.pay_online && (inv.allow_ach || inv.allow_card) ? <>
+        {!paid && !returned && (online || inv.wire || inv.zelle ? <>
           <div className="iv-paybtns">
-            {inv.allow_ach && <button className="iv-btn" onClick={() => pay('ach')} disabled={!!paying}>{paying === 'ach' ? 'Opening…' : 'Pay by bank (ACH)'}</button>}
-            {inv.wire && <button className="iv-btn secondary" aria-expanded={showWire} onClick={() => setShowWire(!showWire)}>Pay by wire</button>}
-            {inv.allow_card && <button className={'iv-btn' + (inv.allow_ach || inv.wire ? ' secondary' : '')} onClick={() => pay('card')} disabled={!!paying}>{paying === 'card' ? 'Opening…' : 'Pay by card'}</button>}
+            {online && inv.allow_ach && <button className="iv-btn" onClick={() => pay('ach')} disabled={!!paying}>{paying === 'ach' ? 'Opening…' : 'Pay by bank (ACH)'}</button>}
+            {inv.zelle && <button className={'iv-btn' + (online && inv.allow_ach ? ' secondary' : '')} aria-expanded={panel === 'zelle'} onClick={() => toggle('zelle')}>Pay with Zelle</button>}
+            {inv.wire && <button className="iv-btn secondary" aria-expanded={panel === 'wire'} onClick={() => toggle('wire')}>Pay by wire</button>}
+            {online && inv.allow_card && <button className={'iv-btn' + (inv.allow_ach || inv.wire || inv.zelle ? ' secondary' : '')} onClick={() => pay('card')} disabled={!!paying}>{paying === 'card' ? 'Opening…' : 'Pay by card'}</button>}
           </div>
-          {showWire && inv.wire && <Wire w={inv.wire} number={inv.number} amount={balance} />}
+          {panel === 'zelle' && inv.zelle && <Zelle z={inv.zelle} number={inv.number} amount={balance} />}
+          {panel === 'wire' && inv.wire && <Wire w={inv.wire} number={inv.number} amount={balance} />}
           <p className="iv-muted iv-small">
-            {inv.allow_ach && <>Bank (ACH){inv.pass_ach_fee ? ` adds a ${money(achFee(balance))} processing fee` : ' has no added fee'}. </>}
-            {inv.allow_card && <>Card{inv.pass_card_fee ? ` adds a ${money(cardFee(balance))} processing fee` : ' has no added fee'}. </>}
-            {inv.card_limited && <>Card payment isn’t available for an invoice of this size. </>}
-            Payments are processed securely by Stripe. You can also pay by check payable to <strong>Abaya Design Studio, LLC</strong>.
+            {online && inv.allow_ach && <>Bank (ACH){inv.pass_ach_fee ? ` adds a ${money(achFee(balance))} processing fee` : ' has no added fee'}. </>}
+            {inv.zelle && <>Zelle has no fee. </>}
+            {online && inv.allow_card && <>Card{inv.pass_card_fee ? ` adds a ${money(cardFee(balance))} processing fee` : ' has no added fee'}. </>}
+            {online && inv.card_limited && <>Card payment isn’t available for an invoice of this size. </>}
+            {online && <>Bank and card payments are processed securely by Stripe. </>}You can also pay by check payable to <strong>Abaya Design Studio, LLC</strong>.
           </p>
           {payErr && <p className="iv-late" role="alert">{payErr}</p>}
         </> : <>
-          {inv.wire ? <>
-            <div className="iv-paybtns"><button className="iv-btn" aria-expanded={showWire} onClick={() => setShowWire(!showWire)}>Pay by wire</button></div>
-            {showWire && <Wire w={inv.wire} number={inv.number} amount={balance} />}
-            <p className="iv-muted iv-small">You can also pay by check payable to <strong>Abaya Design Studio, LLC</strong>.</p>
-          </> : <>
           <button className="iv-btn" disabled aria-describedby="pay-soon">Pay online</button>
           <p id="pay-soon" className="iv-muted iv-small">Online payment{ways ? ` by ${ways}` : ''} is coming soon. For now, please pay by check payable to <strong>Abaya Design Studio, LLC</strong>, or reply to the invoice email for bank-transfer details.</p>
-          </>}
         </>)}
       </section>
 
@@ -151,6 +152,24 @@ export default function InvoiceView() {
     </main>
     <footer className="iv-foot">Abaya Design Studio, LLC · 215 S Denton Tap Rd, Suite 215, Coppell, Texas 75019 · abayadesignstudio.com</footer>
   </>
+}
+
+// Zelle: who to send to, with copy buttons, and the bank's QR (hidden on phones, where it can't be scanned).
+type Z = NonNullable<PublicInvoice['zelle']>
+function Zelle({ z, number, amount }: { z: Z; number: string; amount: number }) {
+  const [copied, setCopied] = useState('')
+  const copy = (k: string, v: string) => { navigator.clipboard?.writeText(v).then(() => { setCopied(k); setTimeout(() => setCopied(''), 1500) }).catch(() => {}) }
+  const rows: [string, string | null, string?][] = [['Send to', z.name], ['Email', z.email], ['Phone', z.phone], ['Amount', money(amount), amount.toFixed(2)], ['Memo', `Invoice ${number}`]]
+  return <div className="iv-wire iv-zelle" role="region" aria-label="Pay with Zelle">
+    <h2>Pay with Zelle</h2>
+    <div className="iv-zelle-body">
+      {z.qr && <figure className="iv-zelle-qr"><QrCode value={z.qr} label="Zelle QR code" /><figcaption>Scan in your banking app</figcaption></figure>}
+      <dl>{rows.filter(([, v]) => v).map(([k, v, raw]) => <div key={k}><dt>{k}</dt><dd><span className="num">{v}</span>
+        {k !== 'Send to' && <button type="button" className="iv-copy" onClick={() => copy(k, raw ?? v!)} aria-label={`Copy ${k}`}>{copied === k ? 'Copied' : 'Copy'}</button>}</dd></div>)}</dl>
+    </div>
+    <p className="iv-small">Open your bank’s app, choose Zelle, and send to the email or phone above. Check that the name shown is <strong>{z.name ?? 'Abaya Design & Studio LLC'}</strong> before you send — Zelle payments can’t be reversed.</p>
+    <p className="iv-muted iv-small">Zelle usually arrives within minutes. Banks set daily Zelle limits; for a larger amount, use bank transfer or wire. We’ll mark the invoice paid once it reaches our account.</p>
+  </div>
 }
 
 // Wire instructions with copy buttons. Shown only on this page; the reference ties the wire to the invoice.

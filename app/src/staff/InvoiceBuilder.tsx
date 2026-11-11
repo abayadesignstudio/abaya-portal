@@ -16,7 +16,7 @@ type Project = { id: string; number: string; name: string; sector: string | null
 type Inv = {
   id: string; number: string; project_id: string; client_id: string | null; status: string; period_start: string | null; period_end: string | null; issue_date: string | null
   terms_days: number; due_date: string | null; total: number; amount_paid: number; note: string | null; allow_card: boolean; allow_ach: boolean; pass_card_fee: boolean; pass_ach_fee: boolean
-  reminders: boolean; hold_drawings: boolean; email_subject: string | null; email_message: string | null; agreement_mode: string; show_prior_balance: boolean; sent_at: string | null; billing_basis?: string | null; allow_wire?: boolean
+  reminders: boolean; hold_drawings: boolean; email_subject: string | null; email_message: string | null; agreement_mode: string; show_prior_balance: boolean; sent_at: string | null; billing_basis?: string | null; allow_wire?: boolean; allow_zelle?: boolean
 }
 type Line = { kind: string; phase_id: string | null; description: string; pct_to_date: number | null; amount: number; sort: number }
 
@@ -57,9 +57,9 @@ export default function InvoiceBuilder() {
     const expenses = must(await supabase.from('expenses').select('id, description, amount, spent_on, invoice_id').eq('project_id', projectId).eq('reimbursable', true).or('planned.is.null,planned.eq.false').order('spent_on')) as Expense[]
     const contacts = p.client_id ? must(await supabase.from('client_contacts').select('email, receives_invoices').eq('client_id', p.client_id)) as { email: string; receives_invoices: boolean }[] : []
     const pastDue = p.client_id ? (must(await supabase.from('invoices').select('id, number, total, amount_paid, due_date').eq('client_id', p.client_id).eq('status', 'open').lt('due_date', todayIso()).lte('issue_date', addDays(todayIso(), -15))) as { id: string; number: string; total: number; amount_paid: number; due_date: string }[]).filter((x) => x.id !== id) : []
-    const settings = must(await supabase.from('firm_settings').select('late_rate_monthly, wire_routing, wire_account').maybeSingle()) as { late_rate_monthly: number; wire_routing: string | null; wire_account: string | null } | null
+    const settings = must(await supabase.from('firm_settings').select('late_rate_monthly, wire_routing, wire_account, zelle_email, zelle_phone').maybeSingle()) as { late_rate_monthly: number; wire_routing: string | null; wire_account: string | null; zelle_email: string | null; zelle_phone: string | null } | null
     const agreements = must(await supabase.from('agreements').select('id, title, status').eq('project_id', projectId).in('status', ['sent', 'signed'])) as { id: string; title: string; status: string }[]
-    return { p, phases, billedBefore, hours, memberRates, expenses: expenses.filter((e) => !e.invoice_id || e.invoice_id === id), contacts, pastDue, lateRate: Number(settings?.late_rate_monthly ?? 1.5), wireReady: !!(settings?.wire_routing && settings?.wire_account), agreements }
+    return { p, phases, billedBefore, hours, memberRates, expenses: expenses.filter((e) => !e.invoice_id || e.invoice_id === id), contacts, pastDue, lateRate: Number(settings?.late_rate_monthly ?? 1.5), wireReady: !!(settings?.wire_routing && settings?.wire_account), zelleReady: !!(settings?.zelle_email || settings?.zelle_phone), agreements }
   }, [projectId, id])
 
   // ---- editable state
@@ -73,7 +73,7 @@ export default function InvoiceBuilder() {
   const [toList, setToList] = useState<string[]>([]); const [ccList, setCcList] = useState<string[]>([]); const [newTo, setNewTo] = useState(''); const [newCc, setNewCc] = useState('')
   const [subject, setSubject] = useState(''); const [message, setMessage] = useState(''); const [note, setNote] = useState('')
   const [issue, setIssue] = useState(todayIso()); const [terms, setTerms] = useState(0)
-  const [opts, setOpts] = useState({ allow_card: true, allow_ach: true, allow_wire: true, pass_card_fee: false, pass_ach_fee: false, reminders: true, hold_drawings: true, show_prior_balance: true, agreement_mode: 'link', billing_basis: 'progress' })
+  const [opts, setOpts] = useState({ allow_card: true, allow_ach: true, allow_wire: true, allow_zelle: true, pass_card_fee: false, pass_ach_fee: false, reminders: true, hold_drawings: true, show_prior_balance: true, agreement_mode: 'link', billing_basis: 'progress' })
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [ok, setOk] = useState('')
   const [hydrated, setHydrated] = useState('')
 
@@ -88,7 +88,7 @@ export default function InvoiceBuilder() {
       const i = e.inv
       setFrom(i.period_start ?? ''); setTo(i.period_end ?? todayIso()); setIssue(i.issue_date ?? todayIso()); setTerms(i.terms_days ?? 0); setNote(i.note ?? '')
       setSubject(i.email_subject ?? `Invoice ${i.number} — ${c.p.name}`); setMessage(i.email_message ?? defaultMessage(c.p, profile?.full_name))
-      setOpts({ allow_card: i.allow_card, allow_ach: i.allow_ach, allow_wire: i.allow_wire ?? true, pass_card_fee: i.pass_card_fee, pass_ach_fee: i.pass_ach_fee, reminders: i.reminders, hold_drawings: i.hold_drawings, show_prior_balance: i.show_prior_balance, agreement_mode: i.agreement_mode, billing_basis: i.billing_basis ?? 'progress' })
+      setOpts({ allow_card: i.allow_card, allow_ach: i.allow_ach, allow_wire: i.allow_wire ?? true, allow_zelle: i.allow_zelle ?? true, pass_card_fee: i.pass_card_fee, pass_ach_fee: i.pass_ach_fee, reminders: i.reminders, hold_drawings: i.hold_drawings, show_prior_balance: i.show_prior_balance, agreement_mode: i.agreement_mode, billing_basis: i.billing_basis ?? 'progress' })
       const d: Record<string, string> = {}; e.lines.filter((l) => l.kind === 'phase' && l.phase_id).forEach((l) => { d[l.phase_id!] = String(l.amount) }); setDue(d)
       setItems(e.lines.filter((l) => !['phase', 'hourly', 'expense', 'markup'].includes(l.kind)).map((l) => ({ kind: l.kind, description: l.description, amount: String(l.amount) })))
       setMarkup(e.lines.some((l) => l.kind === 'markup') || !e.lines.some((l) => l.kind === 'expense'))
@@ -237,9 +237,10 @@ export default function InvoiceBuilder() {
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }} /><button type="button" className="btn small secondary" onClick={add}>Add</button></div>}
     </div>)
   const wireOn = opts.allow_wire && !!c.wireReady
+  const zelleOn = opts.allow_zelle && !!c.zelleReady
   const cardTooBig = cardFee(total) > CARD_FEE_MAX // card is never offered when its fee would top $500
   const cardOn = opts.allow_card && !cardTooBig
-  const payWays = [opts.allow_ach ? 'bank (ACH)' : '', wireOn ? 'wire' : '', cardOn ? 'card' : ''].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' or $1') || 'check'
+  const payWays = [opts.allow_ach ? 'bank (ACH)' : '', zelleOn ? 'Zelle' : '', wireOn ? 'wire' : '', cardOn ? 'card' : ''].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' or $1') || 'check'
 
   return (
     <div className="stack">
@@ -364,7 +365,8 @@ export default function InvoiceBuilder() {
             {opts.allow_ach && <div style={{ marginLeft: 28 }}>{tog('pass_ach_fee', 'Pass the ACH fee to the client', `Stripe fee on this invoice ≈ ${money(achFee(total))}${opts.pass_ach_fee ? ' — added to the client’s total' : ' — absorbed by you'}`)}</div>}
             {(opts.allow_card && opts.pass_card_fee || opts.allow_ach && opts.pass_ach_fee) && <p role="note" className="err" style={{ margin: 0, fontSize: 12 }}>Card surcharges are limited by state law and card-network rules (caps and disclosure). Confirm before turning this on.</p>}
             {tog('allow_wire', 'Wire transfer', c.wireReady ? 'Shows your bank’s wire instructions on the invoice page (not in the email). No Stripe fee.' : 'Add your wire instructions in Settings → Firm to offer this.')}
-            {!cardOn && !opts.allow_ach && !wireOn && <p style={{ margin: 0, fontSize: 13, color: '#b54708' }}>No online payment — the client can only pay by check.</p>}
+            {tog('allow_zelle', 'Zelle', c.zelleReady ? 'Shows your Zelle email, phone and QR on the invoice page. No fee; mark it paid when it arrives.' : 'Add your Zelle details in Settings → Firm to offer this.')}
+            {!cardOn && !opts.allow_ach && !wireOn && !zelleOn && <p style={{ margin: 0, fontSize: 13, color: '#b54708' }}>No online payment — the client can only pay by check.</p>}
             <p className="muted" style={{ margin: 0, fontSize: 12 }}><em>Estimates use Stripe’s standard US rates (cards 2.9% + 30¢; ACH 0.8%, $5 cap). Check your account’s current rates. Online payment is connected on day 3.</em></p>
           </section>
           <section className="card stack" style={sec}>
