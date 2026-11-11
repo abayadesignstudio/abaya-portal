@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import TypePicker, { typeCodes } from './TypePicker'
 import { Link } from 'react-router-dom'
 import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASES } from '../lib/supabase'
@@ -36,6 +36,7 @@ function sortRows(rows: Row[], by: string, custom: string[] = []) {
   else if (by === 'num-asc') r.sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true })); else r.sort((a, b) => b.number.localeCompare(a.number, undefined, { numeric: true }))
   return r
 }
+const ORDER_KEY = 'abaya.projects.order'
 const remember = (k: string, d: string) => { try { return localStorage.getItem(k) || d } catch { return d } }
 const keep = (k: string, v: string) => { try { localStorage.setItem(k, v) } catch { /* private mode */ } }
 
@@ -54,7 +55,21 @@ export default function Projects() {
   const [sort, setSort] = useState(() => remember('abaya.projects.sort', 'new'))
   // Custom sort: my own order (saved to my account). Projects I haven't placed yet go on top, newest first.
   const { profile } = useAuth()
-  const saved = useLoad(async () => { const { data } = await supabase.from('project_order').select('project_ids').maybeSingle(); return ((data?.project_ids ?? []) as string[]) }, [])
+  // Load my saved order and sort from my account (never guess: until it has loaded, dragging is off and nothing is saved).
+  const saved = useLoad(async () => {
+    if (!profile?.id) return null
+    let res = await supabase.from('project_order').select('project_ids, sort').eq('profile_id', profile.id).maybeSingle()
+    if (res.error) res = await supabase.from('project_order').select('project_ids, sort').eq('profile_id', profile.id).maybeSingle() // one retry
+    if (res.error) throw new Error(res.error.message)
+    let ids = (res.data?.project_ids ?? []) as string[]
+    if (!ids.length) { try { ids = JSON.parse(localStorage.getItem(ORDER_KEY) || '[]') } catch { /* no backup */ } }
+    return { ids, sort: (res.data?.sort as string | null) ?? null }
+  }, [profile?.id])
+  useEffect(() => { const sv = saved.data?.sort; if (sv && SORTS.some(([k]) => k === sv)) { setSort(sv); keep('abaya.projects.sort', sv) } }, [saved.data])
+  const chooseSort = (v: string) => {
+    setSort(v); keep('abaya.projects.sort', v)
+    if (profile?.id) void supabase.from('project_order').upsert({ profile_id: profile.id, sort: v }, { onConflict: 'profile_id' })
+  }
   const [working, setWorking] = useState<string[] | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const [err, setErr] = useState('')
@@ -81,14 +96,16 @@ export default function Projects() {
     return m
   }, [data])
   const fullOrder = useMemo(() => {
-    const placed = (working ?? saved.data ?? []).filter((id) => all.some((p) => p.id === id))
+    const placed = (working ?? saved.data?.ids ?? []).filter((id) => all.some((p) => p.id === id))
     const fresh = sortRows(all.filter((p) => !placed.includes(p.id)), 'new').map((p) => p.id)
     return [...fresh, ...placed]
   }, [working, saved.data, all])
   const rows = sortRows(all.filter((p) => (status === 'all' || p.status === status) && typeOk(p.categories) &&
     (!q || `${p.number} ${p.name} ${p.clients?.name ?? ''}`.toLowerCase().includes(q.toLowerCase()))), sort, fullOrder)
   const saveOrder = async (ids: string[]) => {
-    const { error } = await supabase.from('project_order').upsert({ profile_id: profile!.id, project_ids: ids, updated_at: new Date().toISOString() })
+    if (!saved.data) return // never overwrite an order that hasn't loaded
+    try { localStorage.setItem(ORDER_KEY, JSON.stringify(ids)) } catch { /* private mode */ }
+    const { error } = await supabase.from('project_order').upsert({ profile_id: profile!.id, project_ids: ids, sort: 'custom', updated_at: new Date().toISOString() })
     setErr(error ? `Couldn’t save your order: ${error.message}` : '')
   }
   /** Put `id` where `target` is (after it when moving down, before it when moving up). */
@@ -99,7 +116,7 @@ export default function Projects() {
     next.splice(next.indexOf(target) + (from < to ? 1 : 0), 0, id)
     return next
   }
-  const reorder: Reorder | undefined = sort === 'custom' ? {
+  const reorder: Reorder | undefined = sort === 'custom' && saved.data ? {
     dragId,
     start: (id) => { setDragId(id); setWorking(fullOrder) },
     over: (id) => { if (dragId && id !== dragId) setWorking((w) => placeAt(w ?? fullOrder, dragId, id)) },
@@ -137,7 +154,7 @@ export default function Projects() {
         </div>
         <div className="row" style={{ gap: 8 }}>
           <label className="sr" htmlFor="p-sort">Sort by</label>
-          <select id="p-sort" className="input" style={{ width: 'auto', minHeight: 36 }} value={sort} onChange={(e) => { setSort(e.target.value); keep('abaya.projects.sort', e.target.value) }}>
+          <select id="p-sort" className="input" style={{ width: 'auto', minHeight: 36 }} value={sort} onChange={(e) => chooseSort(e.target.value)}>
             {SORTS.map(([v, l]) => <option key={v} value={v}>Sort by: {l}</option>)}</select>
           <div className="row" role="group" aria-label="View" style={{ gap: 0 }}>
             {[['timeline', 'Timeline'], ['table', 'Table']].map(([v, l], i) => <button key={v} className="chip" aria-pressed={view === v} style={{ borderRadius: i ? '0 999px 999px 0' : '999px 0 0 999px' }}
@@ -147,6 +164,7 @@ export default function Projects() {
       </div>
       {unset > 0 && <p className="muted" style={{ margin: 0, fontSize: 14 }}><strong>{unset} project{unset === 1 ? '' : 's'}</strong> have no building type yet; pick one in the row to set its color.</p>}
       {(error || err) && <p className="err" role="alert">{error || err}</p>}
+      {sort === 'custom' && saved.error && <p className="err" role="alert" style={{ margin: 0 }}>Couldn’t load your custom order ({saved.error}). Dragging is off so it isn’t overwritten — reload the page to try again.</p>}
       {sort === 'custom' && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Drag projects by the <span aria-hidden="true">⠿</span> handle to put them in your own order (or focus the handle and use ↑ / ↓). Your order is saved to your account; new projects appear at the top until you place them.</p>}
       {view === 'timeline' && data && <ProjectsGantt rows={rows} feeUsed={feeUsed} reorder={reorder} onDates={async (id, d) => {
         const { error } = await supabase.from('phases').update(d).eq('id', id)
