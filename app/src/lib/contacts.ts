@@ -2,7 +2,7 @@ import { supabase } from './supabase'
 
 /** Contact library: people the firm works with, stored once and linked to projects. */
 export type LibContact = { id: string; name: string | null; company: string | null; trade: string; email: string | null; phone: string | null; notes: string | null }
-export const TRADES = ['General Contractor', 'Structural Engineer', 'MEP Engineer', 'Civil Engineer', 'Landscape Architect', 'Interior Designer', 'Surveyor',
+export const TRADES = ['Client', 'General Contractor', 'Structural Engineer', 'MEP Engineer', 'Civil Engineer', 'Landscape Architect', 'Interior Designer', 'Surveyor',
   'Geotechnical Engineer', 'Consultant', 'Owner’s Rep', 'Vendor', 'Other']
 export const contactName = (c: Pick<LibContact, 'name' | 'company'>) => c.name || c.company || '—'
 export const blankContact = (): Omit<LibContact, 'id'> => ({ name: '', company: '', trade: 'General Contractor', email: '', phone: '', notes: '' })

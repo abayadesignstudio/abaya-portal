@@ -5,6 +5,7 @@ import { useLoad, must } from '../lib/useQuery'
 import './admin.css'
 import RowMenu from '../components/RowMenu'
 import PhoneCell from '../components/PhoneCell'
+import PickPerson from '../components/PickPerson'
 import CCTabs from '../components/CCTabs'
 
 type Contact = { id: string; name: string | null; email: string; phone: string | null; receives_invoices: boolean; receives_updates: boolean }
@@ -170,6 +171,7 @@ function Contacts({ client, admin, invited, joined, onInvite, onChange }: { clie
         <div><label className="l" htmlFor={`cp-${client.id}`}>Phone</label><input id={`cp-${client.id}`} type="tel" className="input" value={ph} onChange={(ev) => setPh(ev.target.value)} /></div>
         <button className="btn secondary">Add contact</button>
       </form>}
+      {admin && <PickPerson clientId={client.id} exclude={client.client_contacts.map((x) => x.email)} onAdded={onChange} />}
       {err && <p className="err" role="alert">{err}</p>}
     </div>
   )

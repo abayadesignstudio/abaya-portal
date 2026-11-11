@@ -4,6 +4,7 @@ import Avatar from '../components/Avatar'
 import RowMenu from '../components/RowMenu'
 import ContactForm from '../components/ContactForm'
 import PhoneCell from '../components/PhoneCell'
+import PickPerson from '../components/PickPerson'
 import DuplicateProject from './DuplicateProject'
 import { TRADES, contactName, backfillEmail, type LibContact } from '../lib/contacts'
 import { Link, useLocation, useParams } from 'react-router-dom'
@@ -622,6 +623,7 @@ export function ClientAccessTab({ project, embedded }: { project: Project; embed
         <div><label className="l" htmlFor="cc-p">Phone</label><input id="cc-p" type="tel" className="input" value={nc.phone} onChange={(e) => setNc({ ...nc, phone: e.target.value })} /></div>
         <button className="btn secondary">+ Add contact</button>
       </form>
+      <PickPerson clientId={project.client_id} exclude={(d.data?.contacts ?? []).map((c) => c.email)} onAdded={d.reload} />
       {err && <p className="err" role="alert">{err}</p>}{msg && <p className="ok" role="status">{msg}</p>}
     </section>
   )
