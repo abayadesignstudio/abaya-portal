@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import RowMenu from '../components/RowMenu'
@@ -7,14 +7,18 @@ import ContactForm from '../components/ContactForm'
 import { TRADES, contactName, type LibContact } from '../lib/contacts'
 
 type Row = LibContact & { project_contacts: { trade: string; projects: { id: string; number: string; name: string } | null }[] }
+type CRow = { id: string; name: string | null; email: string; phone: string | null; clients: { id: string; name: string; projects: { id: string; number: string; name: string; status: string }[] } | null }
 
 /** The contact library: GCs, engineers, consultants and vendors, stored once and added to projects from here. */
 export default function ContactsLibrary() {
   const d = useLoad(async () => must(await supabase.from('contacts').select('*, project_contacts(trade, projects(id, number, name))').order('company').order('name')) as unknown as Row[])
+  const cc = useLoad(async () => must(await supabase.from('client_contacts').select('id, name, email, phone, clients(id, name, projects(id, number, name, status))').order('name')) as unknown as CRow[])
+  const nav = useNavigate()
   const [q, setQ] = useState(''); const [trade, setTrade] = useState('')
   const [open, setOpen] = useState<null | 'new' | LibContact>(null); const [err, setErr] = useState('')
   const needle = q.trim().toLowerCase()
   const rows = (d.data ?? []).filter((c) => (!trade || c.trade === trade) && (!needle || [c.name, c.company, c.email, c.phone, c.trade, c.notes].some((x) => (x ?? '').toLowerCase().includes(needle))))
+  const crows = (cc.data ?? []).filter((c) => (!trade || trade === 'Client') && (!needle || [c.name, c.email, c.phone, c.clients?.name, 'client'].some((x) => (x ?? '').toLowerCase().includes(needle))))
   const del = async (c: Row) => {
     const n = c.project_contacts.length
     if (!window.confirm(`Delete ${contactName(c)} from the library?${n ? ` They’re also removed from ${n} project${n === 1 ? '' : 's'}.` : ''} Updates already logged stay. This can’t be undone.`)) return
@@ -23,19 +27,19 @@ export default function ContactsLibrary() {
   return (
     <div className="stack">
       <div className="row between"><h1>Contacts</h1>{!open && <button className="btn" onClick={() => setOpen('new')}>+ Add contact</button>}</div>
-      <p className="muted" style={{ margin: 0 }}>Everyone you work with besides clients — contractors, engineers, consultants, vendors. Add them to a project from its Contacts tab. Client contacts live under <Link to="/clients">Clients</Link>.</p>
+      <p className="muted" style={{ margin: 0 }}>Everyone you work with. Client contacts belong to their client (edit them under <Link to="/clients">Clients</Link>); contractors, engineers, consultants and vendors are added here and linked to projects from each project’s Contacts tab.</p>
       {open && <section className="card pad stack"><h2 style={{ margin: 0 }}>{open === 'new' ? 'New contact' : `Edit ${contactName(open)}`}</h2>
         <ContactForm key={open === 'new' ? 'new' : open.id} edit={open === 'new' ? null : open} onCancel={() => setOpen(null)} onSaved={() => { setOpen(null); d.reload() }} /></section>}
       <div className="row" style={{ gap: 8 }}>
         <label className="sr" htmlFor="cl-q">Search contacts</label>
         <input id="cl-q" className="input" style={{ flex: 1, minWidth: 220 }} placeholder="Search name, company, email, phone…" value={q} onChange={(e) => setQ(e.target.value)} />
         <label className="sr" htmlFor="cl-t">Trade</label>
-        <select id="cl-t" className="input" style={{ width: 'auto' }} value={trade} onChange={(e) => setTrade(e.target.value)}><option value="">All trades</option>{TRADES.map((t) => <option key={t}>{t}</option>)}</select>
+        <select id="cl-t" className="input" style={{ width: 'auto' }} value={trade} onChange={(e) => setTrade(e.target.value)}><option value="">Everyone</option><option value="Client">Clients</option>{TRADES.map((t) => <option key={t}>{t}</option>)}</select>
       </div>
       {err && <p className="err" role="alert">{err}</p>}
       <section className="card" style={{ overflowX: 'auto' }}>
         <table className="table" style={{ minWidth: 860 }}>
-          <thead><tr><th>Name</th><th>Company</th><th>Trade</th><th>Email</th><th>Phone</th><th>Projects</th><th /></tr></thead>
+          <thead><tr><th>Name</th><th>Company / client</th><th>Type</th><th>Email</th><th>Phone</th><th>Projects</th><th /></tr></thead>
           <tbody>
             {rows.map((c) => <tr key={c.id}>
               <td><strong>{c.name ?? '—'}</strong>{c.notes && <div className="muted" style={{ fontSize: 12.5 }}>{c.notes}</div>}</td><td>{c.company ?? '—'}</td><td>{c.trade}</td>
@@ -44,7 +48,13 @@ export default function ContactsLibrary() {
                 {c.project_contacts.length === 0 && <span className="muted">—</span>}</td>
               <td><RowMenu label={`Actions for ${contactName(c)}`} items={[{ label: 'Edit', onSelect: () => { setOpen(c); window.scrollTo({ top: 0 }) } }, { label: 'Delete', danger: true, onSelect: () => del(c) }]} /></td>
             </tr>)}
-            {d.data && rows.length === 0 && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center', padding: 24 }}><em>{d.data.length ? 'No contacts match.' : 'No contacts yet.'}</em></td></tr>}
+            {crows.map((c) => <tr key={'cc' + c.id}>
+              <td><strong>{c.name ?? '—'}</strong></td><td>{c.clients?.name ?? '—'}</td><td><span className="pill">Client</span></td>
+              <td><a href={`mailto:${c.email}`}>{c.email}</a></td><td>{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : '—'}</td>
+              <td>{(c.clients?.projects ?? []).filter((x) => x.status !== 'complete').map((x) => <Link key={x.id} to={`/projects/${x.id}`} state={{ tab: 'contacts' }} className="pill" style={{ marginRight: 4 }} title={x.name}>{x.number}</Link>)}</td>
+              <td><RowMenu label={`Actions for ${c.name ?? c.email}`} items={[{ label: 'Edit in Clients', onSelect: () => nav('/clients') }]} /></td>
+            </tr>)}
+            {d.data && cc.data && rows.length + crows.length === 0 && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center', padding: 24 }}><em>{d.data.length + cc.data.length ? 'No contacts match.' : 'No contacts yet.'}</em></td></tr>}
           </tbody>
         </table>
       </section>
