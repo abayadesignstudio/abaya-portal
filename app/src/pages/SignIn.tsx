@@ -55,7 +55,7 @@ export default function SignIn() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'grid', placeContent: 'center', justifyItems: 'center', gap: 28, background: 'var(--navy)', padding: 16 }}>
-      <img src={logoLight} alt="Abaya Design Studio" style={{ width: 'min(300px, 72vw)', height: 'auto', display: 'block' }} />
+      <img src={logoLight} alt="Abaya Design Studio" style={{ width: 'min(360px, 80vw)', height: 'auto', display: 'block' }} />
       <div className="card pad stack" style={{ width: 'min(440px, calc(100vw - 32px))' }}>
         <h1 style={{ fontSize: 22, textAlign: 'center' }}>{mode === 'forgot' ? 'Reset your password' : 'Sign in to the portal'}</h1>
         {mode === 'google' ? (
