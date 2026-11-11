@@ -8,6 +8,7 @@ import { useTimer, uniqueRecent, clockOf, EMPTY_FIELDS, type TimerApi, type Time
 import Combobox, { sectorColor } from './Combobox'
 import GearIcon from './GearIcon'
 import RolePicker from './RolePicker'
+import { useTimerPip, TimerPipView, pipSupported } from './TimerPip'
 
 /** The time-entry form and recent list, shared by the sidebar popover and the phone sheet. */
 export function TimerPanel({ api, idPrefix, onDone, onCancel }: { api: TimerApi; idPrefix: string; onDone: () => void; onCancel: () => void }) {
@@ -178,8 +179,14 @@ export default function SidebarTimer({ me }: { me: string }) {
   const sameAsRunning = (t: TodayTask) => !!r && r.project_id === t.project_id && (r.phase_id ?? null) === t.phase_id && (r.role_label ?? null) === t.role_label && (r.activity ?? null) === t.activity
   const sel = api.today.find((t) => t.key === selKey && !sameAsRunning(t)) ?? null
   const play = async () => { if (sel && (await api.pickUp(sel))) { setSelKey(null); setOpen(null) } }
+  const pip = useTimerPip()
   return (
     <div ref={box} className="stimer">
+      {pip.win && <TimerPipView api={api} win={pip.win} onBack={() => { window.focus(); pip.close() }} />}
+      {pipSupported() && <button type="button" className="stimer-pop" onClick={() => (pip.win ? pip.close() : pip.open())} aria-pressed={!!pip.win}
+        title={pip.win ? 'Close the floating timer' : 'Pop out: a small timer window that stays on top of other windows'}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><rect x="11" y="11" width="8" height="8" rx="1.5" /></svg>
+        {pip.win ? 'Floating timer on' : 'Pop out timer'}</button>}
       <TodayList api={api} selected={sel?.key ?? null} onSelect={(t) => { setSelKey(sel?.key === t.key || sameAsRunning(t) ? null : t.key); if (open === 'task') setOpen(null) }} />
       {open && (
         <div className="stimer-pop" role="dialog" aria-label={open === 'manual' ? 'Manual time entry' : 'Timer'}>
