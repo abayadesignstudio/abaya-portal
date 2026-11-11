@@ -7,6 +7,7 @@ import { useLoad, must } from '../lib/useQuery'
 import { todayIso, addDays, fmtDate, num, round2, cardFee, achFee, CARD_FEE_MAX, nextInvoiceNumber, displayStatus, emailInvoice } from '../lib/invoices'
 import './invoices.css'
 import RowMenu from '../components/RowMenu'
+import logoSquare from '../assets/abaya-logo-square.png'
 
 type Phase = { id: string; code: string; name?: string | null; parent_phase_id?: string | null; fee: number; status: string; billing?: string }
 type HourEntry = { id: string; phase_id: string; profile_id: string; work_date: string; minutes: number; bill_rate: number | null; role_label: string | null; invoice_id: string | null; profiles: { full_name: string | null; bill_rate: number | null } | null }
@@ -396,7 +397,7 @@ export default function InvoiceBuilder() {
           {view === 'invoice' ? (
             <article aria-label="Invoice preview" className="ib-doc">
               <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr', gap: 24 }}>
-                <div style={{ width: 120, height: 120, background: 'var(--navy)', color: '#ede6d6', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: "'EB Garamond', Georgia, serif" }}><span style={{ fontSize: 22, letterSpacing: '.18em' }}>ABAYA</span><span style={{ fontSize: 8, letterSpacing: '.3em' }}>DESIGN STUDIO</span></div>
+                <img src={logoSquare} alt="Abaya Design Studio" width={120} height={120} style={{ display: 'block' }} />
                 <div><p className="muted" style={{ margin: '0 0 6px' }}>Bill from</p><p style={{ margin: 0, lineHeight: 1.45 }}><strong>Abaya Design Studio, LLC</strong><br />215 S Denton Tap Rd, Suite 215<br />Coppell, Texas 75019<br />billing@abayadesignstudio.com</p></div>
                 <div><p className="muted" style={{ margin: '0 0 6px' }}>Bill to</p><p style={{ margin: 0, lineHeight: 1.45, whiteSpace: 'pre-line' }}><strong>{c.p.clients?.name ?? '—'}</strong>{c.p.clients?.address ? '\n' + c.p.clients.address : ''}</p></div>
               </div>

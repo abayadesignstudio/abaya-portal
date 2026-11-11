@@ -2,6 +2,8 @@
 // Data comes from the invoice-public function, which only returns the invoice for that token and logs the view.
 import { useEffect, useState } from 'react'
 import QrCode from '../components/QrCode'
+import logoLight from '../assets/abaya-logo-light.png'
+import logoSquare from '../assets/abaya-logo-square.png'
 
 type Line = { kind: string; description: string; pct_to_date: number | null; amount: number }
 type PublicInvoice = {
@@ -64,7 +66,7 @@ export default function InvoiceView() {
 
   const header = (
     <header className="iv-top">
-      <a href="../" className="iv-brand" aria-label="Abaya Design Studio — home"><span className="w">ABAYA</span><span className="s">DESIGN STUDIO</span></a>
+      <a href="../" className="iv-brand" aria-label="Abaya Design Studio — home"><img src={logoLight} alt="Abaya Design Studio" /></a>
     </header>)
 
   if (err) return <>{header}<main className="iv-main"><div className="iv-card iv-msg" role="alert"><h1>Invoice unavailable</h1><p>{err}</p><p>billing@abayadesignstudio.com</p></div></main></>
@@ -119,7 +121,7 @@ export default function InvoiceView() {
 
       <article className="iv-card iv-doc" aria-label={`Invoice ${inv.number}`}>
         <div className="iv-head">
-          <div className="iv-mark" aria-hidden="true"><span>ABAYA</span><small>DESIGN STUDIO</small></div>
+          <img className="iv-mark" src={logoSquare} alt="Abaya Design Studio" />
           <div><p className="iv-muted iv-lab">Bill from</p><p><strong>Abaya Design Studio, LLC</strong><br />215 S Denton Tap Rd, Suite 215<br />Coppell, Texas 75019<br />billing@abayadesignstudio.com</p></div>
           <div><p className="iv-muted iv-lab">Bill to</p><p><strong>{inv.client ?? '—'}</strong></p></div>
         </div>

@@ -31,6 +31,7 @@ img{max-width:100%}
 .brand{display:flex;align-items:center;gap:16px;text-decoration:none}
 .brand .crest{width:52px;height:52px;display:block}
 .brand .word{height:46px;width:auto;display:block}
+.brand .logo{height:60px;width:auto;max-width:none;flex:none;display:block}
 .nav{display:flex;align-items:center;gap:32px}
 .nav ul{list-style:none;margin:0;padding:0;display:flex;gap:30px;font-size:17px}
 .nav ul a{color:var(--ink);text-decoration:none}
@@ -184,5 +185,6 @@ address a{text-decoration:none}
   .oval{display:none}
   .hero{min-height:680px}.hero .copy{padding:100px 24px 140px}
 }
-@media (max-width:560px){.four{grid-template-columns:minmax(0,1fr)}.portal-label{display:none}.brand .word{height:34px}.works{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:560px){.four{grid-template-columns:minmax(0,1fr)}.portal-label{display:none}.brand .word{height:34px}.brand .logo{height:32px}.nav{gap:12px}.works{grid-template-columns:minmax(0,1fr)}}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+@media (max-width:420px){header .btn-light{padding-left:14px;padding-right:14px;letter-spacing:.12em}}

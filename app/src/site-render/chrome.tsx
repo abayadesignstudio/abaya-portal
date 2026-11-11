@@ -32,8 +32,7 @@ export function SiteHeader() {
   return (
     <header className="sr-top">
       <a className="sr-brand" href={pageHref(base, 'home')} onClick={stop} aria-label="Abaya Design Studio — home">
-        <img src={media(base, 'abaya-crest-light-192.png')} alt="" width={52} height={52} />
-        <img className="sr-word" src={media(base, 'abaya-wordmark.png')} alt="Abaya Design Studio" />
+        <img className="sr-logo" src={media(base, 'abaya-logo-light.png')} alt="Abaya Design Studio" />
       </a>
       <nav className="sr-nav" aria-label="Main">
         <ul>{links.map((l) => <li key={l.href}><a href={l.href} onClick={stop} aria-current={l.cur ? 'page' : undefined}>{l.label}</a></li>)}</ul>
@@ -53,7 +52,7 @@ export function SiteFooter() {
   return (
     <footer className="sr-foot">
       <div className="sr-wrap sr-foot-in">
-        <span className="sr-brand"><img src={media(base, 'abaya-crest-light-192.png')} alt="" width={44} height={44} /><img className="sr-word" src={media(base, 'abaya-wordmark.png')} alt="Abaya Design Studio" style={{ height: 42 }} /></span>
+        <span className="sr-brand"><img className="sr-logo" src={media(base, 'abaya-logo-light.png')} alt="Abaya Design Studio" style={{ height: 52 }} /></span>
         <nav aria-label="Footer" className="sr-foot-nav">
           <a href={`${base}work/`} onClick={stop}>Work</a>
           <a href="https://www.instagram.com/abayadesignstudio/" onClick={stop}>Instagram</a>

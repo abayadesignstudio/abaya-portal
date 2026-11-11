@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import logoLight from '../assets/abaya-logo-light.png'
 import { supabase } from '../lib/supabase'
 
 // The team signs in with their Google work account (the default). Email + password, a one-time email link and
@@ -53,12 +54,9 @@ export default function SignIn() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: 'var(--navy)', padding: 16 }}>
-      <div className="card pad stack" style={{ width: '100%', maxWidth: 440 }}>
-        <div style={{ fontFamily: "'EB Garamond', Georgia, serif", textAlign: 'center', color: 'var(--navy)' }}>
-          <div style={{ fontSize: 30, letterSpacing: '.18em' }}>ABAYA</div>
-          <div style={{ fontSize: 11, letterSpacing: '.32em' }}>DESIGN STUDIO</div>
-        </div>
+    <div style={{ minHeight: '100vh', display: 'grid', placeContent: 'center', justifyItems: 'center', gap: 28, background: 'var(--navy)', padding: 16 }}>
+      <img src={logoLight} alt="Abaya Design Studio" style={{ width: 'min(300px, 72vw)', height: 'auto', display: 'block' }} />
+      <div className="card pad stack" style={{ width: 'min(440px, calc(100vw - 32px))' }}>
         <h1 style={{ fontSize: 22, textAlign: 'center' }}>{mode === 'forgot' ? 'Reset your password' : 'Sign in to the portal'}</h1>
         {mode === 'google' ? (
           <div className="stack" style={{ gap: 14 }}>
