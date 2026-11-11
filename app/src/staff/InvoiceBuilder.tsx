@@ -232,6 +232,7 @@ export default function InvoiceBuilder() {
         </select>
       </div>
     </div>)
+  if (ctx.error || existing.error) return <p className="err" role="alert">Couldn’t load this invoice: {ctx.error || existing.error}</p>
   if (!c || (id && !existing.data)) return <p>Loading…</p>
 
   const inv = existing.data?.inv
