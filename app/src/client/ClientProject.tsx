@@ -43,6 +43,10 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
     requests: must(await supabase.from('service_requests').select('*').eq('project_id', id!).order('created_at', { ascending: false })) as ServiceRequest[],
     invoices: must(await supabase.from('invoices').select('id, number, status, issue_date, total, amount_paid, due_date').eq('project_id', id!).order('issue_date', { ascending: false })) as Inv[],
     agreements: must(await supabase.from('agreements').select('id, title, status, signed_at').eq('project_id', id!).in('status', pv ? ['draft', 'sent', 'signed'] : ['sent', 'signed']).order('created_at', { ascending: false })) as { id: string; title: string; status: string; signed_at: string | null }[],
+    marks: [
+      ...(must(await supabase.from('milestones').select('id, phase_id, title, date, done').eq('project_id', id!)) as { id: string; phase_id: string | null; title: string; date: string; done: boolean }[]).map((m) => ({ id: m.id, kind: 'milestone' as const, phase_id: m.phase_id, title: m.title, date: m.date, done: m.done })),
+      ...(must(await supabase.from('deliverables').select('id, phase_id, title, due_date, status').eq('project_id', id!).not('due_date', 'is', null)) as { id: string; phase_id: string | null; title: string; due_date: string; status: string }[]).map((m) => ({ id: m.id, kind: 'deliverable' as const, phase_id: m.phase_id, title: m.title, date: m.due_date, done: m.status === 'done' })),
+    ],
     team: must(await supabase.from('project_contacts').select('id, trade, contacts(name, company, email, phone)').eq('project_id', id!).eq('show_to_client', true).order('created_at')) as unknown as Team[],
     models: ((await supabase.storage.from('models').list(id!)).data ?? []).filter((f) => f.id && f.name && !f.name.startsWith('.')),
   }), [id])
@@ -56,7 +60,7 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
 
   if (d.error) return <p className="err">{d.error}</p>
   if (!d.data) return <p>Loading…</p>
-  const { p, phases, drawings, items, meetings, requests, invoices, models, team, agreements } = d.data
+  const { p, phases, drawings, items, meetings, requests, invoices, models, team, agreements, marks } = d.data
   // staff can read hidden updates; the preview shows only what the client sees
   const updates = d.data.updates.filter((u) => u.visible_to_client)
   const invById = Object.fromEntries(invoices.map((i) => [i.id, i]))
@@ -91,7 +95,7 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
 
       <Ed pv={pv} s="phases"><section className="card pad stack" aria-label="Phases">
         <h2>Schedule</h2>
-        <ClientGantt phases={phases} />
+        <ClientGantt phases={phases} marks={marks} />
       </section></Ed>
 
       <div className="cl-grid">

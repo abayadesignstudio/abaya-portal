@@ -106,3 +106,9 @@
 .cs-pad{display:block;border:1px dashed #b9b4aa;border-radius:8px;background:#fff;touch-action:none;cursor:crosshair}
 .cs-up{display:flex;align-items:center;justify-content:center;min-height:90px;border:1px dashed #b9b4aa;border-radius:8px;cursor:pointer;padding:8px}
 @media print{.cs-doc{border:0;padding:0}}
+.cg-mark{position:absolute;top:6px;width:22px;height:22px;margin-left:-11px;z-index:2;display:inline-flex;align-items:center;justify-content:center;--mc:#2b5c8a;--pin:#7fa3c6}
+.cg-mark svg{display:block;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.3))}
+.cg-mark.k-milestone{top:2px}.cg-mark.k-milestone.done{--pin:#2b5c8a}
+.cg-mark:focus-visible{outline:2px solid var(--navy);outline-offset:2px;border-radius:4px}
+.cg-mark.in-key{position:static;margin:0;top:auto}
+.cg-note{margin:10px 0 0;font-size:12.5px}
