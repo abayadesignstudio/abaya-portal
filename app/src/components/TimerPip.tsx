@@ -14,7 +14,7 @@ export function useTimerPip() {
   const open = async () => {
     const api = pipApi(); if (!api) return
     if (api.window) { api.window.focus(); return }
-    const w = await api.requestWindow({ width: 300, height: 210 })
+    const w = await api.requestWindow({ width: 320, height: 200 })
     // bring the portal's styles and fonts into the little window
     document.querySelectorAll('link[rel="stylesheet"], style').forEach((n) => w.document.head.appendChild(n.cloneNode(true)))
     w.document.title = 'Timer'
