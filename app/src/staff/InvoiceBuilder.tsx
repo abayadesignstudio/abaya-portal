@@ -47,11 +47,11 @@ export default function InvoiceBuilder() {
     if (!projectId) return null
     const p = must(await supabase.from('projects').select('id, number, name, sector, client_id, clients(name, billing_email, address)').eq('id', projectId).single()) as unknown as Project
     const phases = sortPhases(must(await supabase.from('phases').select('id, code, sort, name, parent_phase_id, fee, status, billing').eq('project_id', projectId)) as Phase[])
-    const billedLines = phases.length ? must(await supabase.from('invoice_lines').select('phase_id, amount, invoice_id, invoices!inner(status)').eq('kind', 'phase').in('phase_id', phases.map((x) => x.id))) as unknown as { phase_id: string; amount: number; invoice_id: string; invoices: { status: string } }[] : []
+    const billedLines = phases.length ? must(await supabase.from('invoice_lines').select('phase_id, amount, invoice_id, invoices!inner(status)').in('kind', ['phase', 'hourly']).in('phase_id', phases.map((x) => x.id))) as unknown as { phase_id: string; amount: number; invoice_id: string; invoices: { status: string } }[] : []
     const billedBefore: Record<string, number> = {}
     billedLines.filter((l) => l.invoice_id !== id && ['open', 'paid'].includes(l.invoices.status)).forEach((l) => { billedBefore[l.phase_id] = (billedBefore[l.phase_id] ?? 0) + Number(l.amount) })
     // hourly phases: hours not billed yet (or on this invoice), at each person's rate for the entry
-    const hourlyIds = phases.filter((x) => x.billing === 'hourly').map((x) => x.id)
+    const hourlyIds = phases.map((x) => x.id) // every line, so switching one to Hourly here needs no reload
     const hours = hourlyIds.length ? (must(await supabase.from('time_entries').select('id, phase_id, profile_id, work_date, minutes, bill_rate, role_label, invoice_id, profiles(full_name, bill_rate)')
       .in('phase_id', hourlyIds).order('work_date')) as unknown as HourEntry[]).filter((t) => !t.invoice_id || t.invoice_id === id) : []
     const memberRates = Object.fromEntries((must(await supabase.from('project_members').select('profile_id, bill_rate').eq('project_id', projectId).not('bill_rate', 'is', null)) as { profile_id: string; bill_rate: number }[]).map((m) => [m.profile_id, Number(m.bill_rate)]))
@@ -70,6 +70,7 @@ export default function InvoiceBuilder() {
   const [due, setDue] = useState<Record<string, string>>({})
   const [exOn, setExOn] = useState<Record<string, boolean>>({}); const [markup, setMarkup] = useState(true)
   const [hrOn, setHrOn] = useState<Record<string, boolean>>({})
+  const [hrOpen, setHrOpen] = useState(''); const [typeBusy, setTypeBusy] = useState('')
   const [items, setItems] = useState<Item[]>([])
   const [toList, setToList] = useState<string[]>([]); const [ccList, setCcList] = useState<string[]>([]); const [newTo, setNewTo] = useState(''); const [newCc, setNewCc] = useState('')
   const [subject, setSubject] = useState(''); const [message, setMessage] = useState(''); const [note, setNote] = useState('')
@@ -141,6 +142,15 @@ export default function InvoiceBuilder() {
     ...phaseRows.filter((r) => r.d < 0).map((r) => `${phaseLabel(r.ph)} has a negative amount — use a Credit line instead.`),
   ]
   const dueDate = issue ? addDays(issue, terms) : ''
+  // Fee type per line: saved to the phase (and its additional service), so the project page matches.
+  const setFeeType = async (ph: Phase, billing: 'fixed' | 'hourly') => {
+    setTypeBusy(ph.id); setErr('')
+    const { error } = await supabase.from('phases').update({ billing }).eq('id', ph.id)
+    setTypeBusy('')
+    if (error) return setErr(`Couldn’t change the fee type: ${error.message}`)
+    ctx.setData((d) => d ? { ...d, phases: d.phases.map((x) => (x.id === ph.id ? { ...x, billing } : x)) } : d)
+    if (billing === 'hourly') { const d = { ...due }; delete d[ph.id]; setDue(d); setHrOpen(ph.id) }
+  }
   const setPct = (ph: Phase, prev: number, v: string) => { const p = num(v); setDue({ ...due, [ph.id]: String(round2(p / 100 * Number(ph.fee) - prev)) }) }
   const addItem = (kind: string) => {
     const amount = kind === 'late' ? String(round2(prior * (c?.lateRate ?? 1.5) / 100)) : kind === 'credit' ? '-0' : '0'
@@ -264,7 +274,7 @@ export default function InvoiceBuilder() {
         <section className="card stack" style={sec}>
           <div className="row between" style={{ alignItems: 'flex-end' }}>
             <div className="stack" style={{ gap: 8 }}>
-              <h2>Architecture services — fixed fee</h2>
+              <h2>Architecture services</h2>
               <div className="ib-basis" role="radiogroup" aria-label="What this invoice bills for">
                 {([['progress', 'Work done'], ['advance', 'Down payment (in advance)']] as const).map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={opts.billing_basis === k} disabled={locked}
                   className={opts.billing_basis === k ? 'on' : ''} onClick={() => setOpts({ ...opts, billing_basis: k })}>{l}</button>)}
@@ -275,42 +285,58 @@ export default function InvoiceBuilder() {
               <div><label className="l" htmlFor="ib-to">through</label><input id="ib-to" type="date" className="input" disabled={locked} value={to} onChange={(e) => setTo(e.target.value)} /></div>
             </div>
           </div>
-          {phaseRows.length === 0 ? <p className="muted" style={{ margin: 0 }}>This project has no phases yet. <Link to={`/projects/${c.p.id}`}>Add phases and fees on the project page</Link>, or bill with Other items below.</p> : (
-            <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 900 }}>
+          {(c.phases.length === 0) ? <p className="muted" style={{ margin: 0 }}>This project has no phases yet. <Link to={`/projects/${c.p.id}`}>Add phases and fees on the project page</Link>, or bill with Other items below.</p> : (
+            <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 1000 }}>
               <div className="ib-cols" style={{ padding: '8px 0', borderBottom: '1px solid var(--line)', fontSize: 12, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)' }}>
-                <span>Phase</span><span style={{ textAlign: 'right' }}>Fee</span><span style={{ textAlign: 'right' }}>Billed before</span><span>Status</span><span style={{ textAlign: 'right' }}>{advance ? '% billed to date' : '% complete'}</span><span style={{ textAlign: 'right' }}>This invoice ($)</span><span style={{ textAlign: 'right' }}>Remaining</span></div>
-              {phaseRows.map((r) => { const s = STATUS_STYLE[r.ph.status] ?? STATUS_STYLE.not_started; return (
-                <div key={r.ph.id} className="ib-cols" style={{ padding: '10px 0', borderBottom: '1px solid #efece6' }}>
-                  <PhaseName ph={r.ph} />
-                  <span className="num" style={{ textAlign: 'right' }}>{money(r.fee)}</span>
-                  <span className="num" style={{ textAlign: 'right' }}>{money(r.prev)} <span className="muted">({r.fee ? Math.round(r.prev / r.fee * 100) : 0}%)</span></span>
-                  <span><span className="status" style={{ color: s[1], background: s[2] }}>{s[0]}</span></span>
-                  <PctInput label={`${phaseLabel(r.ph)} ${advance ? 'percent billed to date' : 'percent complete to date'}`} value={round2(r.pct)} disabled={locked} bad={r.over} onCommit={(v) => setPct(r.ph, r.prev, v)} />
-                  <label style={{ position: 'relative', display: 'block' }}><span className="sr">{phaseLabel(r.ph)} amount this invoice</span>
-                    <span aria-hidden="true" className="muted" style={{ position: 'absolute', left: 10, top: 12 }}>$</span>
-                    <input className="input num" inputMode="decimal" disabled={locked} style={{ textAlign: 'right', paddingLeft: 22, borderColor: r.over ? '#d92d20' : undefined }} value={due[r.ph.id] ?? ''} placeholder="0" onChange={(e) => setDue({ ...due, [r.ph.id]: e.target.value })} /></label>
-                  <span className="num" style={{ textAlign: 'right', color: r.remain < -0.005 ? '#b42318' : undefined }}>{money(r.remain)}</span>
-                </div>) })}
-              <div className="ib-cols" style={{ padding: '10px 0', fontWeight: 700 }}><span>Fixed fee total</span><span /><span /><span /><span /><span className="num" style={{ textAlign: 'right' }}>{money(fixed)}</span><span /></div>
+                <span>Phase</span><span>Fee type</span><span style={{ textAlign: 'right' }}>Fee</span><span style={{ textAlign: 'right' }}>Billed before</span><span>Status</span><span style={{ textAlign: 'right' }}>{advance ? '% billed / hours' : '% complete / hours'}</span><span style={{ textAlign: 'right' }}>This invoice ($)</span><span style={{ textAlign: 'right' }}>Remaining</span></div>
+              {c.phases.map((ph) => {
+                const s = STATUS_STYLE[ph.status] ?? STATUS_STYLE.not_started
+                const typeSel = <span><label className="sr" htmlFor={'ft' + ph.id}>{phaseLabel(ph)} fee type</label>
+                  <select id={'ft' + ph.id} className="input" style={{ minHeight: 36, padding: '0 8px' }} disabled={locked || typeBusy === ph.id} value={ph.billing === 'hourly' ? 'hourly' : 'fixed'} onChange={(e) => setFeeType(ph, e.target.value as 'fixed' | 'hourly')}>
+                    <option value="fixed">Fixed</option><option value="hourly">Hourly</option></select></span>
+                const status = <span><span className="status" style={{ color: s[1], background: s[2] }}>{s[0]}</span></span>
+                const r = phaseRows.find((x) => x.ph.id === ph.id)
+                if (r) return (
+                  <div key={ph.id} className="ib-cols" style={{ padding: '10px 0', borderBottom: '1px solid #efece6' }}>
+                    <PhaseName ph={ph} />{typeSel}
+                    <span className="num" style={{ textAlign: 'right' }}>{money(r.fee)}</span>
+                    <span className="num" style={{ textAlign: 'right' }}>{money(r.prev)} <span className="muted">({r.fee ? Math.round(r.prev / r.fee * 100) : 0}%)</span></span>
+                    {status}
+                    <PctInput label={`${phaseLabel(ph)} ${advance ? 'percent billed to date' : 'percent complete to date'}`} value={round2(r.pct)} disabled={locked} bad={r.over} onCommit={(v) => setPct(ph, r.prev, v)} />
+                    <label style={{ position: 'relative', display: 'block' }}><span className="sr">{phaseLabel(ph)} amount this invoice</span>
+                      <span aria-hidden="true" className="muted" style={{ position: 'absolute', left: 10, top: 12 }}>$</span>
+                      <input className="input num" inputMode="decimal" disabled={locked} style={{ textAlign: 'right', paddingLeft: 22, borderColor: r.over ? '#d92d20' : undefined }} value={due[ph.id] ?? ''} placeholder="0" onChange={(e) => setDue({ ...due, [ph.id]: e.target.value })} /></label>
+                    <span className="num" style={{ textAlign: 'right', color: r.remain < -0.005 ? '#b42318' : undefined }}>{money(r.remain)}</span>
+                  </div>)
+                const h = hourlyRows.find((x) => x.ph.id === ph.id)!
+                const fee = Number(ph.fee), prev = c.billedBefore[ph.id] ?? 0, open = hrOpen === ph.id
+                return (<div key={ph.id} style={{ borderBottom: '1px solid #efece6' }}>
+                  <div className="ib-cols" style={{ padding: '10px 0' }}>
+                    <PhaseName ph={ph} />{typeSel}
+                    <span className="num" style={{ textAlign: 'right' }}>{fee ? <>{money(fee)}<span className="muted" style={{ display: 'block', fontSize: 11 }}>budget</span></> : <span className="muted">—</span>}</span>
+                    <span className="num" style={{ textAlign: 'right' }}>{money(prev)}</span>
+                    {status}
+                    <span style={{ textAlign: 'right' }}><button type="button" className="linkbtn num" aria-expanded={open} onClick={() => setHrOpen(open ? '' : ph.id)}>{h.hrs.toFixed(2)} h{h.all.length ? ` of ${h.all.reduce((a, t) => a + t.minutes / 60, 0).toFixed(2)}` : ''} {open ? '▴' : '▾'}</button></span>
+                    <span className="num" style={{ textAlign: 'right', fontWeight: 700, paddingRight: 10 }}>{money(h.amt)}</span>
+                    <span className="num" style={{ textAlign: 'right' }}>{fee ? money(fee - prev - h.amt) : <span className="muted">—</span>}</span>
+                  </div>
+                  {open && <div style={{ margin: '0 0 10px 24px' }}>
+                    {h.all.length === 0 ? <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>No unbilled hours logged to this line.</em></p>
+                      : <div style={{ maxHeight: 240, overflow: 'auto' }}><table className="tbl" style={{ fontSize: 13 }}><tbody>
+                        {h.all.map((t) => <tr key={t.id}><td style={{ width: 28 }}><input type="checkbox" aria-label={`Bill ${t.work_date} ${t.profiles?.full_name ?? ''}`} disabled={locked} checked={!!hrOn[t.id]} onChange={(e) => setHrOn({ ...hrOn, [t.id]: e.target.checked })} /></td>
+                          <td>{t.work_date}</td><td>{t.profiles?.full_name ?? ''}{t.role_label ? <span className="muted"> · {t.role_label}</span> : null}</td>
+                          <td className="num" style={{ textAlign: 'right' }}>{(t.minutes / 60).toFixed(2)} h</td><td className="num" style={{ textAlign: 'right' }}>{money(rateOf(t))}/h</td><td className="num" style={{ textAlign: 'right' }}>{money(t.minutes / 60 * rateOf(t))}</td></tr>)}
+                      </tbody></table></div>}
+                  </div>}
+                </div>)
+              })}
+              <div className="ib-cols" style={{ padding: '10px 0', fontWeight: 700 }}><span>Architecture services total</span><span /><span /><span /><span /><span /><span className="num" style={{ textAlign: 'right', paddingRight: 10 }}>{money(round2(fixed + hourly))}</span><span /></div>
             </div></div>)}
           {advance
             ? <p className="ib-adv" role="note"><strong>Down payment.</strong> Bill the phases this payment covers ahead of the work (for example SD 100%, DD 100%, CD 50%). The client’s invoice says “Billed in advance,” not “Complete,” and the amounts count toward each phase, so later invoices only bill what’s left. The project overview shows how much is billed ahead of the work.</p>
-            : <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Type the percent complete to date, or the dollar amount — the other fills in. A phase can’t be billed past 100% of its fee.</em></p>}
+            : <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Fixed: type the percent complete to date, or the dollar amount — the other fills in; a phase can’t be billed past 100% of its fee. Hourly: bills the unbilled hours logged to that line at each person’s rate — click the hours to choose entries. Changing the fee type here changes it on the project too.</em></p>}
           {warn.length > 0 && <div role="alert" className="err">{warn.map((w) => <p key={w} style={{ margin: 0 }}>{w}</p>)}</div>}
         </section>
-        {hourlyRows.length > 0 && <section className="card stack" style={sec}>
-          <div className="row between"><h2>Architecture services — hourly</h2><strong className="num">{money(hourly)}</strong></div>
-          <p className="muted" style={{ margin: 0, fontSize: 13 }}>Hours logged to hourly phases and services that haven’t been billed yet, at each person’s rate. Untick any you don’t want on this invoice; they stay available for the next one.</p>
-          {hourlyRows.map((r) => <div key={r.ph.id} className="stack" style={{ gap: 4, borderTop: '1px solid #efece6', paddingTop: 8 }}>
-            <div className="row between"><PhaseName ph={r.ph} /><span className="num">{r.hrs.toFixed(2)} h · <strong>{money(r.amt)}</strong>{Number(r.ph.fee) > 0 && <span className="muted"> · budget {money(Number(r.ph.fee))}</span>}</span></div>
-            {r.all.length === 0 && <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>No unbilled hours on this phase.</em></p>}
-            {r.all.length > 0 && <div style={{ maxHeight: 220, overflow: 'auto' }}><table className="tbl" style={{ fontSize: 13 }}><tbody>
-              {r.all.map((t) => <tr key={t.id}><td style={{ width: 28 }}><input type="checkbox" aria-label={`Bill ${t.work_date} ${t.profiles?.full_name ?? ''}`} disabled={locked} checked={!!hrOn[t.id]} onChange={(e) => setHrOn({ ...hrOn, [t.id]: e.target.checked })} /></td>
-                <td>{t.work_date}</td><td>{t.profiles?.full_name ?? ''}{t.role_label ? <span className="muted"> · {t.role_label}</span> : null}</td>
-                <td className="num" style={{ textAlign: 'right' }}>{(t.minutes / 60).toFixed(2)} h</td><td className="num" style={{ textAlign: 'right' }}>{money(rateOf(t))}/h</td><td className="num" style={{ textAlign: 'right' }}>{money(t.minutes / 60 * rateOf(t))}</td></tr>)}
-            </tbody></table></div>}
-          </div>)}
-        </section>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 16 }}>
           <section className="card stack" style={sec}>
             <div className="row between"><h2>Reimbursable expenses</h2><strong className="num">{money(exBase + exMark)}</strong></div>

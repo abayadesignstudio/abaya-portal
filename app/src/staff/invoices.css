@@ -10,7 +10,7 @@
 .iv-tl{list-style:none;margin:0;padding:0 0 0 4px;border-left:2px solid #ece9e3}
 .iv-tl li{position:relative;padding:0 0 12px 18px}
 .iv-tl .dot{position:absolute;left:-11px;top:0;width:20px;height:20px;border-radius:50%;background:#fff;border:2px solid;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
-.ib-cols{display:grid;grid-template-columns:minmax(170px,1.6fr) 110px 130px 110px 110px 140px 110px;gap:10px;align-items:center}
+.ib-cols{display:grid;grid-template-columns:minmax(200px,1.6fr) 104px 110px 120px 104px 124px 140px 110px;gap:10px;align-items:center}
 .ib-send{display:grid;grid-template-columns:400px minmax(0,1fr);gap:16px;align-items:start}
 .ib-doc{background:#fff;padding:40px 44px;box-shadow:0 1px 3px rgba(0,0,0,.12),0 8px 24px rgba(0,0,0,.06);font-size:13px;color:#111}
 .ib-th{padding:8px 10px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid #d0d5dd}
