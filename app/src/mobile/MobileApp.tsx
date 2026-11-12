@@ -36,7 +36,7 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
   const full = sheet === 'timer' || sheet === 'manual' || sheet === 'expense' || sheet === 'note' || (typeof sheet === 'object' && sheet !== null)
 
   return (
-    <div className="mapp">
+    <div className={'mapp' + (api.running ? ' has-timer' : '')}>
       <header className="mapp-head">
         {detail ? <button type="button" className="mapp-back" onClick={() => (window.history.length > 1 ? nav(-1) : nav('/'))}>‹ Back</button>
           : <img className="mapp-logo" src={logo} alt="Abaya Design & Studio" />}
@@ -51,6 +51,16 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
           : <InvoicesScreen me={me} />}
       </main>
 
+      {!full && api.running && <div className={'mapp-timer' + (api.paused ? ' paused' : '')} role="region" aria-label="Running timer">
+        <button type="button" className="mapp-tbtn" disabled={api.busy} aria-label={api.paused ? 'Resume timer' : 'Pause timer'} onClick={() => (api.paused ? api.resume() : api.pause())}>
+          {api.paused ? <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l13 8-13 8z" fill="currentColor" /></svg>
+            : <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h4v16H7zM13 4h4v16h-4z" fill="currentColor" /></svg>}</button>
+        <button type="button" className="mapp-tlbl" onClick={() => setSheet('timer')} aria-label="Edit or switch the running timer">
+          <span className="mapp-tproj">{api.proj?.number === 'OH' ? 'Overhead' : api.proj?.number ?? ''}{api.running.activity ? ` · ${api.running.activity}` : ''}</span>
+          <b className="num">{api.clock}</b></button>
+        <button type="button" className="mapp-tbtn" disabled={api.busy} aria-label="Stop and log the time" onClick={() => api.stop()}>
+          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor" /></svg></button>
+      </div>}
       {!full && <nav className="mapp-tabs" aria-label="Sections">
         <div className="mapp-pill">
           {([['calendar', 'Calendar', IconCal], ['time', 'Time', IconClock], ['expenses', 'Expenses', IconReceipt], ['invoices', 'Invoices', IconDollar]] as const).map(([k, l, I]) =>

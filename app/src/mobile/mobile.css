@@ -79,3 +79,10 @@ button.m-card{cursor:pointer}
 .cvp-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:8px;align-items:center}
 .cvp-row .input{min-height:40px;font-size:15px}
 .cvp-ic{width:40px;height:40px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:20px}
+.mapp-timer{position:fixed;left:14px;right:14px;bottom:calc(92px + env(safe-area-inset-bottom));z-index:41;display:flex;align-items:center;gap:8px;padding:6px;border-radius:999px;background:#12804a;color:#fff;box-shadow:0 8px 22px rgba(0,0,0,.22)}
+.mapp-timer.paused{background:#5f6b76}
+.mapp-tbtn{flex:none;width:44px;height:44px;border-radius:50%;border:0;background:rgba(255,255,255,.18);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.mapp-tlbl{flex:1;min-width:0;border:0;background:none;color:#fff;font:inherit;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 6px;cursor:pointer}
+.mapp-tproj{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mapp-tlbl b{font-size:20px;letter-spacing:.02em}
+.mapp.has-timer{padding-bottom:calc(170px + env(safe-area-inset-bottom))}
