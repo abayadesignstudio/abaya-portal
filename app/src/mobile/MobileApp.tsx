@@ -9,7 +9,7 @@ import { TimerPanel, ManualPanel, parseDuration } from '../components/Timer'
 import Combobox, { sectorColor } from '../components/Combobox'
 import Avatar from '../components/Avatar'
 import { MonthCalendar, useStaff } from '../staff/HomeCalendars'
-import crest from '../assets/abaya-crest-light-192.png'
+import logo from '../assets/abaya-logo-light.png'
 import '../staff/home.css'
 import './mobile.css'
 
@@ -39,10 +39,9 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
     <div className="mapp">
       <header className="mapp-head">
         {detail ? <button type="button" className="mapp-back" onClick={() => (window.history.length > 1 ? nav(-1) : nav('/'))}>‹ Back</button>
-          : <button type="button" className="mapp-me" onClick={() => setSheet('me')} aria-label="Account"><Avatar url={profile?.avatar_url} initials={ini} size={36} /></button>}
+          : <img className="mapp-logo" src={logo} alt="Abaya Design & Studio" />}
         <h1 className="sr">{title}</h1>
-        <img className="mapp-crest" src={crest} alt="Abaya Design Studio" />
-        <span style={{ width: 44 }} />
+        <button type="button" className="mapp-me" onClick={() => setSheet('me')} aria-label="Account"><Avatar url={profile?.avatar_url} initials={ini} size={36} /></button>
       </header>
       <main className="mapp-main">
         {detail ? <div className="mapp-detail"><Outlet /></div>
