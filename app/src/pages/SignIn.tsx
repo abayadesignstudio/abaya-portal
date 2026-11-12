@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import logoLight from '../assets/abaya-logo-light.png'
+import { isNativeApp, toNative } from '../lib/native'
 import { supabase } from '../lib/supabase'
 
 // The team signs in with their Google work account (the default). Email + password, a one-time email link and
@@ -28,8 +29,9 @@ export default function SignIn() {
     const on = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string } })
       .then((r) => r.json()).then((j) => !!j?.external?.google).catch(() => true)
     if (!on) { setBusy(false); setErr(off); return }
-    const { data, error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: back(), skipBrowserRedirect: true, queryParams: { hd: 'abayadesignstudio.com', prompt: 'select_account' } } })
+    const { data, error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: isNativeApp() ? 'abaya://auth' : back(), skipBrowserRedirect: true, queryParams: { hd: 'abayadesignstudio.com', prompt: 'select_account' } } })
     if (error || !data?.url) { setBusy(false); setErr(error?.message ?? off); return }
+    if (isNativeApp()) { toNative({ type: 'oauth', url: data.url }); setBusy(false); return } // iPhone app: Google sign-in in a system sheet
     window.location.assign(data.url)
   }
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { isNativeApp, toNative } from '../lib/native'
 import { supabase } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
 import { loadProjects, iso, announceTimeChange, TIME_CHANGED } from '../lib/time'
@@ -46,14 +47,24 @@ export function useTimer(me: string) {
   const reloadTimer = timer.reload, reloadToday = today.reload
   useEffect(() => {
     const f = () => { reloadTimer(); reloadToday() }
-    window.addEventListener(TIME_CHANGED, f); window.addEventListener('focus', f)
-    return () => { window.removeEventListener(TIME_CHANGED, f); window.removeEventListener('focus', f) }
+    const vis = () => { if (document.visibilityState === 'visible') f() } // phone app / home-screen app coming back to the front
+    window.addEventListener(TIME_CHANGED, f); window.addEventListener('focus', f); document.addEventListener('visibilitychange', vis)
+    return () => { window.removeEventListener(TIME_CHANGED, f); window.removeEventListener('focus', f); document.removeEventListener('visibilitychange', vis) }
   }, [reloadTimer, reloadToday])
 
   // running stretch since started_at (frozen at paused_at while paused) + time banked from earlier stretches
   const paused = !!t?.paused_at
   const elapsed = t ? (t.paused_at ? new Date(t.paused_at).getTime() : now) - new Date(t.started_at).getTime() + t.banked_minutes * 60000 + (t.banked_seconds ?? 0) * 1000 : 0
   const proj = projects.data?.find((p) => p.id === v.project_id)
+  // iPhone app: mirror the timer to the Dynamic Island / lock screen (the clock ticks there by itself)
+  const tp = projects.data?.find((p) => p.id === t?.project_id)
+  useEffect(() => {
+    if (!isNativeApp() || timer.loading || timer.error) return
+    toNative({ type: 'timer', timer: t ? {
+      code: tp?.number === 'OH' ? 'OH' : tp?.number ?? '', title: tp?.number === 'OH' ? 'Overhead' : tp?.name ?? 'Timer',
+      detail: [t.activity, t.role_label].filter(Boolean).join(' · '), elapsed: Math.max(0, elapsed / 1000), paused,
+    } : null })
+  }, [t?.project_id, t?.activity, t?.role_label, t?.started_at, t?.paused_at, t?.banked_seconds, t?.banked_minutes, tp?.id, timer.loading, timer.data === null]) // eslint-disable-line react-hooks/exhaustive-deps
   const isOverhead = proj?.number === 'OH'
   // picking a project loads your usual role on it (team role, or what you used last)
   const setField = useCallback((k: keyof TimerFields, value: string) =>

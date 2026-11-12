@@ -1,0 +1,28 @@
+# Builds the iPhone app on GitHub's cloud Macs (free for public repositories).
+# Step 1 (now): compile for the simulator to prove the project builds — no Apple account needed.
+# Step 2 (after Apple Developer enrollment): sign and upload to TestFlight.
+name: iOS app
+on:
+  push:
+    branches: [main]
+    paths: ['ios/**', '.github/workflows/ios.yml']
+  workflow_dispatch:
+permissions: { contents: read }
+concurrency: { group: ios, cancel-in-progress: true }
+jobs:
+  build:
+    runs-on: macos-15
+    defaults: { run: { working-directory: ios } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with: { xcode-version: latest-stable }
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - name: Build for the simulator (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild -project Abaya.xcodeproj -scheme Abaya -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build.log | grep -E "error:|warning: .*Swift|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" build.log
