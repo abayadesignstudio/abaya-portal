@@ -47,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { live = false }
   }, [uid, session?.access_token, bump])
 
-  const signOut = async () => { await supabase.auth.signOut(); loadedFor.current = null; setProfile(null) }
+  const signOut = async () => { await supabase.auth.signOut({ scope: 'local' }); // this device only loadedFor.current = null; setProfile(null) }
   return <Ctx.Provider value={{ session, profile, loading, recovering, endRecovery: () => setRecovering(false), signOut, refreshProfile: () => setBump((n) => n + 1) }}>{children}</Ctx.Provider>
 }
 export const useAuth = () => useContext(Ctx)
