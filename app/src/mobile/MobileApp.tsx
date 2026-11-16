@@ -12,10 +12,12 @@ import { MonthCalendar, useStaff } from '../staff/HomeCalendars'
 import logo from '../assets/abaya-logo-light.png'
 import '../staff/home.css'
 import PushToggle from '../components/PushToggle'
+import { useField } from '../lib/field'
+import { TimerPop, TripSheet, RecordSheet, VoiceSheet, IconMicSmall, useSince } from './Field'
 import './mobile.css'
 
 type Tab = 'calendar' | 'time' | 'expenses' | 'invoices'
-type Sheet = null | 'add' | 'timeMenu' | 'timer' | 'manual' | 'expense' | 'note' | 'me' | { edit: Card } | { expense: Exp }
+type Sheet = null | 'add' | 'timeMenu' | 'timer' | 'manual' | 'expense' | 'note' | 'me' | 'pop' | 'trip' | 'record' | 'voice' | 'voiceGo' | { edit: Card } | { expense: Exp }
 const keep = (k: string, v: string) => { try { localStorage.setItem(k, v) } catch { /* private mode */ } }
 const remember = (k: string, d: string) => { try { return localStorage.getItem(k) ?? d } catch { return d } }
 const hm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
@@ -29,15 +31,29 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
   const setTab = (t: Tab) => { setTabRaw(t); keep('abaya.m.tab', t); if (loc.pathname !== '/') nav('/') }
   const [sheet, setSheet] = useState<Sheet>(null)
   const api = useTimer(me)
+  const field = useField(me)
+  const recSec = useSince(field.rec.on ? field.rec.since : null)
+  // a finished GPS trip opens its sheet
+  useEffect(() => { if (field.trip) setSheet('trip') }, [field.trip])
+  // home-screen / lock-screen widget taps
+  useEffect(() => {
+    const a = field.action
+    if (!a) return
+    field.clearAction(); if (loc.pathname !== '/') nav('/')
+    if (a === 'timer') setSheet(api.running ? 'pop' : 'timer')
+    else if (a === 'voice') setSheet('voiceGo')
+    else if (a === 'record') setSheet('record')
+    else if (a === 'trip') { if (field.gps.on) field.stopTrip(); else { field.startTrip(); setSheet(null) } }
+  }, [field.action]) // eslint-disable-line react-hooks/exhaustive-deps
   const detail = loc.pathname !== '/'
   useEffect(() => { document.body.style.overflow = sheet ? 'hidden' : ''; return () => { document.body.style.overflow = '' } }, [sheet])
   useEffect(() => { if (!sheet) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setSheet(null) }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k) }, [sheet])
   const title = detail ? '' : tab === 'calendar' ? 'Calendar' : tab === 'time' ? 'Time' : tab === 'expenses' ? 'Expenses' : 'Invoices'
   const ini = profile?.initials || (profile?.full_name || profile?.email || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
-  const full = sheet === 'timer' || sheet === 'manual' || sheet === 'expense' || sheet === 'note' || (typeof sheet === 'object' && sheet !== null)
+  const full = sheet === 'timer' || sheet === 'manual' || sheet === 'expense' || sheet === 'note' || sheet === 'trip' || sheet === 'record' || sheet === 'voice' || sheet === 'voiceGo' || (typeof sheet === 'object' && sheet !== null)
 
   return (
-    <div className={'mapp' + (api.running ? ' has-timer' : '')}>
+    <div className={'mapp' + (api.running || field.rec.on || field.gps.on ? ' has-timer' : '')}>
       <header className="mapp-head">
         {detail ? <button type="button" className="mapp-back" onClick={() => (window.history.length > 1 ? nav(-1) : nav('/'))}>‹ Back</button>
           : <img className="mapp-logo" src={logo} alt="Abaya Design & Studio" />}
@@ -56,8 +72,8 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
         <button type="button" className="mapp-tbtn" disabled={api.busy} aria-label={api.paused ? 'Resume timer' : 'Pause timer'} onClick={() => (api.paused ? api.resume() : api.pause())}>
           {api.paused ? <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l13 8-13 8z" fill="currentColor" /></svg>
             : <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h4v16H7zM13 4h4v16h-4z" fill="currentColor" /></svg>}</button>
-        <button type="button" className="mapp-tlbl" onClick={() => setSheet('timer')} aria-label="Edit or switch the running timer">
-          <span className="mapp-tproj">{api.proj?.number === 'OH' ? 'Overhead' : api.proj?.number ?? ''}{api.running.activity ? ` · ${api.running.activity}` : ''}</span>
+        <button type="button" className="mapp-tlbl" onClick={() => setSheet(sheet === 'pop' ? null : 'pop')} aria-label="Timer options" aria-expanded={sheet === 'pop'}>
+          <span className="mapp-tproj">{field.rec.on && <span className="mapp-recdot" aria-label="Recording" />}{field.gps.on && <span className="mapp-gpsdot" aria-label="Trip tracking" />}{api.proj?.number === 'OH' ? 'Overhead' : api.proj?.number ?? ''}{api.running.activity ? ` · ${api.running.activity}` : ''}</span>
           <b className="num">{api.clock}</b></button>
         <button type="button" className="mapp-tbtn" disabled={api.busy} aria-label="Stop and log the time" onClick={() => api.stop()}>
           <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor" /></svg></button>
@@ -71,11 +87,19 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
           {sheet === 'timeMenu' ? <IconBack /> : sheet ? <IconX /> : <IconPlus />}</button>
       </nav>}
 
-      {(sheet === 'add' || sheet === 'timeMenu' || sheet === 'me') && <div className="mapp-scrim" onClick={() => setSheet(null)} />}
+      {!full && !api.running && (field.rec.on || field.gps.on) && <button type="button" className="mapp-timer mapp-fieldbar" onClick={() => setSheet(field.rec.on ? (field.rec.purpose === 'dictation' ? 'voice' : 'record') : 'pop')}>
+        {field.rec.on ? <><span className="mapp-recdot" /> Recording <b className="num">{Math.floor(recSec / 60)}:{String(Math.floor(recSec) % 60).padStart(2, '0')}</b></>
+          : <><span className="mapp-gpsdot" /> Trip <b className="num">{field.gps.miles.toFixed(1)} mi</b></>}
+        {!field.rec.on && <span className="mapp-fieldstop" onClick={(e) => { e.stopPropagation(); field.stopTrip() }}>Stop</span>}
+      </button>}
+      {(sheet === 'add' || sheet === 'timeMenu' || sheet === 'me' || sheet === 'pop') && <div className="mapp-scrim" onClick={() => setSheet(null)} />}
+      {sheet === 'pop' && <TimerPop api={api} field={field} onEdit={() => setSheet('timer')} onRecord={() => setSheet('record')}
+        onTrip={() => { if (field.gps.on) field.stopTrip(); else { field.startTrip(); setSheet(null) } }} />}
       {sheet === 'add' && <div className="mapp-menu" role="menu">
         <button role="menuitem" onClick={() => setSheet('timeMenu')}><IconClock />Time entry<span className="chev">›</span></button>
         <button role="menuitem" onClick={() => setSheet('expense')}><IconReceipt />Expense entry<span className="chev">›</span></button>
         <button role="menuitem" onClick={() => setSheet('note')}><IconNote />Add note<span className="chev">›</span></button>
+        <button role="menuitem" onClick={() => setSheet('voiceGo')}><IconMicSmall />Voice<span className="chev">›</span></button>
       </div>}
       {sheet === 'timeMenu' && <div className="mapp-menu" role="menu">
         <button role="menuitem" onClick={() => setSheet('timer')}><IconTimer />{api.running ? 'Running timer' : 'Start timer'}</button>
@@ -97,6 +121,9 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
           {sheet === 'expense' && <ExpenseForm me={me} api={api} onDone={() => { setSheet(null); setTab('expenses') }} />}
           {typeof sheet === 'object' && sheet && 'expense' in sheet && <ExpenseForm me={me} api={api} edit={sheet.expense} onDone={() => setSheet(null)} />}
           {sheet === 'note' && <NoteForm me={me} api={api} onDone={() => setSheet(null)} />}
+          {sheet === 'trip' && field.trip && <TripSheet field={field} api={api} me={me} onDone={() => setSheet(null)} />}
+          {sheet === 'record' && <RecordSheet field={field} api={api} me={me} onDone={() => setSheet(null)} />}
+          {(sheet === 'voice' || sheet === 'voiceGo') && <VoiceSheet field={field} api={api} me={me} autoStart={sheet === 'voiceGo' && !field.rec.on} onDone={() => setSheet(null)} />}
           {typeof sheet === 'object' && sheet && 'edit' in sheet && <EditDay me={me} card={sheet.edit} onDone={() => setSheet(null)} />}
         </div>
       </div>}

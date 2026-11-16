@@ -110,6 +110,8 @@ export function useTimer(me: string) {
       const stretch = Math.round((new Date(t.paused_at).getTime() - new Date(t.started_at).getTime()) / 1000)
       return patchTimer({ banked_seconds: (t.banked_seconds ?? 0) + Math.max(0, stretch), started_at: new Date().toISOString(), paused_at: null })
     }),
+    /** Add minutes to the running clock (forgot to start it on time). */
+    addTime: (min: number) => run(async () => !!t && patchTimer({ banked_seconds: (t.banked_seconds ?? 0) + min * 60 })),
     /** Back to 00:00 on the same task (nothing is logged). */
     restart: () => run(async () => !!t && patchTimer({ started_at: new Date().toISOString(), banked_minutes: 0, banked_seconds: 0, paused_at: null })),
     /** Start a timer on a task from today's list (logging whatever is running first). */

@@ -86,3 +86,26 @@ button.m-card{cursor:pointer}
 .mapp-tproj{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mapp-tlbl b{font-size:20px;letter-spacing:.02em}
 .mapp.has-timer{padding-bottom:calc(170px + env(safe-area-inset-bottom))}
+/* timer pop-up + field tools */
+.mapp-pop{bottom:calc(160px + env(safe-area-inset-bottom));left:14px;right:14px;width:auto}
+.mapp-add{display:flex;gap:8px;padding:12px 14px;border-bottom:1px solid #e6e4df}
+.mapp-add button{flex:1;min-height:48px;border-radius:12px;border:1px solid #cfd6dc;background:#f4f6f8;font:inherit;font-size:17px;font-weight:700;color:#02253d;justify-content:center;padding:0}
+.mapp-menu .mapp-add button+button{border-top:1px solid #cfd6dc}
+.mapp-menu small{font-size:15px}
+.mapp-live{margin-left:auto;width:10px;height:10px;border-radius:50%;background:#12804a;animation:mapp-pulse 1.4s infinite}
+.mapp-recdot,.mapp-gpsdot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:1px;background:#ff5a4f;animation:mapp-pulse 1.4s infinite}
+.mapp-gpsdot{background:#9be7ff}
+@keyframes mapp-pulse{50%{opacity:.35}}
+.mapp-fieldbar{justify-content:center;gap:10px;font:inherit;font-size:16px;font-weight:600;border:0;padding:0 16px;min-height:52px;background:#02253d;cursor:pointer}
+.mapp-fieldbar b{font-size:18px}
+.mapp-fieldstop{margin-left:auto;padding:8px 14px;border-radius:999px;background:rgba(255,255,255,.18)}
+.m-mic{align-self:center;width:132px;height:132px;border-radius:50%;border:0;background:#02253d;color:#ede6d6;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 10px 26px rgba(2,37,61,.28)}
+.m-mic.on{background:#d63c32;animation:mapp-ring 1.6s infinite}
+.m-mic:disabled{opacity:.6}
+.m-mic-stop{width:38px;height:38px;border-radius:8px;background:#fff}
+@keyframes mapp-ring{0%{box-shadow:0 0 0 0 rgba(214,60,50,.45)}100%{box-shadow:0 0 0 26px rgba(214,60,50,0)}}
+.m-mic-cap{margin:0;text-align:center;font-size:17px}
+.m-ok{margin:0;padding:12px 14px;border-radius:10px;background:#e8f4ee;color:#0e5f37}
+.m-heard{margin:0;padding:10px 14px;border-left:3px solid #b9b4aa;color:#3c4043;font-style:italic}
+.m-stops{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid #e6e4df;border-radius:10px}
+.m-stop{display:flex;gap:10px;font-size:15px}.m-stop .num{flex:none;color:#5f6368}
