@@ -20,6 +20,14 @@ const milesBetween = (a: GeolocationCoordinates | { latitude: number; longitude:
   return 2 * R * Math.asin(Math.sqrt(h))
 }
 
+const deviceLabel = () => {
+  try {
+    let id = localStorage.getItem('abaya.device')
+    if (!id) { id = 'iPhone ' + crypto.randomUUID().slice(0, 8); localStorage.setItem('abaya.device', id) }
+    return id
+  } catch { return 'iPhone' }
+}
+
 // ---- browser fallbacks (module singletons so every component sees the same session)
 let webWatch: number | null = null
 let webTrip: { started: string; miles: number; last: GeolocationCoordinates | null; route: number[][]; anchor: GeolocationCoordinates | null; since: number; stops: Stop[] } | null = null
@@ -34,6 +42,7 @@ export function useField(me: string) {
   const [uploading, setUploading] = useState(false)
   const [live, setLive] = useState<{ ok: boolean; reason?: string } | null>(null) // Dynamic Island status from the app
   const pendingPath = useRef<string | null>(null)
+  const linking = useRef(false)
   const native = isNativeApp()
 
   useEffect(() => {
@@ -48,6 +57,13 @@ export function useField(me: string) {
         else setRec((r) => ({ ...r, error: m.error || 'Upload failed.' }))
       } else if (m.type === 'action') setAction(String(m.action))
       else if (m.type === 'live') setLive({ ok: !!m.ok, reason: m.reason })
+      else if (m.type === 'widget' && !m.linked && !linking.current) {
+        // link this phone's home-screen widget (its own token, kept in the app's keychain)
+        linking.current = true
+        supabase.functions.invoke('widget', { body: { action: 'register', label: deviceLabel() } })
+          .then(({ data }) => { if (data?.token) toNative({ type: 'widgetToken', token: data.token }) })
+          .finally(() => { linking.current = false })
+      }
     })
     toNative({ type: 'ready' })
     return off

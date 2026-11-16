@@ -41,6 +41,7 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
     if (!a) return
     field.clearAction(); if (loc.pathname !== '/') nav('/')
     if (a === 'timer') setSheet(api.running ? 'pop' : 'timer')
+    else if (a === 'calendar') { setSheet(null); setTab('calendar') }
     else if (a === 'voice') setSheet('voiceGo')
     else if (a === 'record') setSheet('record')
     else if (a === 'trip') { if (field.gps.on) field.stopTrip(); else { field.startTrip(); setSheet(null) } }

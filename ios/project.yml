@@ -41,6 +41,11 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: com.abayadesignstudio.portal
             CFBundleURLSchemes: [abaya]
+        AppIdentifierPrefix: $(AppIdentifierPrefix)
+    entitlements:
+      path: App/Abaya.entitlements
+      properties:
+        keychain-access-groups: [$(AppIdentifierPrefix)com.abayadesignstudio.shared]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.abayadesignstudio.portal
@@ -66,6 +71,11 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        AppIdentifierPrefix: $(AppIdentifierPrefix)
+    entitlements:
+      path: Widgets/AbayaWidgets.entitlements
+      properties:
+        keychain-access-groups: [$(AppIdentifierPrefix)com.abayadesignstudio.shared]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.abayadesignstudio.portal.widgets

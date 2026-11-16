@@ -3,6 +3,7 @@ import AuthenticationServices
 import SwiftUI
 import UIKit
 import WebKit
+import WidgetKit
 
 /// The portal, full screen, in a native shell. The web app talks to the shell through
 /// `window.webkit.messageHandlers.abaya.postMessage({...})`:
@@ -105,11 +106,17 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
         switch type {
-        case "timer": LiveTimer.shared.apply(body["timer"] as? [String: Any])
+        case "timer":
+            LiveTimer.shared.apply(body["timer"] as? [String: Any])
+            WidgetCenter.shared.reloadTimelines(ofKind: "AbayaAgenda")
+        case "widgetToken":
+            if let t = body["token"] as? String, t.count == 64 { WidgetLink.save(t); WidgetCenter.shared.reloadAllTimelines() }
+            send(["type": "widget", "linked": WidgetLink.token != nil])
         case "oauth": if let s = body["url"] as? String, let url = URL(string: s) { signIn(with: url) }
         case "ready":
             pageReady = true
             TripTracker.shared.emit(); Recorder.shared.emit()
+            send(["type": "widget", "linked": WidgetLink.token != nil])
             if let a = pendingAction { pendingAction = nil; send(["type": "action", "action": a]) }
         case "gps":
             switch body["action"] as? String {

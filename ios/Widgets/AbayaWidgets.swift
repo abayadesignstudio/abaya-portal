@@ -10,6 +10,7 @@ private let green = Color(red: 18 / 255, green: 128 / 255, blue: 74 / 255)
 struct AbayaWidgetsBundle: WidgetBundle {
     var body: some Widget {
         TimerLiveActivity()
+        AgendaWidget()
         QuickActionsWidget()
         TimerActionWidget()
         VoiceWidget()
@@ -210,4 +211,161 @@ struct TripWidget: Widget {
             .configurationDisplayName("Abaya trip").description("Start or stop GPS trip tracking.")
             .supportedFamilies([.systemSmall, .accessoryCircular])
     }
+}
+
+// MARK: Agenda + timer widget (medium / large): upcoming items on the left, the timer with buttons on the right.
+
+struct AgendaEntry: TimelineEntry { let date: Date; let feed: Feed?; let linked: Bool }
+
+struct AgendaProvider: TimelineProvider {
+    func placeholder(in context: Context) -> AgendaEntry { AgendaEntry(date: .now, feed: sample, linked: true) }
+    func getSnapshot(in context: Context, completion: @escaping (AgendaEntry) -> Void) {
+        if context.isPreview { return completion(placeholder(in: context)) }
+        Task { completion(await load()) }
+    }
+    func getTimeline(in context: Context, completion: @escaping (Timeline<AgendaEntry>) -> Void) {
+        Task {
+            let e = await load()
+            completion(Timeline(entries: [e], policy: .after(.now.addingTimeInterval(15 * 60))))
+        }
+    }
+    private func load() async -> AgendaEntry {
+        do { return AgendaEntry(date: .now, feed: try await WidgetLink.call("feed"), linked: true) }
+        catch WidgetLink.LinkError.notLinked { return AgendaEntry(date: .now, feed: nil, linked: false) }
+        catch { return AgendaEntry(date: .now, feed: nil, linked: true) }
+    }
+    private var sample: Feed {
+        Feed(today: nil, timer: Feed.Timer(code: "2411", title: "Lee Residence", detail: "CDs", color: "#a32d2d", elapsed: 3725, paused: false),
+             recent: nil, items: [
+                Feed.Item(day: "", time: "09:00", kind: "meeting", title: "Site walk", code: nil, color: "#1a73e8", overdue: nil),
+                Feed.Item(day: "", time: nil, kind: "task", title: "Send elevations", code: "2411", color: "#a32d2d", overdue: nil),
+                Feed.Item(day: "", time: nil, kind: "milestone", title: "Permit set", code: "2312", color: "#2b5c8a", overdue: nil),
+             ], error: nil)
+    }
+}
+
+struct AgendaWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "AbayaAgenda", provider: AgendaProvider()) { e in AgendaView(entry: e) }
+            .configurationDisplayName("Abaya agenda + timer")
+            .description("Your tasks, meetings, milestones and deliverables, with the timer.")
+            .supportedFamilies([.systemMedium, .systemLarge])
+    }
+}
+
+private func hex(_ s: String?) -> Color {
+    guard let s, s.hasPrefix("#"), s.count == 7, let v = Int(s.dropFirst(), radix: 16) else { return .gray }
+    return Color(red: Double((v >> 16) & 255) / 255, green: Double((v >> 8) & 255) / 255, blue: Double(v & 255) / 255)
+}
+private func clock12(_ t: String?) -> String? {
+    guard let t, t.count >= 5, let h = Int(t.prefix(2)), let m = Int(t.dropFirst(3).prefix(2)) else { return nil }
+    return "\(((h + 11) % 12) + 1)" + (m == 0 ? "" : String(format: ":%02d", m)) + (h < 12 ? "a" : "p")
+}
+private func dayLabel(_ day: String, today: String?) -> String {
+    if day == today { return "TODAY" }
+    let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = TimeZone(identifier: "America/Chicago")
+    guard let d = f.date(from: day) else { return day }
+    if let t = today, let td = f.date(from: t), Calendar.current.dateComponents([.day], from: td, to: d).day == 1 { return "TOMORROW" }
+    let o = DateFormatter(); o.dateFormat = "EEE MMM d"; o.timeZone = f.timeZone
+    return o.string(from: d).uppercased()
+}
+private func kindSymbol(_ k: String) -> String {
+    switch k { case "task": return "circle"; case "milestone": return "flag.fill"; case "deliverable": return "doc.fill"; case "meeting": return "video.fill"; default: return "calendar" }
+}
+
+struct AgendaView: View {
+    @Environment(\.widgetFamily) private var family
+    let entry: AgendaEntry
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            AgendaList(entry: entry, max: family == .systemLarge ? 12 : 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            TimerPanel(entry: entry)
+                .frame(width: family == .systemLarge ? 128 : 118)
+        }
+        .containerBackground(for: .widget) { Color(red: 0.11, green: 0.12, blue: 0.13) }
+        .widgetURL(URL(string: "abaya://action/calendar"))
+    }
+}
+
+private struct AgendaList: View {
+    let entry: AgendaEntry
+    let max: Int
+    var body: some View {
+        if !entry.linked {
+            Text("Open the Abaya app once to link this widget.").font(.caption).foregroundColor(.secondary)
+        } else if let items = entry.feed?.items {
+            if items.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("TODAY").font(.caption2.weight(.bold)).foregroundColor(.secondary)
+                    Text("Nothing scheduled").font(.caption).foregroundColor(.secondary)
+                }
+            } else {
+                let shown = Array(items.prefix(max))
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(Array(shown.enumerated()), id: \.offset) { i, it in
+                        if i == 0 || shown[i - 1].day != it.day {
+                            Text(dayLabel(it.day, today: entry.feed?.today)).font(.caption2.weight(.bold)).foregroundColor(.secondary)
+                                .padding(.top, i == 0 ? 0 : 3)
+                        }
+                        HStack(spacing: 5) {
+                            RoundedRectangle(cornerRadius: 1.5).fill(hex(it.color)).frame(width: 3, height: 14)
+                            Image(systemName: kindSymbol(it.kind)).font(.system(size: 8)).foregroundColor(hex(it.color))
+                            if let t = clock12(it.time) { Text(t).font(.caption2.monospacedDigit()).foregroundColor(.secondary) }
+                            Text(it.title).font(.caption).foregroundColor(it.overdue == true ? Color(red: 1, green: 0.45, blue: 0.4) : .white).lineLimit(1)
+                        }
+                    }
+                    if items.count > shown.count { Text("+\(items.count - shown.count) more").font(.caption2).foregroundColor(.secondary) }
+                }
+            }
+        } else {
+            Text("Couldn't load. Pull down later.").font(.caption).foregroundColor(.secondary)
+        }
+    }
+}
+
+private struct TimerPanel: View {
+    let entry: AgendaEntry
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let t = entry.feed?.timer {
+                HStack(spacing: 4) {
+                    Text(t.code).font(.caption2.weight(.bold)).foregroundColor(navy).padding(.horizontal, 4).background(RoundedRectangle(cornerRadius: 3).fill(cream))
+                    Text(t.paused ? "Paused" : "Running").font(.caption2).foregroundColor(t.paused ? .gray : green)
+                }
+                Text(t.title).font(.caption.weight(.semibold)).foregroundColor(.white).lineLimit(2)
+                Group {
+                    if t.paused { Text(fmt(t.elapsed)) }
+                    else { Text(timerInterval: entry.date.addingTimeInterval(-t.elapsed)...entry.date.addingTimeInterval(86400 * 7), countsDown: false) }
+                }
+                .font(.title3.monospacedDigit().weight(.semibold)).foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.7)
+                Spacer(minLength: 0)
+                HStack(spacing: 6) {
+                    Button(intent: TimerControlIntent(t.paused ? "resume" : "pause")) {
+                        Image(systemName: t.paused ? "play.fill" : "pause.fill").frame(maxWidth: .infinity, minHeight: 30)
+                    }.tint(.white.opacity(0.25))
+                    Button(intent: TimerControlIntent("stop")) {
+                        Image(systemName: "stop.fill").frame(maxWidth: .infinity, minHeight: 30)
+                    }.tint(Color(red: 0.84, green: 0.24, blue: 0.2))
+                }
+                .buttonStyle(.borderedProminent).foregroundColor(.white)
+            } else {
+                Text("TIMER").font(.caption2.weight(.bold)).foregroundColor(.secondary)
+                if let r = entry.feed?.recent {
+                    Text(r.title).font(.caption.weight(.semibold)).foregroundColor(.white).lineLimit(2)
+                    if !r.detail.isEmpty { Text(r.detail).font(.caption2).foregroundColor(.secondary).lineLimit(1) }
+                } else { Text("Not running").font(.caption).foregroundColor(.secondary) }
+                Spacer(minLength: 0)
+                Button(intent: TimerControlIntent("start")) {
+                    Label("Start", systemImage: "play.fill").font(.caption.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 30)
+                }
+                .buttonStyle(.borderedProminent).tint(green).foregroundColor(.white)
+                .disabled(entry.feed?.recent == nil)
+            }
+        }
+        .padding(10)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(RoundedRectangle(cornerRadius: 14).fill(navy))
+    }
+    private func fmt(_ t: Double) -> String { let s = Int(t); return String(format: "%d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60) }
 }
