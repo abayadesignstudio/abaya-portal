@@ -33,6 +33,10 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: Take photos of receipts for expenses.
         NSPhotoLibraryUsageDescription: Attach receipt photos to expenses.
+        NSMicrophoneUsageDescription: Record client conversations and dictate tasks, notes and time.
+        NSLocationWhenInUseUsageDescription: Track mileage and job-site visits while a trip is on.
+        NSLocationAlwaysAndWhenInUseUsageDescription: Keep tracking a trip you started while the phone is locked.
+        UIBackgroundModes: [audio, location]
         CFBundleURLTypes:
           - CFBundleURLName: com.abayadesignstudio.portal
             CFBundleURLSchemes: [abaya]

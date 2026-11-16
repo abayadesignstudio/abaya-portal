@@ -8,7 +8,14 @@ private let green = Color(red: 18 / 255, green: 128 / 255, blue: 74 / 255)
 
 @main
 struct AbayaWidgetsBundle: WidgetBundle {
-    var body: some Widget { TimerLiveActivity() }
+    var body: some Widget {
+        TimerLiveActivity()
+        QuickActionsWidget()
+        TimerActionWidget()
+        VoiceWidget()
+        RecordWidget()
+        TripWidget()
+    }
 }
 
 struct TimerLiveActivity: Widget {
@@ -101,5 +108,106 @@ struct Clock: View {
     private func format(_ t: Double) -> String {
         let s = Int(t)
         return String(format: "%d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60)
+    }
+}
+
+// MARK: Home-screen and lock-screen widgets — one tap into the app's quick actions (abaya://action/<name>)
+
+struct QuickEntry: TimelineEntry { let date: Date }
+struct QuickProvider: TimelineProvider {
+    func placeholder(in context: Context) -> QuickEntry { QuickEntry(date: .now) }
+    func getSnapshot(in context: Context, completion: @escaping (QuickEntry) -> Void) { completion(QuickEntry(date: .now)) }
+    func getTimeline(in context: Context, completion: @escaping (Timeline<QuickEntry>) -> Void) { completion(Timeline(entries: [QuickEntry(date: .now)], policy: .never)) }
+}
+
+private struct QuickAction: Identifiable {
+    let id: String, label: String, symbol: String
+    var url: URL { URL(string: "abaya://action/\(id)")! }
+}
+private let actions = [
+    QuickAction(id: "timer", label: "Timer", symbol: "timer"),
+    QuickAction(id: "voice", label: "Voice", symbol: "mic.fill"),
+    QuickAction(id: "record", label: "Record", symbol: "record.circle"),
+    QuickAction(id: "trip", label: "Trip", symbol: "car.fill"),
+]
+
+/// Home screen, medium: all four buttons.
+struct QuickActionsWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "AbayaQuick", provider: QuickProvider()) { _ in
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ABAYA").font(.caption.weight(.bold)).tracking(2).foregroundColor(cream.opacity(0.8))
+                HStack(spacing: 8) {
+                    ForEach(actions) { a in
+                        Link(destination: a.url) { ActionTile(action: a) }
+                    }
+                }
+            }
+            .padding(12)
+            .containerBackground(for: .widget) { navy }
+        }
+        .configurationDisplayName("Abaya quick actions")
+        .description("Timer, voice, record a conversation, track a trip.")
+        .supportedFamilies([.systemMedium])
+    }
+}
+
+/// One action per widget (small widgets and lock-screen widgets allow a single tap target).
+private struct ActionTile: View {
+    let action: QuickAction
+    var big = false
+    var body: some View {
+        VStack(spacing: big ? 8 : 4) {
+            Image(systemName: action.symbol).font(big ? .largeTitle : .title2)
+                .foregroundColor(action.id == "record" ? Color(red: 0.86, green: 0.25, blue: 0.2) : cream)
+            Text(action.label).font(big ? .headline : .caption.weight(.semibold)).foregroundColor(cream)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(big ? 0 : 0.1)))
+    }
+}
+
+private struct ActionWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+    let action: QuickAction
+    var body: some View {
+        Group {
+            if family == .accessoryCircular {
+                ZStack { AccessoryWidgetBackground(); Image(systemName: action.symbol).font(.title2) }
+                    .containerBackground(for: .widget) { Color.clear }
+            } else {
+                ActionTile(action: action, big: true).containerBackground(for: .widget) { navy }
+            }
+        }
+        .widgetURL(action.url)
+    }
+}
+
+struct TimerActionWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "AbayaTimer", provider: QuickProvider()) { _ in ActionWidgetView(action: actions[0]) }
+            .configurationDisplayName("Abaya timer").description("Open the timer.")
+            .supportedFamilies([.systemSmall, .accessoryCircular])
+    }
+}
+struct VoiceWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "AbayaVoice", provider: QuickProvider()) { _ in ActionWidgetView(action: actions[1]) }
+            .configurationDisplayName("Abaya voice").description("Say a task, note or time entry.")
+            .supportedFamilies([.systemSmall, .accessoryCircular])
+    }
+}
+struct RecordWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "AbayaRecord", provider: QuickProvider()) { _ in ActionWidgetView(action: actions[2]) }
+            .configurationDisplayName("Abaya record").description("Record a client conversation.")
+            .supportedFamilies([.systemSmall, .accessoryCircular])
+    }
+}
+struct TripWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "AbayaTrip", provider: QuickProvider()) { _ in ActionWidgetView(action: actions[3]) }
+            .configurationDisplayName("Abaya trip").description("Start or stop GPS trip tracking.")
+            .supportedFamilies([.systemSmall, .accessoryCircular])
     }
 }

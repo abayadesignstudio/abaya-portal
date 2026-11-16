@@ -8,6 +8,10 @@ import WebKit
 /// `window.webkit.messageHandlers.abaya.postMessage({...})`:
 ///   { type: "timer", timer: { code, title, detail, elapsed, paused } | null }  → Live Activity
 ///   { type: "oauth", url }                                                      → Google sign-in in a system browser sheet
+///   { type: "ready" }                          → the page is listening; replies with GPS/recording state and any pending widget action
+///   { type: "gps", action: "start"|"stop"|"status" }                              → TripTracker
+///   { type: "record", action: "start"|"stop"|"status", purpose?, uploadUrl?, path? } → Recorder
+/// The shell answers with window events: window.addEventListener('abaya-native', e => e.detail)
 @main
 struct AbayaApp: App {
     var body: some Scene {
@@ -58,7 +62,20 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
         web.load(URLRequest(url: portalURL))
 
         NotificationCenter.default.addObserver(self, selector: #selector(openedFromURL(_:)), name: .abayaOpenURL, object: nil)
+        TripTracker.shared.onChange = { [weak self] in self?.send($0) }
+        Recorder.shared.onChange = { [weak self] in self?.send($0) }
     }
+
+    private var pageReady = false
+    private var pendingAction: String?
+
+    /// Shell → portal: a window event the page listens for.
+    func send(_ msg: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: msg), let s = String(data: data, encoding: .utf8) else { return }
+        web?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('abaya-native',{detail:\(s)}))", completionHandler: nil)
+    }
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) { pageReady = false }
 
     override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
 
@@ -68,9 +85,13 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
     }
 
     @objc private func openedFromURL(_ note: Notification) {
-        // abaya://timer (tapping the Live Activity) → the Time tab
-        guard let url = note.object as? URL, url.host == "timer" else { return }
-        web.evaluateJavaScript("try{localStorage.setItem('abaya.m.tab','time')}catch(e){};location.hash='#/'", completionHandler: nil)
+        // abaya://timer (tapping the Live Activity) → the Time tab; abaya://action/<name> (widgets) → that quick action
+        guard let url = note.object as? URL else { return }
+        if url.host == "timer" {
+            web.evaluateJavaScript("try{localStorage.setItem('abaya.m.tab','time')}catch(e){};location.hash='#/'", completionHandler: nil)
+        } else if url.host == "action", let name = url.pathComponents.dropFirst().first {
+            if pageReady { send(["type": "action", "action": name]) } else { pendingAction = name }
+        }
     }
 
     // MARK: messages from the portal
@@ -80,6 +101,22 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
         switch type {
         case "timer": LiveTimer.shared.apply(body["timer"] as? [String: Any])
         case "oauth": if let s = body["url"] as? String, let url = URL(string: s) { signIn(with: url) }
+        case "ready":
+            pageReady = true
+            TripTracker.shared.emit(); Recorder.shared.emit()
+            if let a = pendingAction { pendingAction = nil; send(["type": "action", "action": a]) }
+        case "gps":
+            switch body["action"] as? String {
+            case "start": TripTracker.shared.start()
+            case "stop": TripTracker.shared.stop()
+            default: TripTracker.shared.emit()
+            }
+        case "record":
+            switch body["action"] as? String {
+            case "start": Recorder.shared.start(purpose: (body["purpose"] as? String) ?? "conversation")
+            case "stop": Recorder.shared.stop(uploadUrl: body["uploadUrl"] as? String, path: body["path"] as? String)
+            default: Recorder.shared.emit()
+            }
         default: break
         }
     }
