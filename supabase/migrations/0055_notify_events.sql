@@ -7,7 +7,7 @@ begin
   if new.assignee is not null and new.assignee is distinct from coalesce(auth.uid(), new.created_by)
      and (tg_op = 'INSERT' or new.assignee is distinct from old.assignee) then
     insert into public.notifications (profile_id, kind, text, href)
-    values (new.assignee, 'task', 'New task: ' || left(new.title, 120) || coalesce(' · due ' || to_char(new.due_on, 'Mon DD'), ''), '/');
+    values (new.assignee, 'task', 'New task: ' || left(new.title, 120) || coalesce(' · due ' || to_char(new.due_on, 'Mon DD'), ''), '#/');
   end if;
   return new;
 end $$;
@@ -20,7 +20,7 @@ declare t text;
 begin
   select title into t from public.agreements where id = new.agreement_id;
   insert into public.notifications (profile_id, kind, text, href)
-  select p.id, 'agreement', coalesce(new.signer_name, 'The client') || ' signed ' || coalesce(t, 'an agreement'), '/proposals/' || new.agreement_id
+  select p.id, 'agreement', coalesce(new.signer_name, 'The client') || ' signed ' || coalesce(t, 'an agreement'), '#/proposals/' || new.agreement_id
   from public.profiles p where p.role = 'admin';
   return new;
 end $$;
@@ -34,7 +34,7 @@ begin
   if exists (select 1 from public.profiles where id = new.requested_by and role = 'client') then
     select number || ' ' || name into pn from public.projects where id = new.project_id;
     insert into public.notifications (profile_id, kind, text, href)
-    select p.id, 'request', 'Service request on ' || coalesce(pn, 'a project') || ': ' || left(new.description, 100), '/projects/' || new.project_id
+    select p.id, 'request', 'Service request on ' || coalesce(pn, 'a project') || ': ' || left(new.description, 100), '#/projects/' || new.project_id
     from public.profiles p where p.role = 'admin';
   end if;
   return new;
