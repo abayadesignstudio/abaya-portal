@@ -65,7 +65,11 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
         NotificationCenter.default.addObserver(self, selector: #selector(openedFromURL(_:)), name: .abayaOpenURL, object: nil)
         TripTracker.shared.onChange = { [weak self] in self?.send($0) }
         Recorder.shared.onChange = { [weak self] in self?.send($0) }
-        LiveTimer.shared.report = { [weak self] in self?.send($0) }
+        LiveTimer.shared.report = { [weak self] in NSLog("ABAYA-LIVE %@", "\($0)"); self?.send($0) }
+        // CI diagnostics: start a test timer island on launch and log the result
+        if ProcessInfo.processInfo.arguments.contains("-diagLive") {
+            LiveTimer.shared.apply(["code": "TEST", "title": "Diagnostics", "detail": "", "elapsed": 5.0, "paused": false])
+        }
     }
 
     private var pageReady = false

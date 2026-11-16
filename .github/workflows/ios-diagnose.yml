@@ -1,0 +1,41 @@
+# Runs the app in an iPhone simulator on a cloud Mac and reports whether the widget extension
+# registers with iOS and whether a Live Activity can start. Manual or on changes to this file.
+name: iOS diagnose
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/ios-diagnose.yml']
+permissions: { contents: read }
+jobs:
+  diagnose:
+    runs-on: macos-15
+    defaults: { run: { working-directory: ios } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with: { xcode-version: latest-stable }
+      - run: brew install xcodegen && xcodegen generate
+      - name: Build for the simulator
+        run: |
+          set -o pipefail
+          xcodebuild -project Abaya.xcodeproj -scheme Abaya -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath build \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= build 2>&1 | tail -5
+      - name: Inspect the app bundle
+        run: |
+          APP=$(find build/Build/Products -name 'Abaya.app' -maxdepth 3 | head -1); echo "APP=$APP" >> $GITHUB_ENV
+          echo "== PlugIns"; ls -la "$APP/PlugIns" || echo "NO PLUGINS FOLDER"
+          for X in "$APP/PlugIns/"*.appex; do echo "== $X"; plutil -p "$X/Info.plist"; done
+          echo "== app Info.plist (selected)"; plutil -p "$APP/Info.plist" | grep -E "NSSupportsLiveActivities|CFBundleIdentifier|UIBackgroundModes" -A2
+      - name: Run in the simulator
+        run: |
+          DEV=$(xcrun simctl list devices available -j | python3 -c "import json,sys;d=json.load(sys.stdin)['devices'];print(next(x['udid'] for k,v in d.items() if 'iOS' in k for x in v if x['name'].startswith('iPhone 16') or x['name'].startswith('iPhone 17')))")
+          xcrun simctl boot "$DEV"; sleep 20
+          xcrun simctl install "$DEV" "$APP"
+          echo "== widget extensions registered"
+          xcrun simctl spawn "$DEV" pluginkit -m -A -v -p com.apple.widgetkit-extension | grep -i abaya || echo "ABAYA WIDGET EXTENSION NOT REGISTERED"
+          xcrun simctl launch "$DEV" com.abayadesignstudio.portal -diagLive; sleep 25
+          echo "== app log"
+          xcrun simctl spawn "$DEV" log show --last 2m --style compact --predicate 'eventMessage CONTAINS "ABAYA-LIVE" OR process == "AbayaWidgets" OR (subsystem == "com.apple.activitykit")' | tail -60
+          echo "== crash reports"; ls ~/Library/Logs/DiagnosticReports 2>/dev/null | grep -i abaya || echo none
