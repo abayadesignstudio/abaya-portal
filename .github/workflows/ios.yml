@@ -46,21 +46,27 @@ jobs:
           security set-keychain-settings -lut 3600 build.keychain
           security list-keychains -d user -s build.keychain login.keychain
 
+      - name: Certificates, profiles and app check (App Store Connect API)
+        if: env.HAS_APPLE == 'true'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          pip3 install --quiet --break-system-packages pyjwt cryptography 2>/dev/null || pip3 install --quiet pyjwt cryptography
+          ASC_KEY_PATH="$RUNNER_TEMP/keys/AuthKey.p8" KEYCHAIN=build.keychain KEYCHAIN_PW=ci WORK="$RUNNER_TEMP" python3 ci/asc.py
+
       - name: Archive (signed)
         if: env.HAS_APPLE == 'true'
         run: |
           set -o pipefail
           xcodebuild -project Abaya.xcodeproj -scheme Abaya -configuration Release \
             -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Abaya.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey.p8" \
-            -authenticationKeyID '${{ secrets.ASC_KEY_ID }}' \
-            -authenticationKeyIssuerID '${{ secrets.ASC_ISSUER_ID }}' \
+            OTHER_CODE_SIGN_FLAGS="--keychain build.keychain" \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             archive 2>&1 | tee archive.log | grep -E "error:|ARCHIVE (SUCCEEDED|FAILED)" || true
           grep -q "ARCHIVE SUCCEEDED" archive.log
 
-      - name: Upload to TestFlight
+      - name: Export the .ipa
         if: env.HAS_APPLE == 'true'
         run: |
           cat > "$RUNNER_TEMP/export.plist" <<EOF
@@ -68,21 +74,29 @@ jobs:
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict>
             <key>method</key><string>app-store-connect</string>
-            <key>destination</key><string>upload</string>
             <key>teamID</key><string>${ABAYA_TEAM_ID}</string>
-            <key>signingStyle</key><string>automatic</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key><dict>
+              <key>com.abayadesignstudio.portal</key><string>Abaya CI App</string>
+              <key>com.abayadesignstudio.portal.widgets</key><string>Abaya CI Widgets</string>
+            </dict>
             <key>manageAppVersionAndBuildNumber</key><false/>
           </dict></plist>
           EOF
           set -o pipefail
           xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Abaya.xcarchive" \
-            -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/out" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey.p8" \
-            -authenticationKeyID '${{ secrets.ASC_KEY_ID }}' \
-            -authenticationKeyIssuerID '${{ secrets.ASC_ISSUER_ID }}' 2>&1 | tee export.log | grep -E "error|Upload|EXPORT (SUCCEEDED|FAILED)" || true
+            -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/out" 2>&1 | tee export.log | grep -E "error|EXPORT (SUCCEEDED|FAILED)" || true
           grep -q "EXPORT SUCCEEDED" export.log
+
+      - name: Upload to TestFlight
+        if: env.HAS_APPLE == 'true'
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          cp "$RUNNER_TEMP/keys/AuthKey.p8" ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+          xcrun altool --upload-app -t ios -f "$RUNNER_TEMP"/out/*.ipa \
+            --apiKey '${{ secrets.ASC_KEY_ID }}' --apiIssuer '${{ secrets.ASC_ISSUER_ID }}'
 
       - name: Remove the key
         if: always()
-        run: rm -rf "$RUNNER_TEMP/keys"; security delete-keychain build.keychain 2>/dev/null || true
+        run: rm -rf "$RUNNER_TEMP/keys" ~/.appstoreconnect; security delete-keychain build.keychain 2>/dev/null || true
