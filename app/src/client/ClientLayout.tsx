@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
+import PushBanner from '../components/PushBanner'
 import ClientHeader from './ClientHeader'
 
 export default function ClientLayout() {
@@ -7,7 +8,7 @@ export default function ClientLayout() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
       <ClientHeader email={profile?.email} onSignOut={signOut} />
-      <main className="main" style={{ maxWidth: 1200, margin: '0 auto' }}><Outlet /></main>
+      <main className="main" style={{ maxWidth: 1200, margin: '0 auto' }}><PushBanner /><Outlet /></main>
     </div>
   )
 }

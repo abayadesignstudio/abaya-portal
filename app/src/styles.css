@@ -242,3 +242,5 @@ label.l,span.l,legend.l{display:block;margin-bottom:5px;font-size:13px;font-weig
 .pip-btn:disabled{opacity:.5}
 .pip-btn svg{width:42%;height:42%;flex:none}
 .pip-hint{font-size:12px;color:#9a9a9a}
+.push-tg{display:flex;align-items:center;gap:12px;padding:10px 0;text-align:left}
+.push-tg.compact{padding:10px 14px;border-top:1px solid var(--line)}

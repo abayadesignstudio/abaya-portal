@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { PasswordForm } from './SetPassword'
+import PushToggle from '../components/PushToggle'
 import Avatar from '../components/Avatar'
 
 /** My account: photo, sign-in email, Google Calendar and password. Shown at the top of Settings (embedded) and at #/account. */
@@ -17,6 +18,7 @@ export default function Account({ embedded }: { embedded?: boolean }) {
       <section className="card pad stack" aria-labelledby="acc-h">
         <h2 id="acc-h" style={{ margin: 0 }}>{profile?.full_name || 'Your account'}</h2>
         <p className="muted" style={{ margin: 0 }}>Signed in as <strong>{session?.user.email}</strong>. You sign in with this email.</p>
+        <PushToggle />
       </section>
       <GoogleSection />
       <PersonalCalendars />

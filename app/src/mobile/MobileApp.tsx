@@ -11,6 +11,7 @@ import Avatar from '../components/Avatar'
 import { MonthCalendar, useStaff } from '../staff/HomeCalendars'
 import logo from '../assets/abaya-logo-light.png'
 import '../staff/home.css'
+import PushToggle from '../components/PushToggle'
 import './mobile.css'
 
 type Tab = 'calendar' | 'time' | 'expenses' | 'invoices'
@@ -82,6 +83,7 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
       </div>}
       {sheet === 'me' && <div className="mapp-menu mapp-menu-top" role="menu">
         <div className="mapp-who"><strong>{profile?.full_name}</strong><span>{profile?.email}</span></div>
+        <PushToggle compact />
         <button role="menuitem" onClick={() => { setSheet(null); nav('/settings') }}>Settings</button>
         <button role="menuitem" onClick={() => { setSheet(null); onFullSite() }}>Full portal</button>
         <button role="menuitem" onClick={signOut}>Sign out</button>
