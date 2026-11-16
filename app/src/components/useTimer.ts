@@ -26,6 +26,7 @@ export function useTimer(me: string) {
   const projects = useLoad(loadProjects)
   const timer = useLoad(async () => must(await supabase.from('timers').select('*').eq('profile_id', me).maybeSingle()) as RunningTimer | null, [me])
   const [recentKey, setRecentKey] = useState(0)
+  const [pulse, setPulse] = useState(0) // app came back to the front → re-send the timer to the Dynamic Island
   const recent = useLoad(async () => must(await supabase.from('time_entries').select('project_id, phase_id, role_label, activity, projects(number, name), phases(code)')
     .eq('profile_id', me).order('created_at', { ascending: false }).limit(40)) as unknown as Recent[], [me, recentKey])
 
@@ -46,7 +47,7 @@ export function useTimer(me: string) {
   const defaultRole = useDefaultRole(me)
   const reloadTimer = timer.reload, reloadToday = today.reload
   useEffect(() => {
-    const f = () => { reloadTimer(); reloadToday() }
+    const f = () => { reloadTimer(); reloadToday(); setPulse((n) => n + 1) }
     const vis = () => { if (document.visibilityState === 'visible') f() } // phone app / home-screen app coming back to the front
     window.addEventListener(TIME_CHANGED, f); window.addEventListener('focus', f); document.addEventListener('visibilitychange', vis)
     return () => { window.removeEventListener(TIME_CHANGED, f); window.removeEventListener('focus', f); document.removeEventListener('visibilitychange', vis) }
@@ -64,7 +65,7 @@ export function useTimer(me: string) {
       code: tp?.number === 'OH' ? 'OH' : tp?.number ?? '', title: tp?.number === 'OH' ? 'Overhead' : tp?.name ?? 'Timer',
       detail: [t.activity, t.role_label].filter(Boolean).join(' · '), elapsed: Math.max(0, elapsed / 1000), paused,
     } : null })
-  }, [t?.project_id, t?.activity, t?.role_label, t?.started_at, t?.paused_at, t?.banked_seconds, t?.banked_minutes, tp?.id, timer.loading, timer.data === null]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [t?.project_id, t?.activity, t?.role_label, t?.started_at, t?.paused_at, t?.banked_seconds, t?.banked_minutes, tp?.id, timer.loading, timer.data === null, pulse]) // eslint-disable-line react-hooks/exhaustive-deps
   const isOverhead = proj?.number === 'OH'
   // picking a project loads your usual role on it (team role, or what you used last)
   const setField = useCallback((k: keyof TimerFields, value: string) =>

@@ -212,15 +212,18 @@ final class LiveTimer {
             start: Date().addingTimeInterval(-elapsed),
             pausedSeconds: paused ? elapsed : nil)
         // Skip no-op updates (the clock ticks on its own); allow a little drift before re-anchoring.
+        // (only when an activity is actually showing — iOS ends them after 8 hours, and you can swipe one away)
+        if !Activity<TimerAttributes>.activities.contains(where: { $0.activityState == .active }) { last = nil }
         if let l = last, l.code == state.code, l.title == state.title, l.detail == state.detail, (l.pausedSeconds == nil) == (state.pausedSeconds == nil),
            abs(l.start.timeIntervalSince(state.start)) < 5, state.pausedSeconds == nil { return }
         last = state
         Task {
             let content = ActivityContent(state: state, staleDate: nil)
-            if let a = Activity<TimerAttributes>.activities.first {
+            if let a = Activity<TimerAttributes>.activities.first(where: { $0.activityState == .active }) {
                 await a.update(content)
-                for extra in Activity<TimerAttributes>.activities.dropFirst() { await extra.end(nil, dismissalPolicy: .immediate) }
+                for extra in Activity<TimerAttributes>.activities where extra.id != a.id { await extra.end(nil, dismissalPolicy: .immediate) }
             } else {
+                for old in Activity<TimerAttributes>.activities { await old.end(nil, dismissalPolicy: .immediate) }
                 _ = try? Activity.request(attributes: TimerAttributes(), content: content)
             }
         }
