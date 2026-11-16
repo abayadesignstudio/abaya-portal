@@ -64,6 +64,7 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
         NotificationCenter.default.addObserver(self, selector: #selector(openedFromURL(_:)), name: .abayaOpenURL, object: nil)
         TripTracker.shared.onChange = { [weak self] in self?.send($0) }
         Recorder.shared.onChange = { [weak self] in self?.send($0) }
+        LiveTimer.shared.report = { [weak self] in self?.send($0) }
     }
 
     private var pageReady = false
@@ -199,10 +200,14 @@ extension Notification.Name { static let abayaOpenURL = Notification.Name("abaya
 final class LiveTimer {
     static let shared = LiveTimer()
     private var last: TimerAttributes.ContentState?
+    /** Reports to the page whether the island is showing (or why not). */
+    var report: (([String: Any]) -> Void)?
 
     func apply(_ t: [String: Any]?) {
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         guard let t else { return end() }
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+            report?(["type": "live", "ok": false, "reason": "Live Activities are turned off for Abaya. Turn them on in Settings → Abaya → Live Activities."]); return
+        }
         let elapsed = (t["elapsed"] as? Double) ?? 0
         let paused = (t["paused"] as? Bool) ?? false
         let state = TimerAttributes.ContentState(
@@ -224,7 +229,13 @@ final class LiveTimer {
                 for extra in Activity<TimerAttributes>.activities where extra.id != a.id { await extra.end(nil, dismissalPolicy: .immediate) }
             } else {
                 for old in Activity<TimerAttributes>.activities { await old.end(nil, dismissalPolicy: .immediate) }
-                _ = try? Activity.request(attributes: TimerAttributes(), content: content)
+                do {
+                    _ = try Activity.request(attributes: TimerAttributes(), content: content)
+                    await MainActor.run { self.report?(["type": "live", "ok": true]) }
+                } catch {
+                    self.last = nil
+                    await MainActor.run { self.report?(["type": "live", "ok": false, "reason": "The Dynamic Island couldn't start: \(error.localizedDescription)"]) }
+                }
             }
         }
     }

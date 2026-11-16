@@ -32,6 +32,7 @@ export function useField(me: string) {
   const [uploaded, setUploaded] = useState<Uploaded | null>(null)    // finished recording, uploaded
   const [action, setAction] = useState<string | null>(null)          // widget tapped: timer | voice | record | trip
   const [uploading, setUploading] = useState(false)
+  const [live, setLive] = useState<{ ok: boolean; reason?: string } | null>(null) // Dynamic Island status from the app
   const pendingPath = useRef<string | null>(null)
   const native = isNativeApp()
 
@@ -46,6 +47,7 @@ export function useField(me: string) {
         if (m.ok) setUploaded({ path: m.path, seconds: Number(m.seconds) || 0, purpose: m.purpose === 'dictation' ? 'dictation' : 'conversation' })
         else setRec((r) => ({ ...r, error: m.error || 'Upload failed.' }))
       } else if (m.type === 'action') setAction(String(m.action))
+      else if (m.type === 'live') setLive({ ok: !!m.ok, reason: m.reason })
     })
     toNative({ type: 'ready' })
     return off
@@ -122,7 +124,7 @@ export function useField(me: string) {
     setUploaded({ path, seconds: Math.round((Date.now() - w.started) / 1000), purpose: w.purpose })
   }, [native, me])
 
-  return { native, gps, rec, trip, uploaded, uploading, action,
+  return { native, live, gps, rec, trip, uploaded, uploading, action,
     startTrip, stopTrip, clearTrip: () => setTrip(null), startRec, stopRec, clearUploaded: () => setUploaded(null), clearAction: () => setAction(null),
     clearErrors: () => { setGps((g) => ({ ...g, error: undefined })); setRec((r) => ({ ...r, error: undefined })) } }
 }

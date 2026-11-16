@@ -36,6 +36,7 @@ export function TimerPop({ api, field, onEdit, onRecord, onTrip }: { api: TimerA
     <button role="menuitem" onClick={onRecord}>
       <IconRec on={field.rec.on} />{field.rec.on && field.rec.purpose === 'conversation' ? <span>Stop recording <small className="muted">· {mmss(recSec)}</small></span> : 'Record conversation'}</button>
     <button role="menuitem" onClick={onEdit}><IconPen />Edit or switch timer<span className="chev">›</span></button>
+    {field.live && !field.live.ok && <p className="err" role="alert" style={{ margin: 0, padding: '10px 20px' }}>{field.live.reason}</p>}
     {(field.gps.error || field.rec.error) && <p className="err" role="alert" style={{ margin: 0, padding: '10px 20px' }}>{field.gps.error || field.rec.error}</p>}
   </div>
 }
