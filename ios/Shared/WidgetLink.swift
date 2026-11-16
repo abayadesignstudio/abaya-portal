@@ -47,10 +47,12 @@ enum WidgetLink {
 struct Feed: Codable {
     struct Timer: Codable { let code: String; let title: String; let detail: String; let color: String?; let elapsed: Double; let paused: Bool }
     struct Recent: Codable { let code: String; let title: String; let detail: String }
+    struct Pick: Codable, Hashable { let key: String; let code: String; let title: String; let detail: String; let color: String }
     struct Item: Codable, Hashable { let day: String; let time: String?; let kind: String; let title: String; let code: String?; let color: String; let overdue: Bool? }
     let today: String?
     let timer: Timer?
     let recent: Recent?
+    var recents: [Pick]? = nil
     let items: [Item]?
     let error: String?
 }

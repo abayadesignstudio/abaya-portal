@@ -270,7 +270,7 @@ private func dayLabel(_ day: String, today: String?) -> String {
     return o.string(from: d).uppercased()
 }
 private func kindSymbol(_ k: String) -> String {
-    switch k { case "task": return "circle"; case "milestone": return "flag.fill"; case "deliverable": return "doc.fill"; case "meeting": return "video.fill"; default: return "calendar" }
+    switch k { case "task": return "circle"; case "milestone": return "flag.fill"; case "deliverable": return "doc.fill"; case "meeting": return "person.2.fill"; default: return "calendar" }
 }
 
 struct AgendaView: View {
@@ -281,7 +281,7 @@ struct AgendaView: View {
             AgendaList(entry: entry, max: family == .systemLarge ? 12 : 4)
                 .frame(maxWidth: .infinity, alignment: .leading)
             TimerPanel(entry: entry)
-                .frame(width: family == .systemLarge ? 128 : 118)
+                .frame(width: family == .systemLarge ? 140 : 132)
         }
         .containerBackground(for: .widget) { Color(red: 0.11, green: 0.12, blue: 0.13) }
         .widgetURL(URL(string: "abaya://action/calendar"))
@@ -325,47 +325,73 @@ private struct AgendaList: View {
 }
 
 private struct TimerPanel: View {
+    @Environment(\.widgetFamily) private var family
+    @Environment(\.widgetRenderingMode) private var mode
     let entry: AgendaEntry
+    private var full: Bool { mode == .fullColor }
+    private var large: Bool { family == .systemLarge }
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
             if let t = entry.feed?.timer {
                 HStack(spacing: 4) {
-                    Text(t.code).font(.caption2.weight(.bold)).foregroundColor(navy).padding(.horizontal, 4).background(RoundedRectangle(cornerRadius: 3).fill(cream))
-                    Text(t.paused ? "Paused" : "Running").font(.caption2).foregroundColor(t.paused ? .gray : green)
+                    Text(t.code).font(.caption2.weight(.bold)).foregroundColor(full ? navy : .primary)
+                        .padding(.horizontal, 4).background(RoundedRectangle(cornerRadius: 3).fill(full ? cream : Color.white.opacity(0.25)))
+                    Text(t.paused ? "Paused" : "Running").font(.caption2).foregroundColor(t.paused ? .secondary : green)
                 }
-                Text(t.title).font(.caption.weight(.semibold)).foregroundColor(.white).lineLimit(2)
+                Text(t.title).font(.caption.weight(.semibold)).lineLimit(large ? 2 : 1)
                 Group {
                     if t.paused { Text(fmt(t.elapsed)) }
                     else { Text(timerInterval: entry.date.addingTimeInterval(-t.elapsed)...entry.date.addingTimeInterval(86400 * 7), countsDown: false) }
                 }
-                .font(.title3.monospacedDigit().weight(.semibold)).foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.7)
-                Spacer(minLength: 0)
+                .font(.title3.monospacedDigit().weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
                 HStack(spacing: 6) {
                     Button(intent: TimerControlIntent(t.paused ? "resume" : "pause")) {
-                        Image(systemName: t.paused ? "play.fill" : "pause.fill").frame(maxWidth: .infinity, minHeight: 30)
-                    }.tint(.white.opacity(0.25))
+                        Image(systemName: t.paused ? "play.fill" : "pause.fill").frame(maxWidth: .infinity, minHeight: 28)
+                    }.tint(Color.white.opacity(0.22))
                     Button(intent: TimerControlIntent("stop")) {
-                        Image(systemName: "stop.fill").frame(maxWidth: .infinity, minHeight: 30)
+                        Image(systemName: "stop.fill").frame(maxWidth: .infinity, minHeight: 28)
                     }.tint(Color(red: 0.84, green: 0.24, blue: 0.2))
                 }
                 .buttonStyle(.borderedProminent).foregroundColor(.white)
-            } else {
-                Text("TIMER").font(.caption2.weight(.bold)).foregroundColor(.secondary)
-                if let r = entry.feed?.recent {
-                    Text(r.title).font(.caption.weight(.semibold)).foregroundColor(.white).lineLimit(2)
-                    if !r.detail.isEmpty { Text(r.detail).font(.caption2).foregroundColor(.secondary).lineLimit(1) }
-                } else { Text("Not running").font(.caption).foregroundColor(.secondary) }
-                Spacer(minLength: 0)
-                Button(intent: TimerControlIntent("start")) {
-                    Label("Start", systemImage: "play.fill").font(.caption.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 30)
+                if large, let picks = entry.feed?.recents?.filter({ !($0.code == t.code && $0.title == t.title) }), !picks.isEmpty {
+                    Text("SWITCH TO").font(.caption2.weight(.bold)).foregroundColor(.secondary).padding(.top, 4)
+                    ForEach(picks.prefix(4), id: \.self) { p in PickButton(pick: p) }
                 }
-                .buttonStyle(.borderedProminent).tint(green).foregroundColor(.white)
-                .disabled(entry.feed?.recent == nil)
+            } else {
+                Text("START TIMER").font(.caption2.weight(.bold)).foregroundColor(.secondary)
+                if let picks = entry.feed?.recents, !picks.isEmpty {
+                    ForEach(picks.prefix(large ? 6 : 3), id: \.self) { p in PickButton(pick: p) }
+                } else {
+                    Text("Start a timer in the app once; your recent tasks show up here.").font(.caption2).foregroundColor(.secondary)
+                }
             }
+            Spacer(minLength: 0)
         }
-        .padding(10)
+        .foregroundColor(.white)
+        .padding(9)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: 14).fill(navy))
+        .background(RoundedRectangle(cornerRadius: 14).fill(full ? navy : Color.white.opacity(0.1)))
     }
     private func fmt(_ t: Double) -> String { let s = Int(t); return String(format: "%d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60) }
+}
+
+/// One recent task (project · phase · activity) as a Start button.
+private struct PickButton: View {
+    let pick: Feed.Pick
+    var body: some View {
+        Button(intent: TimerControlIntent("start|" + pick.key)) {
+            HStack(spacing: 5) {
+                Image(systemName: "play.fill").font(.system(size: 8))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(pick.code == "OH" ? "Overhead" : "\(pick.code) \(pick.title)").font(.caption2.weight(.semibold)).lineLimit(1)
+                    if !pick.detail.isEmpty { Text(pick.detail).font(.system(size: 9)).opacity(0.75).lineLimit(1) }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 6).padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(hex(pick.color).opacity(0.55)))
+        }
+        .buttonStyle(.plain)
+    }
 }

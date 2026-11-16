@@ -22,7 +22,7 @@ async function feed(db: SupabaseClient, me: string) {
   const today = dayOf(new Date()), until = dayOf(new Date(Date.now() + 13 * 86400_000))
   const [{ data: t }, { data: recent }, { data: tasks }, { data: evs }, { data: members }] = await Promise.all([
     db.from('timers').select('*, projects(number, name, sector)').eq('profile_id', me).maybeSingle(),
-    db.from('time_entries').select('project_id, activity, role_label, projects(number, name)').eq('profile_id', me).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    db.from('time_entries').select('project_id, phase_id, activity, role_label, projects(number, name, sector), phases(code)').eq('profile_id', me).order('created_at', { ascending: false }).limit(80),
     db.from('tasks').select('id, title, due_on, due_time, projects(number, sector)').eq('assignee', me).is('done_at', null).lte('due_on', until).order('due_on').order('due_time', { nullsFirst: true }).limit(40),
     db.from('calendar_events').select('id, title, starts_on, ends_on, start_time, projects(number, sector)').eq('profile_id', me).lte('starts_on', until).gte('ends_on', today).limit(40),
     db.from('project_members').select('project_id').eq('profile_id', me),
@@ -57,7 +57,7 @@ async function feed(db: SupabaseClient, me: string) {
         if (!day) continue
         const time = start ? new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }).format(start) : null
         if (start && start.getTime() < Date.now() - 30 * 60_000 && day === today) continue // already over
-        items.push({ day: day < today ? today : day, time, kind: 'meeting', title: e.visibility === 'private' ? 'Busy' : (e.summary ?? 'Busy'), code: null, color: '#1a73e8' })
+        items.push({ day: day < today ? today : day, time, kind: start ? 'meeting' : 'event', title: e.visibility === 'private' ? 'Busy' : (e.summary ?? 'Busy'), code: null, color: '#1a73e8' })
       }
     }
   } catch { /* Google is optional */ }
@@ -66,12 +66,25 @@ async function feed(db: SupabaseClient, me: string) {
   // deno-lint-ignore no-explicit-any
   const tp = (t as any)?.projects
   // deno-lint-ignore no-explicit-any
-  const r = recent as any
+  const rows = (recent ?? []) as any[]
+  const seen = new Set<string>()
+  const recents: { key: string; code: string; title: string; detail: string; color: string }[] = []
+  for (const x of rows) {
+    const key = [x.project_id, x.phase_id ?? '', x.role_label ?? '', x.activity ?? ''].join('|')
+    if (seen.has(key)) continue
+    seen.add(key)
+    const oh = x.projects?.number === 'OH'
+    recents.push({ key, code: oh ? 'OH' : x.projects?.number ?? '', title: oh ? 'Overhead' : x.projects?.name ?? '',
+      detail: [x.phases?.code, x.activity].filter(Boolean).join(' · '), color: SECTOR[x.projects?.sector ?? 'internal'] ?? '#6b7280' })
+    if (recents.length >= 6) break
+  }
+  const r = recents[0]
   return {
     today,
     timer: t ? { code: tp?.number === 'OH' ? 'OH' : tp?.number ?? '', title: tp?.number === 'OH' ? 'Overhead' : tp?.name ?? 'Timer', detail: [t.activity, t.role_label].filter(Boolean).join(' · '),
       color: SECTOR[tp?.sector ?? 'internal'], elapsed: Math.max(0, Math.round(elapsedSec(t as Timer))), paused: !!t.paused_at } : null,
-    recent: r ? { code: r.projects?.number === 'OH' ? 'OH' : r.projects?.number ?? '', title: r.projects?.number === 'OH' ? 'Overhead' : r.projects?.name ?? '', detail: r.activity ?? '' } : null,
+    recent: r ? { code: r.code, title: r.title, detail: r.detail } : null,
+    recents,
     items: items.slice(0, 30),
   }
 }
@@ -95,10 +108,24 @@ async function act(db: SupabaseClient, me: string, action: string) {
     await db.from('timesheet_rows').insert({ profile_id: me, project_id: t.project_id, phase_id: t.phase_id, role_label: t.role_label, activity: t.activity, bill_rate: t.bill_rate })
     return
   }
-  if (action === 'start') {
-    if (t) return
-    const { data: r } = await db.from('time_entries').select('project_id, phase_id, role_label, activity, bill_rate').eq('profile_id', me).order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (action === 'start' || action.startsWith('start|')) {
+    const key = action.startsWith('start|') ? action.slice(6) : ''
+    let q = db.from('time_entries').select('project_id, phase_id, role_label, activity, bill_rate').eq('profile_id', me)
+    if (key) {
+      const [project_id, phase_id, role_label, activity] = key.split('|')
+      if (!/^[0-9a-f-]{36}$/i.test(project_id)) throw new Error('Bad task')
+      q = q.eq('project_id', project_id)
+      q = phase_id ? q.eq('phase_id', phase_id) : q.is('phase_id', null)
+      q = role_label ? q.eq('role_label', role_label) : q.is('role_label', null)
+      q = activity ? q.eq('activity', activity) : q.is('activity', null)
+    }
+    const { data: r } = await q.order('created_at', { ascending: false }).limit(1).maybeSingle()
     if (!r) throw new Error('No recent task to start — start one in the app first.')
+    if (t) {
+      const same = t.project_id === r.project_id && (t.phase_id ?? null) === (r.phase_id ?? null) && (t.activity ?? null) === (r.activity ?? null) && (t.role_label ?? null) === (r.role_label ?? null)
+      if (same) return
+      await act(db, me, 'stop') // switching: log what was running
+    }
     await db.from('timers').upsert({ profile_id: me, ...r, note: null, started_at: now, banked_minutes: 0, banked_seconds: 0, paused_at: null })
   }
 }
