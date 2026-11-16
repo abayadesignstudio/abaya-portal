@@ -62,9 +62,13 @@ if not call('GET', f'/apps?filter[bundleId]={APP_ID}')['data']:
     sys.exit(1)
 
 # 3. Distribution certificate — revoke earlier CI ones (only the Distribution type; uploaded builds are unaffected)
-for c in call('GET', '/certificates?filter[certificateType]=DISTRIBUTION,IOS_DISTRIBUTION&limit=200')['data']:
+# Apple allows only a few; keep the newest and revoke older ones only when near the limit
+# (each revocation sends the account holder an email — harmless, but noisy).
+certs = sorted(call('GET', '/certificates?filter[certificateType]=DISTRIBUTION,IOS_DISTRIBUTION&limit=200')['data'],
+               key=lambda c: c['attributes'].get('expirationDate') or '')
+for c in certs[:max(0, len(certs) - 1)]:
     call('DELETE', f"/certificates/{c['id']}")
-    print('Revoked an earlier CI distribution certificate')
+    print('Revoked an older CI distribution certificate')
 key, csr = f'{WORK}/dist.key', f'{WORK}/dist.csr'
 sh('/usr/bin/openssl', 'genrsa', '-out', key, '2048')
 sh('/usr/bin/openssl', 'req', '-new', '-key', key, '-out', csr, '-subj', f'/CN={CERT_CN}')
