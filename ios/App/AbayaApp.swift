@@ -43,7 +43,8 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
         config.websiteDataStore = .default() // keeps the sign-in between launches
         config.allowsInlineMediaPlayback = true
         config.userContentController.add(WeakHandler(self), name: "abaya")
-        config.applicationNameForUserAgent = "AbayaApp/1.0"
+        let info = Bundle.main.infoDictionary
+        config.applicationNameForUserAgent = "AbayaApp/\(info?["CFBundleShortVersionString"] ?? "1.0") build/\(info?["CFBundleVersion"] ?? "?")"
 
         web = WKWebView(frame: view.bounds, configuration: config)
         web.autoresizingMask = [.flexibleWidth, .flexibleHeight]

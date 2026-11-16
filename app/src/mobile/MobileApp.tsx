@@ -111,6 +111,7 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
         <button role="menuitem" onClick={() => { setSheet(null); nav('/settings') }}>Settings</button>
         <button role="menuitem" onClick={() => { setSheet(null); onFullSite() }}>Full portal</button>
         <button role="menuitem" onClick={signOut}>Sign out</button>
+        {/AbayaApp\/[\d.]+ build\/(\d+)/.test(navigator.userAgent) && <div className="mapp-who" style={{ borderTop: '1px solid #e6e4df', borderBottom: 0 }}><span>iPhone app build {navigator.userAgent.match(/build\/(\d+)/)?.[1]}</span></div>}
       </div>}
 
       {full && <div className="mapp-sheet" role="dialog" aria-modal="true">
