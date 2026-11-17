@@ -6,10 +6,10 @@ final class ShareViewController: UIViewController {
     private let text = UITextView()
     private var url: String?
     private var pageTitle: String?
-    private let tan = UIColor(red: 0.235, green: 0.251, blue: 0.165, alpha: 1)
-    private let paper = UIColor(red: 0.310, green: 0.325, blue: 0.227, alpha: 1)
+    private let tan = UIColor(red: 0.176, green: 0.188, blue: 0.122, alpha: 1)
+    private let paper = UIColor(red: 0.231, green: 0.243, blue: 0.165, alpha: 1)
     private let ink = UIColor(red: 0.945, green: 0.933, blue: 0.867, alpha: 1)
-    private let card = UIColor(red: 0.345, green: 0.365, blue: 0.259, alpha: 1)
+    private let card = UIColor(red: 0.255, green: 0.271, blue: 0.188, alpha: 1)
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -25,7 +25,7 @@ final class ShareViewController: UIViewController {
 
         let label = UILabel(); label.text = "THE PASSAGE"; label.font = .systemFont(ofSize: 11, weight: .bold); label.textColor = UIColor(red: 0.765, green: 0.765, blue: 0.651, alpha: 1)
         text.font = UIFont(name: "Georgia-Italic", size: 19); text.textColor = ink; text.backgroundColor = card
-        text.layer.cornerRadius = 14; text.layer.borderWidth = 1; text.layer.borderColor = UIColor(red: 0.424, green: 0.435, blue: 0.31, alpha: 1).cgColor
+        text.layer.cornerRadius = 14; text.layer.borderWidth = 1; text.layer.borderColor = UIColor(red: 0.314, green: 0.325, blue: 0.227, alpha: 1).cgColor
         text.textContainerInset = UIEdgeInsets(top: 12, left: 10, bottom: 12, right: 10)
         let note = UILabel(); note.text = "It opens as a new Quote in Life of the Mind, where you can add the book, page and topics."
         note.font = .systemFont(ofSize: 13); note.textColor = UIColor(red: 0.765, green: 0.765, blue: 0.651, alpha: 1); note.numberOfLines = 0

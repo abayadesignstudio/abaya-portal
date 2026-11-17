@@ -12,7 +12,7 @@ struct LOTMApp: App {
         WindowGroup {
             WebView(model: web)
                 .ignoresSafeArea()
-                .background(Color(red: 0.235, green: 0.251, blue: 0.165))
+                .background(Color(red: 0.176, green: 0.188, blue: 0.122))
                 .onOpenURL { web.handle($0) }
         }
         .onChange(of: phase) { _, p in if p == .active { web.drainInbox() } }
@@ -33,7 +33,7 @@ final class WebModel: NSObject, ObservableObject {
         view.scrollView.alwaysBounceVertical = true
         // Tan behind the masthead when pulling down, so the gap matches the header.
         let top = UIView(frame: CGRect(x: 0, y: -2000, width: 4000, height: 2000))
-        top.backgroundColor = UIColor(red: 0.235, green: 0.251, blue: 0.165, alpha: 1)
+        top.backgroundColor = UIColor(red: 0.176, green: 0.188, blue: 0.122, alpha: 1)
         top.autoresizingMask = [.flexibleWidth]
         view.scrollView.insertSubview(top, at: 0)
         let refresh = UIRefreshControl()
@@ -42,7 +42,7 @@ final class WebModel: NSObject, ObservableObject {
         view.scrollView.refreshControl = refresh
         view.allowsBackForwardNavigationGestures = false
         view.isOpaque = false
-        view.backgroundColor = UIColor(red: 0.310, green: 0.325, blue: 0.227, alpha: 1)
+        view.backgroundColor = UIColor(red: 0.231, green: 0.243, blue: 0.165, alpha: 1)
         view.hideKeyboardAccessoryBar()
         view.load(URLRequest(url: home))
     }
