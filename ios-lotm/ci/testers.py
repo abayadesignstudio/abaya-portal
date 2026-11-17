@@ -66,6 +66,13 @@ if need:
     call('PATCH', f"/betaAppReviewDetails/{det['id']}", {'data': {'type': 'betaAppReviewDetails', 'id': det['id'], 'attributes': attrs}})
     print('Saved the review contact')
 
+# The beta description needs a feedback email; use the review contact's if it was left blank
+rev_email = call('GET', f'/apps/{app_id}/betaAppReviewDetail')['data']['attributes'].get('contactEmail')
+for l in call('GET', f'/apps/{app_id}/betaAppLocalizations')['data']:
+    if not l['attributes'].get('feedbackEmail') and rev_email:
+        call('PATCH', f"/betaAppLocalizations/{l['id']}", {'data': {'type': 'betaAppLocalizations', 'id': l['id'], 'attributes': {'feedbackEmail': rev_email}}})
+        print('Set the feedback email')
+
 # What to test on this build
 bl = call('GET', f"/builds/{build['id']}/betaBuildLocalizations")['data']
 if not bl:
@@ -88,7 +95,9 @@ print('Review state:', state)
 if state in ('READY_FOR_BETA_SUBMISSION', 'MISSING_EXPORT_COMPLIANCE', None):
     r = call('POST', '/betaAppReviewSubmissions', {'data': {'type': 'betaAppReviewSubmissions',
         'relationships': {'build': {'data': {'type': 'builds', 'id': build['id']}}}}}, ok_codes=(409, 422))
-    print('Submitted for beta review' if '_error' not in r else 'Review submission: ' + r['_msg'][:300])
+    if '_error' in r:
+        sys.exit('::error::Apple did not accept the beta review submission: ' + r['_msg'][:600])
+    print('Submitted for beta review')
 
 # The tester
 found = call('GET', f'/betaTesters?filter[email]={urllib.request.quote(email)}&filter[apps]={app_id}')['data']
