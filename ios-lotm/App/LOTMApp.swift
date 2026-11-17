@@ -1,12 +1,40 @@
 import SwiftUI
 import WebKit
 import SafariServices
+import UserNotifications
 import ObjectiveC
 
 let home = URL(string: "https://lotmstudy.org/next/")!
 
+/// Notifications: asks once, registers with Apple, and hands the device token to the web app (which saves it with the
+/// member's account). A tapped notification opens its screen.
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    static weak var web: WebModel?
+    func application(_ app: UIApplication, didFinishLaunchingWithOptions o: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        let c = UNUserNotificationCenter.current(); c.delegate = self
+        c.requestAuthorization(options: [.alert, .sound, .badge]) { ok, _ in
+            if ok { DispatchQueue.main.async { app.registerForRemoteNotifications() } }
+        }
+        return true
+    }
+    func application(_ app: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
+        let hex = token.map { String(format: "%02x", $0) }.joined()
+        UserDefaults.standard.set(hex, forKey: "apnsToken")
+        AppDelegate.web?.shareDeviceToken()
+    }
+    // Shown as a banner even while the app is open
+    func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification, withCompletionHandler done: @escaping (UNNotificationPresentationOptions) -> Void) { done([.banner, .sound, .list]) }
+    func userNotificationCenter(_ c: UNUserNotificationCenter, didReceive r: UNNotificationResponse, withCompletionHandler done: @escaping () -> Void) {
+        if let url = r.notification.request.content.userInfo["url"] as? String, let hash = url.split(separator: "#", maxSplits: 1).last, url.contains("#") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { AppDelegate.web?.go(String(hash)) }
+        }
+        done()
+    }
+}
+
 @main
 struct LOTMApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @Environment(\.scenePhase) private var phase
     @StateObject private var web = WebModel()
     var body: some Scene {
@@ -15,6 +43,7 @@ struct LOTMApp: App {
                 .ignoresSafeArea()
                 .background(Color(red: 0.176, green: 0.188, blue: 0.122))
                 .onOpenURL { web.handle($0) }
+                .onAppear { AppDelegate.web = web }
         }
         .onChange(of: phase) { _, p in if p == .active { web.drainInbox() } }
     }
@@ -63,6 +92,11 @@ final class WebModel: NSObject, ObservableObject {
         let query = url.query.map { "?" + $0 } ?? ""
         go(path + query)
     }
+    /// Give the web app this phone's push token (it saves it once a member is signed in).
+    func shareDeviceToken() {
+        guard let t = UserDefaults.standard.string(forKey: "apnsToken") else { return }
+        view.evaluateJavaScript("window.lotmDeviceToken='\(t)';window.dispatchEvent(new Event('lotm:device'))")
+    }
     func go(_ route: String) {
         let js = "location.hash = '#\(route.replacingOccurrences(of: "'", with: "%27"))'"
         view.evaluateJavaScript(js)
@@ -82,7 +116,8 @@ struct WebView: UIViewRepresentable {
     func updateUIView(_ v: WKWebView, context: Context) {}
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
-        // Our site stays in the app; everything else (articles, maps, books) opens in Safari.
+        func webView(_ w: WKWebView, didFinish n: WKNavigation!) { AppDelegate.web?.shareDeviceToken() }
+        // Our site stays in the app; everything else (articles, maps, books) opens in the in-app browser.
         func webView(_ w: WKWebView, decidePolicyFor a: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             guard let url = a.request.url else { return decisionHandler(.allow) }
             if url.host == "lotmstudy.org" || url.host?.hasSuffix(".supabase.co") == true || url.scheme == "about" || url.scheme == "blob" || url.scheme == "data" { return decisionHandler(.allow) }

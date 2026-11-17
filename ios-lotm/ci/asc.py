@@ -55,6 +55,13 @@ for ident, name in ((APP_ID, 'Life of the Mind'), (WIDGET_ID, 'Life of the Mind 
         ids[ident] = call('POST', '/bundleIds', {'data': {'type': 'bundleIds', 'attributes': {'identifier': ident, 'name': name, 'platform': 'IOS'}}})['data']['id']
         print(f'Registered bundle ID {ident}')
 
+# 1b. Push notifications on the app's ID (the profiles made below then carry the push entitlement)
+caps = call('GET', f"/bundleIds/{ids[APP_ID]}/bundleIdCapabilities")['data']
+if not any(c['attributes'].get('capabilityType') == 'PUSH_NOTIFICATIONS' for c in caps):
+    call('POST', '/bundleIdCapabilities', {'data': {'type': 'bundleIdCapabilities', 'attributes': {'capabilityType': 'PUSH_NOTIFICATIONS'},
+        'relationships': {'bundleId': {'data': {'type': 'bundleIds', 'id': ids[APP_ID]}}}}})
+    print('Turned on push notifications for', APP_ID)
+
 # 2. App record
 if not call('GET', f'/apps?filter[bundleId]={APP_ID}')['data']:
     print('::error::The app record does not exist yet. In App Store Connect: Apps → + → New App, '

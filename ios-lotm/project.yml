@@ -42,6 +42,7 @@ targets:
       path: App/LifeOfTheMind.entitlements
       properties:
         keychain-access-groups: [$(AppIdentifierPrefix)org.lotmstudy.shared]
+        aps-environment: production
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.lotmstudy.app
