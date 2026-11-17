@@ -189,9 +189,10 @@ function TimeScreen({ api, me, onEdit }: { api: TimerApi; me: string; onEdit: (c
     {api.err && <p className="err" role="alert" style={{ margin: '0 16px' }}>{api.err}</p>}
     <div className="m-list">
       {cards.map((c) => { const on = isRunning(c), oh = c.projects?.number === 'OH'
-        return <article key={c.key} className={'m-card' + (on ? ' run' : '')}>
+        const pc = oh ? '#6b7280' : sectorColor(c.projects?.sector)
+        return <article key={c.key} className={'m-card tinted' + (on ? ' run' : '')} style={{ '--pc': pc } as React.CSSProperties}>
           <div className="m-card-top">
-            <span className="m-chip" style={{ background: oh ? '#6b7280' : sectorColor(c.projects?.sector) }}>{oh ? 'OH' : c.projects?.number}</span>
+            <span className="m-chip">{oh ? 'OH' : c.projects?.number}</span>
             <strong className="m-name">{oh ? 'Overhead' : c.projects?.name}</strong>
             {day === today && <button type="button" className={'m-play' + (on ? ' stop' : '')} disabled={api.busy} aria-label={on ? 'Stop and log' : `Start a timer on ${c.projects?.name}`} onClick={() => play(c)}>
               {on ? <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect width="12" height="12" rx="2" fill="currentColor" /></svg>

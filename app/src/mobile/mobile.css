@@ -56,6 +56,14 @@ button.m-card{cursor:pointer}
 .m-play{flex:none;width:34px;height:34px;border-radius:50%;border:0;background:#02253d;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .m-play.stop{background:#039855}
 .m-edit{color:#02253d;width:36px;height:36px}
+/* Time cards take the project-number color; text and controls go white */
+.m-card.tinted{background:var(--pc);border-color:transparent;color:#fff}
+.m-card.tinted .m-chip{background:#fff;color:var(--pc)}
+.m-card.tinted .m-sub,.m-card.tinted .muted{color:rgba(255,255,255,.85)}
+.m-card.tinted .m-play{background:#fff;color:var(--pc)}
+.m-card.tinted .m-play.stop{background:#039855;color:#fff}
+.m-card.tinted .m-edit{color:#fff}
+.m-card.tinted.run{box-shadow:0 0 0 3px #039855}
 .m-empty{text-align:center;padding:30px 10px}
 .m-date{margin:12px 2px 6px;font-size:17px;color:#5f6368;font-weight:600}
 .m-exp{flex-direction:row;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
