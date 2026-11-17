@@ -1,0 +1,33 @@
+# Invite someone to the Life of the Mind beta (TestFlight). Actions → "LOTM: invite a beta tester" → Run workflow.
+name: 'LOTM: invite a beta tester'
+on:
+  workflow_dispatch:
+    inputs:
+      email: { description: "Tester's email", required: true }
+      first_name: { description: "Tester's first name (optional)", required: false }
+      last_name: { description: "Tester's last name (optional)", required: false }
+      your_phone: { description: 'Your phone, for Apple’s beta review (first time only)', required: false }
+      your_email: { description: 'Your email, for Apple’s beta review and tester feedback (first time only)', required: false }
+permissions: { contents: read }
+jobs:
+  invite:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: ios-lotm } }
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip3 install --quiet pyjwt cryptography
+      - name: Invite
+        env:
+          P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          TESTER_EMAIL: ${{ inputs.email }}
+          TESTER_FIRST: ${{ inputs.first_name }}
+          TESTER_LAST: ${{ inputs.last_name }}
+          CONTACT_FIRST: Joshua
+          CONTACT_LAST: Abaya
+          CONTACT_EMAIL: ${{ inputs.your_email }}
+          CONTACT_PHONE: ${{ inputs.your_phone }}
+        run: |
+          printf '%s\n' "$P8" > "$RUNNER_TEMP/AuthKey.p8"
+          ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8" python3 ci/testers.py
