@@ -433,8 +433,7 @@ private struct TodayList: View {
             let today = feed.today ?? ""
             let items = all.filter { $0.day == today }
             VStack(alignment: .leading, spacing: 5) {
-                Text(dayLabel(today, today: today) + "  ·  " + headerDate(today))
-                    .font(.caption.weight(.bold)).foregroundColor(.secondary)
+                Masthead(day: today).padding(.bottom, 3)
                 if items.isEmpty {
                     Text("Nothing scheduled today").font(.footnote).foregroundColor(.secondary)
                     if let next = all.first(where: { $0.day > today }) {
@@ -452,11 +451,37 @@ private struct TodayList: View {
             Text("Couldn't load. Pull down later.").font(.caption).foregroundColor(.secondary)
         }
     }
-    private func headerDate(_ day: String) -> String {
+}
+
+/// Newspaper-style masthead: "Today" · logo · "Nov. 17", over a double rule.
+private struct Masthead: View {
+    let day: String
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                HStack {
+                    Text("Today")
+                    Spacer()
+                    Text(apDate(day))
+                }
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.9))
+                Image("Masthead").renderingMode(.template).resizable().scaledToFit()
+                    .frame(height: 22).foregroundColor(.white)
+            }
+            .padding(.bottom, 6)
+            Rectangle().fill(Color.white.opacity(0.7)).frame(height: 0.5)
+            Rectangle().fill(Color.white.opacity(0.7)).frame(height: 0.5).padding(.top, 2)
+        }
+    }
+    /// AP-style date like the Times: "Nov. 17", "March 3", "Sept. 9".
+    private func apDate(_ day: String) -> String {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = TimeZone(identifier: "America/Chicago")
         guard let d = f.date(from: day) else { return "" }
-        let o = DateFormatter(); o.dateFormat = "EEE MMM d"; o.timeZone = f.timeZone
-        return o.string(from: d).uppercased()
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = f.timeZone!
+        let m = cal.component(.month, from: d), n = cal.component(.day, from: d)
+        let names = ["Jan.", "Feb.", "March", "April", "May", "June", "July", "Aug.", "Sept.", "Oct.", "Nov.", "Dec."]
+        return "\(names[m - 1]) \(n)"
     }
 }
 
