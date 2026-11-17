@@ -52,6 +52,7 @@ struct LOTMApp: App {
 
 final class WebModel: NSObject, ObservableObject {
     let view: WKWebView
+    private var sideways: NSKeyValueObservation?
     override init() {
         let cfg = WKWebViewConfiguration()
         cfg.allowsInlineMediaPlayback = true
@@ -64,6 +65,13 @@ final class WebModel: NSObject, ObservableObject {
         view.scrollView.contentInsetAdjustmentBehavior = .never
         view.scrollView.bounces = true
         view.scrollView.alwaysBounceVertical = true
+        view.scrollView.alwaysBounceHorizontal = false
+        view.scrollView.showsHorizontalScrollIndicator = false
+        view.scrollView.isDirectionalLockEnabled = true
+        // Belt and braces: the page itself never moves sideways (carousels inside it still swipe).
+        sideways = view.scrollView.observe(\.contentOffset, options: [.new]) { sv, _ in
+            if sv.contentOffset.x != 0 { sv.contentOffset.x = 0 }
+        }
         view.scrollView.keyboardDismissMode = .interactive
         // Tan behind the masthead when pulling down, so the gap matches the header.
         let top = UIView(frame: CGRect(x: 0, y: -2000, width: 4000, height: 2000))
