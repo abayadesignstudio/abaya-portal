@@ -32,6 +32,7 @@ final class WebModel: NSObject, ObservableObject {
         view.scrollView.contentInsetAdjustmentBehavior = .never
         view.scrollView.bounces = true
         view.scrollView.alwaysBounceVertical = true
+        view.scrollView.keyboardDismissMode = .interactive
         // Tan behind the masthead when pulling down, so the gap matches the header.
         let top = UIView(frame: CGRect(x: 0, y: -2000, width: 4000, height: 2000))
         top.backgroundColor = UIColor(red: 0.176, green: 0.188, blue: 0.122, alpha: 1)

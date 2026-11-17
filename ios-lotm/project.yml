@@ -33,7 +33,7 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: Photograph a page or attach a photo to a post.
         NSPhotoLibraryUsageDescription: Attach photos to posts, chats and your Commonplace.
-        NSMicrophoneUsageDescription: Record voice messages in Chat.
+        NSMicrophoneUsageDescription: Record voice notes, audio stories and voice messages.
         CFBundleURLTypes:
           - CFBundleURLName: org.lotmstudy.app
             CFBundleURLSchemes: [lotm]
