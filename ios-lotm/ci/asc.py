@@ -13,8 +13,8 @@ import base64, json, os, subprocess, sys, time, urllib.request, urllib.error
 import jwt  # PyJWT
 
 API = 'https://api.appstoreconnect.apple.com/v1'
-APP_ID, WIDGET_ID = 'org.lotmstudy.app', 'org.lotmstudy.app.share'
-PROFILES = {APP_ID: 'LOTM CI App', WIDGET_ID: 'LOTM CI Share'}
+APP_ID, WIDGET_ID, WIDGETS_ID = 'org.lotmstudy.app', 'org.lotmstudy.app.share', 'org.lotmstudy.app.widgets'
+PROFILES = {APP_ID: 'LOTM CI App', WIDGET_ID: 'LOTM CI Share', WIDGETS_ID: 'LOTM CI Widgets'}
 CERT_CN = 'LOTM CI'
 WORK = os.environ['WORK']
 
@@ -47,7 +47,7 @@ def sh(*args, **kw):
 
 # 1. Bundle IDs
 ids = {}
-for ident, name in ((APP_ID, 'Life of the Mind'), (WIDGET_ID, 'Life of the Mind Share')):
+for ident, name in ((APP_ID, 'Life of the Mind'), (WIDGET_ID, 'Life of the Mind Share'), (WIDGETS_ID, 'Life of the Mind Widgets')):
     found = [b for b in call('GET', f'/bundleIds?filter[identifier]={ident}&limit=200')['data'] if b['attributes']['identifier'] == ident]
     if found:
         ids[ident] = found[0]['id']

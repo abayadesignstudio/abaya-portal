@@ -81,6 +81,7 @@ jobs:
             <key>provisioningProfiles</key><dict>
               <key>org.lotmstudy.app</key><string>LOTM CI App</string>
               <key>org.lotmstudy.app.share</key><string>LOTM CI Share</string>
+              <key>org.lotmstudy.app.widgets</key><string>LOTM CI Widgets</string>
             </dict>
             <key>manageAppVersionAndBuildNumber</key><false/>
           </dict></plist>

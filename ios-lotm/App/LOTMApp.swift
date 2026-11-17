@@ -2,6 +2,7 @@ import SwiftUI
 import WebKit
 import SafariServices
 import UserNotifications
+import WidgetKit
 import ObjectiveC
 
 let home = URL(string: "https://lotmstudy.org/next/")!
@@ -57,6 +58,7 @@ final class WebModel: NSObject, ObservableObject {
         cfg.websiteDataStore = .default()
         cfg.applicationNameForUserAgent = "LifeOfTheMindApp/1.0"
         cfg.userContentController.add(HapticHandler(), name: "haptic")
+        cfg.userContentController.add(WidgetHandler(), name: "widget")
         view = WKWebView(frame: .zero, configuration: cfg)
         super.init()
         view.scrollView.contentInsetAdjustmentBehavior = .never
@@ -189,5 +191,14 @@ final class HapticHandler: NSObject, WKScriptMessageHandler {
     func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
         let style: UIImpactFeedbackGenerator.FeedbackStyle = (m.body as? String) == "medium" ? .medium : .light
         DispatchQueue.main.async { UIImpactFeedbackGenerator(style: style).impactOccurred() }
+    }
+}
+
+/// window.webkit.messageHandlers.widget.postMessage(json) → the widgets' snapshot, then a redraw.
+final class WidgetHandler: NSObject, WKScriptMessageHandler {
+    func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
+        guard let s = m.body as? String, let d = s.data(using: .utf8) else { return }
+        WidgetStore.save(d)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 }
