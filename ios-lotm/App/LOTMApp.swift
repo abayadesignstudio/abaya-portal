@@ -26,6 +26,7 @@ final class WebModel: NSObject, ObservableObject {
         cfg.allowsInlineMediaPlayback = true
         cfg.websiteDataStore = .default()
         cfg.applicationNameForUserAgent = "LifeOfTheMindApp/1.0"
+        cfg.userContentController.add(HapticHandler(), name: "haptic")
         view = WKWebView(frame: .zero, configuration: cfg)
         super.init()
         view.scrollView.contentInsetAdjustmentBehavior = .never
@@ -129,5 +130,13 @@ extension WKWebView {
         // iPad: drop the shortcut (undo/redo/paste) bar too.
         content.inputAssistantItem.leadingBarButtonGroups = []
         content.inputAssistantItem.trailingBarButtonGroups = []
+    }
+}
+
+/// window.webkit.messageHandlers.haptic.postMessage("light") from the web app → a Taptic tap (likes).
+final class HapticHandler: NSObject, WKScriptMessageHandler {
+    func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
+        let style: UIImpactFeedbackGenerator.FeedbackStyle = (m.body as? String) == "medium" ? .medium : .light
+        DispatchQueue.main.async { UIImpactFeedbackGenerator(style: style).impactOccurred() }
     }
 }
