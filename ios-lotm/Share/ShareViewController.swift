@@ -6,9 +6,10 @@ final class ShareViewController: UIViewController {
     private let text = UITextView()
     private var url: String?
     private var pageTitle: String?
-    private let tan = UIColor(red: 0.302, green: 0.325, blue: 0.188, alpha: 1)
-    private let paper = UIColor(red: 0.812, green: 0.816, blue: 0.659, alpha: 1)
-    private let ink = UIColor(red: 0.161, green: 0.145, blue: 0.122, alpha: 1)
+    private let tan = UIColor(red: 0.235, green: 0.251, blue: 0.165, alpha: 1)
+    private let paper = UIColor(red: 0.310, green: 0.325, blue: 0.227, alpha: 1)
+    private let ink = UIColor(red: 0.945, green: 0.933, blue: 0.867, alpha: 1)
+    private let card = UIColor(red: 0.345, green: 0.365, blue: 0.259, alpha: 1)
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -22,12 +23,12 @@ final class ShareViewController: UIViewController {
         bar.addArrangedSubview(cancel); bar.addArrangedSubview(title); bar.addArrangedSubview(save)
         title.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        let label = UILabel(); label.text = "THE PASSAGE"; label.font = .systemFont(ofSize: 11, weight: .bold); label.textColor = tan
-        text.font = UIFont(name: "Georgia-Italic", size: 19); text.textColor = ink; text.backgroundColor = .white
-        text.layer.cornerRadius = 14; text.layer.borderWidth = 1; text.layer.borderColor = UIColor(red: 0.867, green: 0.824, blue: 0.749, alpha: 1).cgColor
+        let label = UILabel(); label.text = "THE PASSAGE"; label.font = .systemFont(ofSize: 11, weight: .bold); label.textColor = UIColor(red: 0.765, green: 0.765, blue: 0.651, alpha: 1)
+        text.font = UIFont(name: "Georgia-Italic", size: 19); text.textColor = ink; text.backgroundColor = card
+        text.layer.cornerRadius = 14; text.layer.borderWidth = 1; text.layer.borderColor = UIColor(red: 0.424, green: 0.435, blue: 0.31, alpha: 1).cgColor
         text.textContainerInset = UIEdgeInsets(top: 12, left: 10, bottom: 12, right: 10)
         let note = UILabel(); note.text = "It opens as a new Quote in Life of the Mind, where you can add the book, page and topics."
-        note.font = .systemFont(ofSize: 13); note.textColor = UIColor(red: 0.435, green: 0.4, blue: 0.353, alpha: 1); note.numberOfLines = 0
+        note.font = .systemFont(ofSize: 13); note.textColor = UIColor(red: 0.765, green: 0.765, blue: 0.651, alpha: 1); note.numberOfLines = 0
 
         let stack = UIStackView(arrangedSubviews: [bar, label, text, note]); stack.axis = .vertical; stack.spacing = 12
         stack.setCustomSpacing(18, after: bar); stack.translatesAutoresizingMaskIntoConstraints = false
