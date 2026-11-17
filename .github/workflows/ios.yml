@@ -9,7 +9,7 @@ on:
     paths: ['ios/**', '.github/workflows/ios.yml']
   workflow_dispatch:
 permissions: { contents: read }
-concurrency: { group: ios, cancel-in-progress: true }
+concurrency: { group: ios-signing, cancel-in-progress: false }
 jobs:
   build:
     runs-on: macos-15
