@@ -7,14 +7,26 @@ import SwiftUI
 
 // MARK: - Palette
 
-enum Ink {
-    static let bg = Color(red: 0.247, green: 0.259, blue: 0.180)      // olive
-    static let bg2 = Color(red: 0.200, green: 0.212, blue: 0.141)
-    static let card = Color(red: 0.302, green: 0.314, blue: 0.220)
-    static let cream = Color(red: 0.945, green: 0.933, blue: 0.867)
-    static let muted = Color(red: 0.776, green: 0.765, blue: 0.682)
-    static let track = Color(red: 0.290, green: 0.298, blue: 0.208)
-    static let green = Color(red: 0.365, green: 0.608, blue: 0.420)
+/// Full colour normally; in the tinted / clear Home Screen styles iOS paints every shape in one tint, so solid
+/// fills turn into white slabs. There the widget uses see-through shades instead (alpha survives the tint).
+struct Palette {
+    var bg, bg2, card, cream, muted, track, green: Color
+    static let full = Palette(
+        bg: Color(red: 0.247, green: 0.259, blue: 0.180), bg2: Color(red: 0.200, green: 0.212, blue: 0.141),
+        card: Color(red: 0.302, green: 0.314, blue: 0.220), cream: Color(red: 0.945, green: 0.933, blue: 0.867),
+        muted: Color(red: 0.776, green: 0.765, blue: 0.682), track: Color(red: 0.290, green: 0.298, blue: 0.208),
+        green: Color(red: 0.365, green: 0.608, blue: 0.420))
+    static let tinted = Palette(bg: .clear, bg2: .white.opacity(0.08), card: .white.opacity(0.14), cream: .white,
+        muted: .white.opacity(0.62), track: .white.opacity(0.22), green: .white)
+}
+private struct PaletteKey: EnvironmentKey { static let defaultValue = Palette.full }
+extension EnvironmentValues { var pal: Palette { get { self[PaletteKey.self] } set { self[PaletteKey.self] = newValue } } }
+
+/// Book covers keep their own colours (greyed) instead of being flattened into the tint.
+extension View {
+    @ViewBuilder func keepImage() -> some View {
+        if #available(iOS 18.0, *) { self.widgetAccentedRenderingMode(.desaturated) } else { self }
+    }
 }
 
 // MARK: - Timeline
@@ -79,6 +91,7 @@ struct Provider: TimelineProvider {
 // MARK: - Pieces
 
 struct Ring: View {
+    @Environment(\.pal) private var Ink
     let frac: Double; var width: CGFloat = 8
     var body: some View {
         ZStack {
@@ -90,6 +103,7 @@ struct Ring: View {
 }
 
 struct GoalGauge: View {
+    @Environment(\.pal) private var Ink
     let e: Entry; var size: CGFloat = 112; var big: CGFloat = 40
     var body: some View {
         ZStack {
@@ -103,6 +117,7 @@ struct GoalGauge: View {
 }
 
 struct StreakLine: View {
+    @Environment(\.pal) private var Ink
     let e: Entry
     var body: some View {
         let met = e.done >= e.snap.goal
@@ -113,6 +128,7 @@ struct StreakLine: View {
 }
 
 struct WeekDots: View {
+    @Environment(\.pal) private var Ink
     let e: Entry
     var body: some View {
         let today = Calendar.current.component(.weekday, from: e.date) - 1
@@ -130,6 +146,7 @@ struct WeekDots: View {
 }
 
 struct EventRow: View {
+    @Environment(\.pal) private var Ink
     let ev: WidgetSnapshot.Event?; var compact = false
     var body: some View {
         if let ev, let d = Entry.parse(ev.start) {
@@ -153,12 +170,13 @@ struct EventRow: View {
 }
 
 struct BookRow: View {
+    @Environment(\.pal) private var Ink
     let e: Entry
     var body: some View {
         if let b = e.snap.book {
             HStack(spacing: 10) {
                 Group {
-                    if let img = e.cover { Image(uiImage: img).resizable().aspectRatio(contentMode: .fill) } else { Ink.card }
+                    if let img = e.cover { Image(uiImage: img).resizable().aspectRatio(contentMode: .fill).keepImage() } else { Ink.card }
                 }.frame(width: 34, height: 50).clipShape(RoundedRectangle(cornerRadius: 3)).shadow(color: .black.opacity(0.35), radius: 3, y: 2)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(b.title).font(.system(size: 14, weight: .semibold, design: .serif)).foregroundStyle(Ink.cream).lineLimit(1)
@@ -178,6 +196,7 @@ struct BookRow: View {
 }
 
 struct Label2: View {
+    @Environment(\.pal) private var Ink
     let t: String
     var body: some View { Text(t.uppercased()).font(.system(size: 10, weight: .heavy)).kerning(1).foregroundStyle(Ink.muted) }
 }
@@ -185,6 +204,7 @@ struct Label2: View {
 // MARK: - Sizes
 
 struct SmallView: View {
+    @Environment(\.pal) private var Ink
     let e: Entry
     var body: some View {
         VStack(spacing: 4) {
@@ -196,6 +216,7 @@ struct SmallView: View {
 }
 
 struct MediumView: View {
+    @Environment(\.pal) private var Ink
     let e: Entry
     var body: some View {
         HStack(spacing: 14) {
@@ -210,6 +231,7 @@ struct MediumView: View {
 }
 
 struct LargeView: View {
+    @Environment(\.pal) private var Ink
     let e: Entry; var wide = false
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -277,6 +299,11 @@ struct RectangularView: View {
 }
 
 struct LOTMWidgetView: View {
+    @Environment(\.widgetRenderingMode) var mode
+    let e: Entry
+    var body: some View { Inner(e: e).environment(\.pal, mode == .fullColor ? .full : .tinted) }
+}
+private struct Inner: View {
     @Environment(\.widgetFamily) var family
     let e: Entry
     var body: some View {
@@ -297,7 +324,7 @@ struct LOTMWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "LOTMReading", provider: Provider()) { e in
             LOTMWidgetView(e: e)
-                .containerBackground(for: .widget) { LinearGradient(colors: [Ink.bg, Ink.bg2], startPoint: .top, endPoint: .bottom) }
+                .containerBackground(for: .widget) { LinearGradient(colors: [Palette.full.bg, Palette.full.bg2], startPoint: .top, endPoint: .bottom) }
         }
         .configurationDisplayName("Life of the Mind")
         .description("Today’s reading goal, your next event and book, and a Commonplace box.")
