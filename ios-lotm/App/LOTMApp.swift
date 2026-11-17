@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import SafariServices
 import ObjectiveC
 
 let home = URL(string: "https://lotmstudy.org/next/")!
@@ -85,11 +86,11 @@ struct WebView: UIViewRepresentable {
         func webView(_ w: WKWebView, decidePolicyFor a: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             guard let url = a.request.url else { return decisionHandler(.allow) }
             if url.host == "lotmstudy.org" || url.host?.hasSuffix(".supabase.co") == true || url.scheme == "about" || url.scheme == "blob" || url.scheme == "data" { return decisionHandler(.allow) }
-            if a.navigationType == .linkActivated || a.targetFrame == nil { UIApplication.shared.open(url); return decisionHandler(.cancel) }
+            if a.navigationType == .linkActivated || a.targetFrame == nil { openOutside(url); return decisionHandler(.cancel) }
             decisionHandler(.allow)
         }
         func webView(_ w: WKWebView, createWebViewWith c: WKWebViewConfiguration, for a: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-            if let url = a.request.url { UIApplication.shared.open(url) }
+            if let url = a.request.url { openOutside(url) }
             return nil
         }
         func webView(_ w: WKWebView, runJavaScriptAlertPanelWithMessage m: String, initiatedByFrame f: WKFrameInfo, completionHandler: @escaping () -> Void) {
@@ -103,6 +104,20 @@ struct WebView: UIViewRepresentable {
             present(a, actions: [("Cancel", .cancel, { completionHandler(nil) }), ("OK", .default, { completionHandler(a.textFields?.first?.text) })])
         }
         func webView(_ w: WKWebView, requestMediaCapturePermissionFor o: WKSecurityOrigin, initiatedByFrame f: WKFrameInfo, type: WKMediaCaptureType, decisionHandler: @escaping (WKPermissionDecision) -> Void) { decisionHandler(.grant) }
+        /// Articles and other web pages open in the in-app browser (Done to come back, the Safari button to carry on in
+        /// Safari). Calendar files, Maps, phone and mail links go to their own apps.
+        private func openOutside(_ url: URL) {
+            let web = url.scheme == "http" || url.scheme == "https"
+            let ownApp = url.host == "maps.apple.com" || url.path.hasSuffix(".ics") || url.path == "/ics"
+            guard web && !ownApp else { UIApplication.shared.open(url); return }
+            let cfg = SFSafariViewController.Configuration(); cfg.entersReaderIfAvailable = false; cfg.barCollapsingEnabled = true
+            let vc = SFSafariViewController(url: url, configuration: cfg)
+            vc.preferredControlTintColor = UIColor(red: 0.231, green: 0.243, blue: 0.165, alpha: 1)
+            vc.dismissButtonStyle = .done
+            let root = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first
+            var top = root; while let p = top?.presentedViewController { top = p }
+            top?.present(vc, animated: true)
+        }
         private func present(_ a: UIAlertController, actions: [(String, UIAlertAction.Style, () -> Void)]) {
             for (t, s, f) in actions { a.addAction(UIAlertAction(title: t, style: s) { _ in f() }) }
             let root = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first
