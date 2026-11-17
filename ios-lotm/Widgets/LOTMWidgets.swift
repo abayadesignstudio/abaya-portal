@@ -25,7 +25,7 @@ extension EnvironmentValues { var pal: Palette { get { self[PaletteKey.self] } s
 /// Book covers keep their own colours (greyed) instead of being flattened into the tint.
 extension Image {
     @ViewBuilder func keepImage() -> some View {
-        if #available(iOS 18.0, *) { self.widgetAccentedRenderingMode(.desaturated).resizable() } else { self.resizable() }
+        if #available(iOS 18.0, *) { self.resizable().widgetAccentedRenderingMode(.desaturated) } else { self.resizable() }
     }
 }
 
