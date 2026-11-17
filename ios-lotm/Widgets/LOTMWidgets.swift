@@ -23,9 +23,9 @@ private struct PaletteKey: EnvironmentKey { static let defaultValue = Palette.fu
 extension EnvironmentValues { var pal: Palette { get { self[PaletteKey.self] } set { self[PaletteKey.self] = newValue } } }
 
 /// Book covers keep their own colours (greyed) instead of being flattened into the tint.
-extension View {
+extension Image {
     @ViewBuilder func keepImage() -> some View {
-        if #available(iOS 18.0, *) { self.widgetAccentedRenderingMode(.desaturated) } else { self }
+        if #available(iOS 18.0, *) { self.widgetAccentedRenderingMode(.desaturated).resizable() } else { self.resizable() }
     }
 }
 
@@ -176,7 +176,7 @@ struct BookRow: View {
         if let b = e.snap.book {
             HStack(spacing: 10) {
                 Group {
-                    if let img = e.cover { Image(uiImage: img).resizable().aspectRatio(contentMode: .fill).keepImage() } else { Ink.card }
+                    if let img = e.cover { Image(uiImage: img).keepImage().aspectRatio(contentMode: .fill) } else { Ink.card }
                 }.frame(width: 34, height: 50).clipShape(RoundedRectangle(cornerRadius: 3)).shadow(color: .black.opacity(0.35), radius: 3, y: 2)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(b.title).font(.system(size: 14, weight: .semibold, design: .serif)).foregroundStyle(Ink.cream).lineLimit(1)
