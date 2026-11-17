@@ -2,6 +2,7 @@ import ActivityKit
 import AuthenticationServices
 import SwiftUI
 import UIKit
+import UserNotifications
 import WebKit
 import WidgetKit
 
@@ -15,13 +16,48 @@ import WidgetKit
 /// The shell answers with window events: window.addEventListener('abaya-native', e => e.detail)
 @main
 struct AbayaApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var phase
     var body: some Scene {
         WindowGroup {
             PortalView().ignoresSafeArea().background(Color(red: 2 / 255, green: 37 / 255, blue: 61 / 255))
                 .onOpenURL { NotificationCenter.default.post(name: .abayaOpenURL, object: $0) }
         }
+        .onChange(of: phase) { _, p in if p == .active { AppDelegate.refreshBrief() } }
     }
 }
+
+/// Notifications: asks once for permission, keeps the morning schedule notification current,
+/// and opens the calendar when it's tapped.
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    func application(_ app: UIApplication, didFinishLaunchingWithOptions opts: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in if granted { AppDelegate.refreshBrief() } }
+        return true
+    }
+
+    static func refreshBrief() {
+        Task { if let feed = try? await WidgetLink.call("feed") { DailyBrief.schedule(from: feed) } }
+    }
+
+    func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification,
+                                withCompletionHandler done: @escaping (UNNotificationPresentationOptions) -> Void) {
+        done([.banner, .list, .sound])
+    }
+
+    func userNotificationCenter(_ c: UNUserNotificationCenter, didReceive r: UNNotificationResponse,
+                                withCompletionHandler done: @escaping () -> Void) {
+        if let s = r.notification.request.content.userInfo["url"] as? String, let url = URL(string: s) {
+            PendingURL.value = url
+            DispatchQueue.main.async { NotificationCenter.default.post(name: .abayaOpenURL, object: url) }
+        }
+        done()
+    }
+}
+
+/// A URL that arrived before the portal view existed (cold launch from a notification).
+enum PendingURL { static var value: URL? }
 
 let portalURL = URL(string: "https://abayadesignstudio.github.io/abaya-portal/portal/")!
 private let allowedHosts: Set<String> = ["abayadesignstudio.github.io", "ozowlkstprkvktosetci.supabase.co"]
@@ -64,6 +100,7 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
         web.load(URLRequest(url: portalURL))
 
         NotificationCenter.default.addObserver(self, selector: #selector(openedFromURL(_:)), name: .abayaOpenURL, object: nil)
+        if let u = PendingURL.value { PendingURL.value = nil; handle(u) }
         TripTracker.shared.onChange = { [weak self] in self?.send($0) }
         Recorder.shared.onChange = { [weak self] in self?.send($0) }
         LiveTimer.shared.report = { [weak self] in NSLog("ABAYA-LIVE %@", "\($0)"); self?.send($0) }
@@ -94,6 +131,11 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
     @objc private func openedFromURL(_ note: Notification) {
         // abaya://timer (tapping the Live Activity) → the Time tab; abaya://action/<name> (widgets) → that quick action
         guard let url = note.object as? URL else { return }
+        PendingURL.value = nil
+        handle(url)
+    }
+
+    private func handle(_ url: URL) {
         if url.host == "timer" {
             web.evaluateJavaScript("try{localStorage.setItem('abaya.m.tab','time')}catch(e){};location.hash='#/'", completionHandler: nil)
         } else if url.host == "action", let name = url.pathComponents.dropFirst().first {

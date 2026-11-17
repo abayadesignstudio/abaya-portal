@@ -230,7 +230,11 @@ struct AgendaProvider: TimelineProvider {
         }
     }
     private func load() async -> AgendaEntry {
-        do { return AgendaEntry(date: .now, feed: try await WidgetLink.call("feed"), linked: true) }
+        do {
+            let feed = try await WidgetLink.call("feed")
+            DailyBrief.schedule(from: feed)
+            return AgendaEntry(date: .now, feed: feed, linked: true)
+        }
         catch WidgetLink.LinkError.notLinked { return AgendaEntry(date: .now, feed: nil, linked: false) }
         catch { return AgendaEntry(date: .now, feed: nil, linked: true) }
     }
@@ -248,7 +252,7 @@ struct AgendaWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "AbayaAgenda", provider: AgendaProvider()) { e in AgendaView(entry: e) }
             .configurationDisplayName("Abaya agenda + timer")
-            .description("Your tasks, meetings, milestones and deliverables, with the timer.")
+            .description("Medium: upcoming items beside the timer. Large: today's schedule on top, timers below.")
             .supportedFamilies([.systemMedium, .systemLarge])
     }
 }
@@ -277,11 +281,21 @@ struct AgendaView: View {
     @Environment(\.widgetFamily) private var family
     let entry: AgendaEntry
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            AgendaList(entry: entry, max: family == .systemLarge ? 12 : 4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            TimerPanel(entry: entry)
-                .frame(width: family == .systemLarge ? 140 : 132)
+        Group {
+            if family == .systemLarge {
+                // Large: today's schedule on top, timers across the bottom.
+                VStack(alignment: .leading, spacing: 10) {
+                    TodayList(entry: entry).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    TimerStrip(entry: entry)
+                }
+            } else {
+                HStack(alignment: .top, spacing: 10) {
+                    AgendaList(entry: entry, max: 4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    TimerPanel(entry: entry)
+                        .frame(width: 132)
+                }
+            }
         }
         .containerBackground(for: .widget) { Color(red: 0.11, green: 0.12, blue: 0.13) }
         .widgetURL(URL(string: "abaya://action/calendar"))
@@ -308,12 +322,7 @@ private struct AgendaList: View {
                             Text(dayLabel(it.day, today: entry.feed?.today)).font(.caption2.weight(.bold)).foregroundColor(.secondary)
                                 .padding(.top, i == 0 ? 0 : 3)
                         }
-                        HStack(spacing: 5) {
-                            RoundedRectangle(cornerRadius: 1.5).fill(hex(it.color)).frame(width: 3, height: 14)
-                            Image(systemName: kindSymbol(it.kind)).font(.system(size: 8)).foregroundColor(hex(it.color))
-                            if let t = clock12(it.time) { Text(t).font(.caption2.monospacedDigit()).foregroundColor(.secondary) }
-                            Text(it.title).font(.caption).foregroundColor(it.overdue == true ? Color(red: 1, green: 0.45, blue: 0.4) : .white).lineLimit(1)
-                        }
+                        AgendaRow(item: it)
                     }
                     if items.count > shown.count { Text("+\(items.count - shown.count) more").font(.caption2).foregroundColor(.secondary) }
                 }
@@ -394,4 +403,117 @@ private struct PickButton: View {
         }
         .buttonStyle(.plain)
     }
+}
+
+private struct AgendaRow: View {
+    let item: Feed.Item
+    var big = false
+    var body: some View {
+        HStack(spacing: big ? 6 : 5) {
+            RoundedRectangle(cornerRadius: 1.5).fill(hex(item.color)).frame(width: 3, height: big ? 17 : 14)
+            Image(systemName: kindSymbol(item.kind)).font(.system(size: big ? 10 : 8)).foregroundColor(hex(item.color))
+            if let t = clock12(item.time) {
+                Text(t).font((big ? Font.footnote : .caption2).monospacedDigit()).foregroundColor(.secondary)
+            }
+            Text(item.title).font(big ? .footnote : .caption)
+                .foregroundColor(item.overdue == true ? Color(red: 1, green: 0.45, blue: 0.4) : .white).lineLimit(1)
+        }
+    }
+}
+
+// MARK: Large widget — top: today's schedule; bottom: timers
+
+private struct TodayList: View {
+    let entry: AgendaEntry
+    private let max = 8
+    var body: some View {
+        if !entry.linked {
+            Text("Open the Abaya app once to link this widget.").font(.caption).foregroundColor(.secondary)
+        } else if let feed = entry.feed, let all = feed.items {
+            let today = feed.today ?? ""
+            let items = all.filter { $0.day == today }
+            VStack(alignment: .leading, spacing: 5) {
+                Text(dayLabel(today, today: today) + "  ·  " + headerDate(today))
+                    .font(.caption.weight(.bold)).foregroundColor(.secondary)
+                if items.isEmpty {
+                    Text("Nothing scheduled today").font(.footnote).foregroundColor(.secondary)
+                    if let next = all.first(where: { $0.day > today }) {
+                        Text("NEXT · " + dayLabel(next.day, today: today)).font(.caption2.weight(.bold)).foregroundColor(.secondary).padding(.top, 4)
+                        AgendaRow(item: next, big: true)
+                    }
+                } else {
+                    ForEach(Array(items.prefix(max).enumerated()), id: \.offset) { _, it in AgendaRow(item: it, big: true) }
+                    if items.count > max {
+                        Text("+\(items.count - max) more today").font(.caption2).foregroundColor(.secondary)
+                    }
+                }
+            }
+        } else {
+            Text("Couldn't load. Pull down later.").font(.caption).foregroundColor(.secondary)
+        }
+    }
+    private func headerDate(_ day: String) -> String {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = TimeZone(identifier: "America/Chicago")
+        guard let d = f.date(from: day) else { return "" }
+        let o = DateFormatter(); o.dateFormat = "EEE MMM d"; o.timeZone = f.timeZone
+        return o.string(from: d).uppercased()
+    }
+}
+
+private struct TimerStrip: View {
+    @Environment(\.widgetRenderingMode) private var mode
+    let entry: AgendaEntry
+    private var full: Bool { mode == .fullColor }
+    private let cols = [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let t = entry.feed?.timer {
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 4) {
+                            Text(t.code).font(.caption2.weight(.bold)).foregroundColor(full ? navy : .primary)
+                                .padding(.horizontal, 4).background(RoundedRectangle(cornerRadius: 3).fill(full ? cream : Color.white.opacity(0.25)))
+                            Text(t.paused ? "Paused" : "Running").font(.caption2).foregroundColor(t.paused ? .secondary : green)
+                        }
+                        Text(t.title).font(.caption.weight(.semibold)).lineLimit(1)
+                        Group {
+                            if t.paused { Text(fmt(t.elapsed)) }
+                            else { Text(timerInterval: entry.date.addingTimeInterval(-t.elapsed)...entry.date.addingTimeInterval(86400 * 7), countsDown: false) }
+                        }
+                        .font(.title3.monospacedDigit().weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                        HStack(spacing: 6) {
+                            Button(intent: TimerControlIntent(t.paused ? "resume" : "pause")) {
+                                Image(systemName: t.paused ? "play.fill" : "pause.fill").frame(maxWidth: .infinity, minHeight: 26)
+                            }.tint(Color.white.opacity(0.22))
+                            Button(intent: TimerControlIntent("stop")) {
+                                Image(systemName: "stop.fill").frame(maxWidth: .infinity, minHeight: 26)
+                            }.tint(Color(red: 0.84, green: 0.24, blue: 0.2))
+                        }
+                        .buttonStyle(.borderedProminent).foregroundColor(.white)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    let picks = (entry.feed?.recents ?? []).filter { !($0.code == t.code && $0.title == t.title) }
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("SWITCH TO").font(.caption2.weight(.bold)).foregroundColor(.secondary)
+                        ForEach(picks.prefix(3), id: \.self) { p in PickButton(pick: p) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                Text("START TIMER").font(.caption2.weight(.bold)).foregroundColor(.secondary)
+                if let picks = entry.feed?.recents, !picks.isEmpty {
+                    LazyVGrid(columns: cols, alignment: .leading, spacing: 6) {
+                        ForEach(picks.prefix(6), id: \.self) { p in PickButton(pick: p) }
+                    }
+                } else {
+                    Text("Start a timer in the app once; your recent tasks show up here.").font(.caption2).foregroundColor(.secondary)
+                }
+            }
+        }
+        .foregroundColor(.white)
+        .padding(9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14).fill(full ? navy : Color.white.opacity(0.1)))
+    }
+    private func fmt(_ t: Double) -> String { let s = Int(t); return String(format: "%d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60) }
 }
