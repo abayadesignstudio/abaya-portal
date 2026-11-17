@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import ObjectiveC
 
 let home = URL(string: "https://lotmstudy.org/next/")!
 
@@ -31,6 +32,7 @@ final class WebModel: ObservableObject {
         view.allowsBackForwardNavigationGestures = false
         view.isOpaque = false
         view.backgroundColor = UIColor(red: 0.953, green: 0.929, blue: 0.875, alpha: 1)
+        view.hideKeyboardAccessoryBar()
         view.load(URLRequest(url: home))
     }
     /// lotm://post/<id>, lotm://notebook/new?text=… → the same screens in the web app.
@@ -87,5 +89,27 @@ struct WebView: UIViewRepresentable {
             var top = root; while let p = top?.presentedViewController { top = p }
             top?.present(a, animated: true)
         }
+    }
+}
+
+// iOS puts its own "‹ › Done" bar above the keyboard for web text fields. The app has its own
+// writing toolbar, so swap WebKit's content view for a subclass that returns no accessory view.
+private final class NoAccessory: NSObject { @objc var inputAccessoryView: AnyObject? { nil } }
+extension WKWebView {
+    func hideKeyboardAccessoryBar() {
+        guard let content = scrollView.subviews.first(where: { String(describing: type(of: $0)).hasPrefix("WKContent") }),
+              let base = object_getClass(content) else { return }
+        let name = "\(base)_LOTMNoAccessory"
+        var cls: AnyClass? = NSClassFromString(name)
+        if cls == nil, let c = objc_allocateClassPair(base, name, 0) {
+            if let m = class_getInstanceMethod(NoAccessory.self, #selector(getter: NoAccessory.inputAccessoryView)) {
+                class_addMethod(c, #selector(getter: NoAccessory.inputAccessoryView), method_getImplementation(m), method_getTypeEncoding(m))
+            }
+            objc_registerClassPair(c); cls = c
+        }
+        if let cls { object_setClass(content, cls) }
+        // iPad: drop the shortcut (undo/redo/paste) bar too.
+        content.inputAssistantItem.leadingBarButtonGroups = []
+        content.inputAssistantItem.trailingBarButtonGroups = []
     }
 }
