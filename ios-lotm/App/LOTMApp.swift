@@ -19,21 +19,39 @@ struct LOTMApp: App {
     }
 }
 
-final class WebModel: ObservableObject {
+final class WebModel: NSObject, ObservableObject {
     let view: WKWebView
-    init() {
+    override init() {
         let cfg = WKWebViewConfiguration()
         cfg.allowsInlineMediaPlayback = true
         cfg.websiteDataStore = .default()
         cfg.applicationNameForUserAgent = "LifeOfTheMindApp/1.0"
         view = WKWebView(frame: .zero, configuration: cfg)
+        super.init()
         view.scrollView.contentInsetAdjustmentBehavior = .never
-        view.scrollView.bounces = false
+        view.scrollView.bounces = true
+        view.scrollView.alwaysBounceVertical = true
+        // Tan behind the masthead when pulling down, so the gap matches the header.
+        let top = UIView(frame: CGRect(x: 0, y: -2000, width: 4000, height: 2000))
+        top.backgroundColor = UIColor(red: 0.478, green: 0.404, blue: 0.282, alpha: 1)
+        top.autoresizingMask = [.flexibleWidth]
+        view.scrollView.insertSubview(top, at: 0)
+        let refresh = UIRefreshControl()
+        refresh.tintColor = UIColor(red: 0.984, green: 0.965, blue: 0.918, alpha: 1)
+        refresh.addTarget(self, action: #selector(pulled(_:)), for: .valueChanged)
+        view.scrollView.refreshControl = refresh
         view.allowsBackForwardNavigationGestures = false
         view.isOpaque = false
         view.backgroundColor = UIColor(red: 0.953, green: 0.929, blue: 0.875, alpha: 1)
         view.hideKeyboardAccessoryBar()
         view.load(URLRequest(url: home))
+    }
+    /// Pull to refresh: the visible tab reloads its data (falls back to a full reload).
+    @objc func pulled(_ c: UIRefreshControl) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        view.callAsyncJavaScript("if (window.lotmRefresh) { await window.lotmRefresh() } else { location.reload() }", arguments: [:], in: nil, in: .page) { _ in
+            DispatchQueue.main.async { c.endRefreshing() }
+        }
     }
     /// lotm://post/<id>, lotm://notebook/new?text=… → the same screens in the web app.
     func handle(_ url: URL) {
