@@ -6,8 +6,8 @@ final class ShareViewController: UIViewController {
     private let text = UITextView()
     private var url: String?
     private var pageTitle: String?
-    private let tan = UIColor(red: 0.478, green: 0.404, blue: 0.282, alpha: 1)
-    private let paper = UIColor(red: 0.953, green: 0.929, blue: 0.875, alpha: 1)
+    private let tan = UIColor(red: 0.302, green: 0.325, blue: 0.188, alpha: 1)
+    private let paper = UIColor(red: 0.812, green: 0.816, blue: 0.659, alpha: 1)
     private let ink = UIColor(red: 0.161, green: 0.145, blue: 0.122, alpha: 1)
 
     override func viewDidLoad() {
