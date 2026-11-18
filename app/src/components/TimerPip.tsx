@@ -42,7 +42,7 @@ export function TimerPipView({ api, win, onBack }: { api: TimerApi; win: Window;
     <div className={'pip' + (r ? (api.paused ? ' paused' : ' run') : '')}>
       <button type="button" className="pip-back" onClick={onBack} aria-label="Back to the portal" title="Back to the portal">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M15 9l-6 6M9 10v5h5" /></svg></button>
-      <div className="pip-clock num">{r ? api.clock : chosen ? toClock(chosen.minutes) : '00:00:00'}</div>
+      <div className="pip-clock num">{r ? api.clock : chosen ? toClock(chosen.minutes) : '00:00'}</div>
       {!r && today.length > 1
         ? <select className="pip-task" aria-label="Task" value={chosen?.key ?? ''} onChange={(e) => setPick(e.target.value)}>{today.map((t) => <option key={t.key} value={t.key}>{taskName(t)}</option>)}</select>
         : <div className="pip-label" title={label}>{proj && proj.number !== 'OH' && <span className="pip-chip" style={{ background: sectorColor(proj.sector) }} />}{label}</div>}
@@ -61,4 +61,4 @@ export function TimerPipView({ api, win, onBack }: { api: TimerApi; win: Window;
     </div>, win.document.body)
 }
 const Play = () => <svg width="15" height="16" viewBox="0 0 12 13" aria-hidden="true"><path d="M2 1l9 5.5L2 12z" fill="currentColor" /></svg>
-const toClock = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}:00`
+const toClock = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`

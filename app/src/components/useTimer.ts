@@ -14,7 +14,8 @@ export const EMPTY_FIELDS: TimerFields = { project_id: '', phase_id: '', role_la
 /** Today's logged time, one line per task (project · phase · role · activity), newest first. */
 export type TodayTask = { key: string; project_id: string; phase_id: string | null; role_label: string | null; activity: string | null; minutes: number; last: string
   projects: { number: string; name: string; sector: string | null } | null; phases: { code: string } | null }
-export const clockOf = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` }
+/** HH:MM (no seconds, firm-wide) */
+export const clockOf = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}` }
 
 /** Shared timer state. Every instance (sidebar popover, phone bar) reads the same `timers` row
  *  and re-reads it whenever any instance announces a change, so they stay in sync. */

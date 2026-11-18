@@ -200,7 +200,7 @@ function TimeScreen({ api, me, onEdit }: { api: TimerApi; me: string; onEdit: (c
           </div>
           <div className="m-sub">{oh ? c.activity || 'Overhead' : [c.phases ? phaseLabel(c.phases) : null, c.activity].filter(Boolean).join(' · ') || '—'}</div>
           <div className="m-card-bot"><span className="muted">{c.role_label ?? ''}</span>
-            <span className="row" style={{ gap: 10 }}><b className="num m-time">{on ? api.clock.slice(0, 5) : hm(c.minutes)}</b>
+            <span className="row" style={{ gap: 10 }}><b className="num m-time">{on ? api.clock : hm(c.minutes)}</b>
               <button type="button" className="m-ico m-edit" aria-label="Edit time" onClick={() => onEdit({ ...c, day })}><IconPen /></button></span></div>
         </article> })}
       {week.data && cards.length === 0 && <p className="muted m-empty">No time on this day. Tap + to add an entry.</p>}
