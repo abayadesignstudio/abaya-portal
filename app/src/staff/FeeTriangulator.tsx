@@ -100,7 +100,7 @@ export default function FeeTriangulator({ onCreateAgreement }: { onCreateAgreeme
     setCur({ id: cur.id, name: name.trim() }); setMsg('Saved.'); saved.reload()
   }
   const open = (x: Saved) => { setS({ ...EMPTY, ...x.inputs, split: { ...DEFAULT_SPLIT, ...(x.inputs.split ?? {}) }, rows: (x.inputs.rows?.length ? x.inputs.rows : [newRow()]).map((r) => ({ ...r, key: r.key || newRow().key })) }); setCur({ id: x.id, name: x.name }); setName(x.name); setErr(''); setMsg('') }
-  const startNew = () => { setS((o) => ({ ...EMPTY, rows: [newRow()], split: o.split })); setCur(null); setName(''); setErr(''); setMsg('') }
+  const startNew = () => { setS({ ...EMPTY, rows: [newRow()], split: { ...DEFAULT_SPLIT } }); setCur(null); setName(''); setErr(''); setMsg('') } // blank slate: no name, inputs, or custom phase split
   const rename = async (x: Saved) => {
     const n = window.prompt('Rename this fee', x.name)?.trim(); if (!n || n === x.name) return
     const { error } = await supabase.from('fee_estimates').update({ name: n }).eq('id', x.id)
@@ -123,7 +123,7 @@ export default function FeeTriangulator({ onCreateAgreement }: { onCreateAgreeme
       <div className="ft-main">
       <div className="row between" style={{ alignItems: 'baseline' }}>
         <h2 id="ft-h" style={{ margin: 0 }}>Fee triangulator</h2>
-        <button type="button" className="linkbtn" onClick={startNew}>New / clear</button>
+        <button type="button" className="btn secondary small" onClick={startNew} title="Start a blank fee. Saved fees stay in the list.">+ New</button>
       </div>
       <p className="muted" style={{ margin: '4px 0 0', fontSize: 14 }}>Price the job three ways. The middle shows the average of the methods you fill in.</p>
       <div className="ft-save">
