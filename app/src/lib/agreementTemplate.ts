@@ -6,12 +6,15 @@
 export type Clause = { id: string; num?: string; title: string; std: string; kind: string; sub: boolean }
 export type Section = { n: number; title: string; initial?: boolean; clauses: Clause[] }
 export type PhaseDoc = { on: boolean; meet: number | string; rev: number | string; scope: string; deliv: string }
-export type Payment = { label: string; due: string; phase: string; pct: string }
+/** phases: the phase codes this payment covers (grouping only; the phase fees come from DocState.split) */
+export type Payment = { label: string; due: string; phase: string; pct: string; phases?: string[] }
 export type Custom = { sec: string; secTitle?: string; title: string; body: string }
 export type DocState = {
   v: Record<string, string>
   ph: Record<string, PhaseDoc>
   pay: Payment[]
+  /** fee by phase (% of the total fee per phase code). Sets the project's phase fees; the payment schedule only groups them for billing. */
+  split?: Record<string, string>
   ex: { t: string; on: boolean }[]
   off: Record<string, boolean>
   edits: Record<string, string>

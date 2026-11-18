@@ -84,6 +84,11 @@ export function build(doc: DocState) {
   secs.forEach((s) => s.clauses.forEach((c) => c.missing.forEach((l) => issues.push({ t: `${c.num} — fill in “${l}”`, sec: s.n, cl: c.id }))))
   if (!onCount) issues.push({ t: '2.11 — no phase selected', sec: 2, cl: '2.11' })
   if (pctSum !== 100) issues.push({ t: `6.2 — payments add up to ${pctSum}%, not 100%`, sec: 6, cl: '6.2' })
+  if (doc.split) {
+    const on = PHN.map(([k]) => k).filter((k) => doc.ph[k]?.on)
+    const ss = Math.round(on.reduce((a, k) => a + (+(doc.split?.[k] ?? 0) || 0), 0) * 100) / 100
+    if (Math.abs(ss - 100) >= 0.01) issues.push({ t: `6.2 — fee by phase adds up to ${ss}%, not 100%`, sec: 6, cl: '6.2' })
+  }
   if (!fee) issues.push({ t: '6.2 — total fee is $0', sec: 6, cl: '6.2' })
   const changes = secs.flatMap((s) => s.clauses).filter((c) => c.off || c.modified || c.added)
   return { secs, FP, fee, pctSum, issues, changes, onCount }
@@ -530,9 +535,75 @@ function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model
   </>
   if (c.kind === 'fees') {
     const fee = +v.fee || 0
+    const onCodes = PHN.map(([k]) => k).filter((k) => doc.ph[k]?.on)
+    const nameOf = (k: string) => PHN.find(([x]) => x === k)?.[1] ?? k
+    const split = doc.split
+    const splitSum = split ? Math.round(onCodes.reduce((a, k) => a + (+split[k] || 0), 0) * 100) / 100 : 0
+    const pctOf = (codes: string[]) => Math.round(codes.reduce((a, k) => a + (+(split?.[k] ?? 0) || 0), 0) * 100) / 100
+    const STD: Record<string, number> = { CE: 10, SD: 15, DD: 20, CD: 40, BN: 5, PM: 0, CA: 20 }
+    const startSplit = () => up((d) => {
+      const byName = Object.fromEntries(PHN.map(([k, n]) => [n.toLowerCase(), k]))
+      const one = d.pay.map((x) => (x.phases?.length === 1 ? x.phases[0] : byName[String(x.phase ?? '').trim().toLowerCase()]))
+      if (d.pay.length && one.every(Boolean)) { d.split = Object.fromEntries(d.pay.map((x, i) => [one[i]!, String(+x.pct || 0)])); return }
+      const base = onCodes.map((k) => [k, STD[k] ?? 0] as const), t = base.reduce((a, [, x]) => a + x, 0) || 1
+      d.split = Object.fromEntries(base.map(([k, x]) => [k, String(Math.round(x / t * 10000) / 100)]))
+    })
+    // payment groupings: they only decide when the client pays; the phase fees stay as split above
+    const preset = (mode: 'each' | 'two' | 'one') => up((d) => {
+      // no split yet but one payment per phase: keep those phase values as the split before regrouping
+      if (!d.split) {
+        const byName = Object.fromEntries(PHN.map(([k, n]) => [n.toLowerCase(), k]))
+        const one = d.pay.map((x) => (x.phases?.length === 1 ? x.phases[0] : byName[String(x.phase ?? '').trim().toLowerCase()]))
+        if (d.pay.length && one.every(Boolean)) d.split = Object.fromEntries(d.pay.map((x, i) => [one[i]!, String(+x.pct || 0)]))
+      }
+      const pc = (codes: string[]) => d.split ? String(pctOf(codes)) : ''
+      if (mode === 'each') d.pay = onCodes.map((k, i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${nameOf(k)}`, phase: nameOf(k), pct: pc([k]) || String(Math.round(100 / onCodes.length * 100) / 100), phases: [k] }))
+      else if (mode === 'one') d.pay = [{ label: 'Payment 1', due: 'Due at contract signing', phase: onCodes.map(nameOf).join(', '), pct: '100', phases: onCodes }]
+      else {
+        // first payment: phases up to about half the fee; second: the rest
+        let run = 0; const first: string[] = []
+        for (const k of onCodes) { if (first.length && run >= 50) break; first.push(k); run += +(d.split?.[k] ?? 0) || 0 }
+        const rest = onCodes.filter((k) => !first.includes(k))
+        const g2 = rest.length ? rest : []
+        d.pay = d.split && g2.length
+          ? [{ label: 'Payment 1', due: `Due at completion of ${nameOf(first[first.length - 1])}`, phase: first.map(nameOf).join(', '), pct: pc(first), phases: first },
+             { label: 'Payment 2', due: `Due at completion of ${nameOf(g2[g2.length - 1])}`, phase: g2.map(nameOf).join(', '), pct: pc(g2), phases: g2 }]
+          : [{ label: 'Payment 1 (Down Payment)', due: 'Due at contract signing', phase: '', pct: '50', phases: [] }, { label: 'Payment 2', due: 'Due prior to release of final drawings', phase: '', pct: '50', phases: [] }]
+      }
+    })
+    const toggle = (i: number, k: string) => up((d) => {
+      const ps = new Set(d.pay[i].phases ?? []); if (ps.has(k)) ps.delete(k); else ps.add(k)
+      const codes = onCodes.filter((x) => ps.has(x))
+      d.pay[i].phases = codes; d.pay[i].phase = codes.map(nameOf).join(', ')
+      if (d.split && codes.length) d.pay[i].pct = String(pctOf(codes))
+    })
+    const covered = new Set(doc.pay.flatMap((p) => p.phases ?? []))
+    const uncovered = split ? onCodes.filter((k) => (+split[k] || 0) > 0 && !covered.has(k)) : []
     return <>
       <Field id="ag-fee" label="Total fee ($)"><input id="ag-fee" type="number" min={0} step={50} className="input" value={v.fee} onChange={setV('fee')} /></Field>
-      {doc.pay.map((p, i) => { const set = (k: keyof typeof p) => (e: React.ChangeEvent<HTMLInputElement>) => { const val = e.target.value; up((d) => { d.pay[i][k] = val }) }
+
+      <div className="ag-split">
+        <strong style={{ fontSize: 14 }}>Fee by phase</strong>
+        <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>What each phase is worth. This sets the project’s phase fees (Overview, Budget, client portal). The payments below only group phases for billing.</p>
+        {!split ? <button type="button" className="btn small secondary" onClick={startSplit}>Split the fee by phase</button> : <>
+          {onCodes.map((k) => <div key={k} className="ag-split-row">
+            <label htmlFor={'sp-' + k}><strong>{k}</strong> <span className="muted">{nameOf(k)}</span></label>
+            <input id={'sp-' + k} type="number" min={0} max={100} step={0.5} className="input num" value={split[k] ?? '0'} onChange={(e) => { const val = e.target.value; up((d) => { d.split = { ...(d.split ?? {}), [k]: val }
+              d.pay.forEach((p) => { if ((p.phases?.length ?? 0) > 0) p.pct = String(Math.round((p.phases ?? []).reduce((a, c) => a + (+(d.split?.[c] ?? 0) || 0), 0) * 100) / 100) }) }) }} />
+            <span className="num">{money(fee * (+split[k] || 0) / 100)}</span></div>)}
+          <div className="ag-split-row" style={{ fontWeight: 700 }}><span>Total</span><span className="num" style={{ color: Math.abs(splitSum - 100) < 0.01 ? undefined : RED }}>{splitSum}%</span><span className="num">{money(fee * splitSum / 100)}</span></div>
+          {Math.abs(splitSum - 100) >= 0.01 && <p className="err" style={{ margin: 0, fontSize: 12.5 }}>The phases add up to {splitSum}%, not 100%.</p>}
+        </>}
+      </div>
+
+      <div className="row between" style={{ marginTop: 6 }}><strong style={{ fontSize: 14 }}>Payment schedule</strong></div>
+      <div className="row" style={{ gap: 6 }} role="group" aria-label="Group payments">
+        <button type="button" className="btn small secondary" onClick={() => preset('each')}>One per phase</button>
+        <button type="button" className="btn small secondary" onClick={() => preset('two')}>Two payments</button>
+        <button type="button" className="btn small secondary" onClick={() => preset('one')}>One payment</button>
+      </div>
+      {split && <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>Tick the phases each payment covers; its % fills in from the phase fees. {uncovered.length > 0 && <span style={{ color: RED }}>Not in any payment yet: {uncovered.join(', ')}.</span>}</p>}
+      {doc.pay.map((p, i) => { const set = (k: 'label' | 'due' | 'phase' | 'pct') => (e: React.ChangeEvent<HTMLInputElement>) => { const val = e.target.value; up((d) => { d.pay[i][k] = val }) }
         return (
           <div key={i} className="ag-f" style={{ border: '1px solid #e4e0d8', borderRadius: 8, padding: '8px 10px', background: '#fff' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 70px', gap: 8 }}>
@@ -540,11 +611,14 @@ function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model
               <Field id={'pc-' + i} label="%"><input id={'pc-' + i} type="number" min={0} max={100} className="input" value={p.pct} onChange={set('pct')} /></Field>
             </div>
             <Field id={'pd-' + i} label="When due"><input id={'pd-' + i} className="input" value={p.due} onChange={set('due')} /></Field>
-            <Field id={'pp-' + i} label="Phases covered"><input id={'pp-' + i} className="input" value={p.phase} onChange={set('phase')} /></Field>
+            <div className="ag-chips" role="group" aria-label={`Phases in ${p.label || 'this payment'}`}>
+              {onCodes.map((k) => <button key={k} type="button" aria-pressed={(p.phases ?? []).includes(k)} onClick={() => toggle(i, k)} title={nameOf(k)}>{k}</button>)}
+            </div>
+            <Field id={'pp-' + i} label="Phases covered (as printed)"><input id={'pp-' + i} className="input" value={p.phase} onChange={set('phase')} /></Field>
             <div className="row between"><strong className="num" style={{ fontSize: 14 }}>{money(fee * (+p.pct || 0) / 100)}</strong>
               <RowMenu label={`Actions for ${p.label || 'payment'}`} items={[{ label: 'Remove payment', danger: true, onSelect: () => up((d) => { d.pay.splice(i, 1) }) }]} /></div>
           </div>) })}
-      <div><button type="button" className="btn small secondary" onClick={() => up((d) => { d.pay.push({ label: `Payment ${d.pay.length + 1}`, due: 'Due ', phase: '', pct: '0' }) })}>+ Add payment</button></div>
+      <div><button type="button" className="btn small secondary" onClick={() => up((d) => { d.pay.push({ label: `Payment ${d.pay.length + 1}`, due: 'Due ', phase: '', pct: '0', phases: [] }) })}>+ Add payment</button></div>
     </>
   }
   if (c.kind === 'rates') return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>

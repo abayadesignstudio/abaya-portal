@@ -16,7 +16,7 @@ import { useAuth } from '../lib/auth'
 import UpdateCard from '../client/UpdateCard'
 import BudgetTab, { TeamTable, type Person as TeamPerson } from './budget/BudgetTab'
 import './budget.css'
-import { linkedAgreements, contractFee, syncPctPhases, round2, perPhaseSchedule } from '../lib/fees'
+import { linkedAgreements, contractFee, syncPctPhases, round2, perPhaseSchedule, hasFeeSplit } from '../lib/fees'
 import FeeChanges from './FeeChanges'
 import { projectEstimates, estimateAvg } from '../lib/feeSeed'
 import { sortPhases, fmtDate, signedPhotoUrls, uid, extOf,
@@ -206,7 +206,7 @@ export default function ProjectDetail() {
       {(signedAg || sentAg || draftAg) && <div className={'fee-src' + (signedAg || sentAg ? ' locked' : '')} role="note">
         {signedAg ? <><strong>🔒 Fees are locked.</strong> <span>The client signed <Link to={`/proposals/${signedAg.id}`}>{signedAg.title}</Link>. Phase fees, hourly not-to-exceed amounts and additional services change only through a fee change the client signs.</span></>
           : sentAg ? <><strong>🔒 Out for signature.</strong> <span><Link to={`/proposals/${sentAg.id}`}>{sentAg.title}</Link> is with the client, so its fees are locked. To change them, unpublish it on the agreement page.</span></>
-          : fromSchedule ? <><strong>Fees come from the agreement.</strong> <span>The payment schedule of <Link to={`/proposals/${draftAg!.id}`}>{draftAg!.title}</Link> has one payment per phase, so it sets each phase’s fee. Change fees there.</span></>
+          : fromSchedule ? <><strong>Fees come from the agreement.</strong> <span>{hasFeeSplit(draftAg!) ? <>The <em>Fee by phase</em> split</> : <>The payment schedule (one payment per phase)</>} of <Link to={`/proposals/${draftAg!.id}`}>{draftAg!.title}</Link> sets each phase’s fee; its payments only group phases for billing. Change fees there.</span></>
           : <><strong>Fees follow the agreement total.</strong> <span>The payment schedule of <Link to={`/proposals/${draftAg!.id}`}>{draftAg!.title}</Link> combines phases, so split its {money(Number(draftAg!.total_fee ?? 0))} into phases here (percentages follow the total). The phases must add up to the fee before it can be published.</span></>}
       </div>}
       <FeeChanges projectId={p.id} signed={!!signedAg} onChanged={reload}

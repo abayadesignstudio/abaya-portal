@@ -90,7 +90,11 @@ export default function Proposals() {
           if (seed.sf > 0 && !d.v.projSize) d.v.projSize = `${seed.sf.toLocaleString()} SF`
           Object.keys(d.ph).forEach((k) => { d.ph[k].on = seed.split.some(([u]) => u === k) })
           const nameOf = (k: string) => PHASES.find(([x]) => x === k)?.[1] ?? k
-          d.pay = seed.split.map(([k, v], i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${nameOf(k)}`, phase: nameOf(k), pct: String(v) }))
+          d.split = Object.fromEntries(seed.split.map(([k, v]) => [k, String(v)]))
+          // keep the draft's payment grouping when it already has one; otherwise one payment per phase
+          if (!d.pay?.some((x) => (x.phases?.length ?? 0) > 1) || d.pay.reduce((a, x) => a + (+x.pct || 0), 0) !== 100)
+            d.pay = seed.split.map(([k, v], i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${nameOf(k)}`, phase: nameOf(k), pct: String(v), phases: [k] }))
+          else d.pay = d.pay.map((x) => ({ ...x, pct: String(Math.round((x.phases ?? []).reduce((a, k) => a + (seed.split.find(([c]) => c === k)?.[1] ?? 0), 0) * 100) / 100) }))
           const { error } = await supabase.from('agreements').update({ doc: d, total_fee: seed.fee, updated_at: new Date().toISOString() }).eq('id', c.id)
           setBusy(false)
           if (error) return setErr(error.message)
@@ -110,7 +114,8 @@ export default function Proposals() {
       if (seed.sf > 0 && !doc.v.projSize) doc.v.projSize = `${seed.sf.toLocaleString()} SF`
       Object.keys(doc.ph).forEach((c) => { doc.ph[c].on = seed.split.some(([u]) => u === c) })
       const nameOf = (c: string) => PHASES.find(([x]) => x === c)?.[1] ?? c
-      doc.pay = seed.split.map(([c, v], i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${nameOf(c)}`, phase: nameOf(c), pct: String(v) }))
+      doc.split = Object.fromEntries(seed.split.map(([c, v]) => [c, String(v)]))
+      doc.pay = seed.split.map(([c, v], i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${nameOf(c)}`, phase: nameOf(c), pct: String(v), phases: [c] }))
     }
     const { data, error } = await supabase.from('agreements').insert({
       title: `${p.name} — Proposal`, project_id: p.id, client_id: p.client_id ?? null,

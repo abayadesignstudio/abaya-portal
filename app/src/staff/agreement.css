@@ -91,3 +91,12 @@
 .ag-doc table.ag-tbl{margin:6px auto 12px;border-collapse:collapse;text-align:center;font-size:13px}
 .ag-doc .ag-tbl th,.ag-doc .ag-tbl td{border:1px solid #000;padding:4px 10px}
 .ag-doc .ag-tbl thead th{background:#e6e6e6;font-weight:700;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+
+/* Fees panel: fee by phase (sets the project's phase fees) vs payment grouping */
+.ag-split{display:flex;flex-direction:column;gap:6px;border:1px solid #d8cfb4;background:#fbf8ef;border-radius:8px;padding:8px 10px}
+.ag-split-row{display:grid;grid-template-columns:minmax(0,1fr) 76px 100px;gap:8px;align-items:center;font-size:13.5px}
+.ag-split-row .input{padding:4px 6px;text-align:right}
+.ag-split-row > .num:last-child{text-align:right}
+.ag-chips{display:flex;flex-wrap:wrap;gap:4px;margin:2px 0 4px}
+.ag-chips button{min-width:40px;min-height:30px;border:1px solid #c9c3b4;border-radius:999px;background:#fff;font:700 12px Arial;color:#5b5b5b;cursor:pointer}
+.ag-chips button[aria-pressed="true"]{background:#02253d;border-color:#02253d;color:#fff}
