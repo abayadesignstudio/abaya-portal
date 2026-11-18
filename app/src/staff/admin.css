@@ -72,3 +72,28 @@
 .rnd-grid img,.rnd-ph{display:block;width:100%;aspect-ratio:16/10;object-fit:cover;background:#ece8de}
 .rnd-grid figcaption{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 8px;font-size:12px}
 .rnd-grid figcaption span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Sidebar collapse (desktop): toggle beside the logo; collapsed = 72 px icon rail */
+.brand-row{position:relative}
+.side-collapse{position:absolute;right:10px;top:4px;width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:none;color:#b6bfcd;cursor:pointer}
+.side-collapse:hover{background:rgba(255,255,255,.08);color:#ede6d6}
+.side-collapse:focus-visible{outline:3px solid #7aa2c2;outline-offset:1px}
+.brand-row .brand-logo{padding-right:52px}
+.side nav .nav-ic{display:none;flex:none}
+.rail-timer{display:none}
+@media (min-width:901px){
+  .shell.collapsed{grid-template-columns:72px minmax(0,1fr)}
+  .shell.collapsed .side{overflow-x:hidden}
+  .shell.collapsed .brand-row{display:flex;flex-direction:column;align-items:center;gap:6px;padding-bottom:12px;border-bottom:1px solid rgba(125,117,80,.5);margin-bottom:10px}
+  .shell.collapsed .brand-logo{padding:0;border:0;margin:0}
+  .shell.collapsed .brand-logo .wordmark,.shell.collapsed .side-label,.shell.collapsed .nav-l{display:none}
+  .shell.collapsed .side-collapse{position:static}
+  .shell.collapsed .side nav a{justify-content:center;padding:0;gap:0}
+  .shell.collapsed .side nav .nav-ic{display:block}
+  .shell.collapsed .rail-timer{display:flex;flex-direction:column;align-items:center;gap:2px;width:56px;margin:0 auto 12px;padding:8px 0;border:1px solid rgba(154,143,99,.5);border-radius:12px;background:none;color:#ede6d6;font:12px Arial;cursor:pointer}
+  .shell.collapsed .rail-timer.run{background:#039855;border-color:#039855;color:#fff}
+  .shell.collapsed .rail-timer.run.paused{background:#b54708;border-color:#b54708}
+  .shell.collapsed .side .me{flex-direction:column;padding:12px 0 0;gap:8px}
+  .shell.collapsed .side .me>div{display:none}
+}
+@media (max-width:900px){.side-collapse{display:none}}
