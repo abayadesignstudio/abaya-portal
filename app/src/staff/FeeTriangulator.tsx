@@ -31,7 +31,8 @@ const vsAvg = (v: number, m: number) => { if (!m || !v) return ''; const d = (v 
 const savedAvg = (x: { hourly_fee: number | null; sf_fee: number | null; pct_fee: number | null }) => mean([x.hourly_fee, x.sf_fee, x.pct_fee].map(Number).filter((v) => v > 0))
 
 /** What the triangulator hands to "New proposal": the fee, the area and the phase split. */
-export type FeeSeed = { name: string; fee: number; sf: number; split: [string, number][]; projectId?: string }
+export type { FeeSeed } from '../lib/feeSeed'
+import type { FeeSeed } from '../lib/feeSeed'
 
 export default function FeeTriangulator({ onCreateAgreement }: { onCreateAgreement: (seed: FeeSeed) => void }) {
   const people = useLoad(async () => must(await supabase.from('profiles').select('id, full_name, bill_rate').in('role', ['admin', 'staff']).order('full_name')) as Person[])

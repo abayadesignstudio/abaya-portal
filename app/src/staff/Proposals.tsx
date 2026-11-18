@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { projectEstimates, seedFromEstimate } from '../lib/feeSeed'
 import { supabase, money, SECTOR_COLOR, PHASES } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
@@ -38,6 +39,21 @@ export default function Proposals() {
   const [seed, setSeed] = useState<FeeSeed | null>(null)
   const takeSeed = (x: FeeSeed) => { setSeed(x); if (x.projectId) setProjectId(x.projectId); setErr(''); setTimeout(() => { document.getElementById('np-h')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); document.getElementById('np-proj')?.focus({ preventScroll: true }) }, 50) }
   const [err, setErr] = useState('')
+  // the project's saved fee (linked in the calculator) is used automatically when the proposal starts
+  const loc = useLocation()
+  useEffect(() => { const st = loc.state as { projectId?: string; estimateId?: string } | null; if (st?.projectId) setProjectId(st.projectId) }, [loc.state])
+  useEffect(() => {
+    if (!projectId || projectId === 'new' || (seed && !seed.auto && seed.projectId === projectId)) return
+    let live = true
+    projectEstimates(projectId).then((list) => {
+      if (!live) return
+      const want = (loc.state as { estimateId?: string } | null)?.estimateId
+      const x = list.find((e) => e.id === want) ?? list[0]
+      const sd = x ? seedFromEstimate(x) : null
+      setSeed(sd ? { ...sd, auto: true } : (s) => (s?.auto ? null : s))
+    }).catch(() => {})
+    return () => { live = false }
+  }, [projectId]) // eslint-disable-line react-hooks/exhaustive-deps
   const list = useLoad(async () => must(await supabase.from('agreements')
     .select('id, title, status, total_fee, updated_at, clients(name), projects(number, name, sector)').order('updated_at', { ascending: false })) as unknown as Row[])
   const projects = useLoad(async () => must(await supabase.from('projects')
@@ -163,7 +179,7 @@ export default function Proposals() {
       <section className="card pad stack" aria-labelledby="np-h">
         <h2 id="np-h">New proposal</h2>
         {seed && <div className="np-seed" role="status">
-          <span>Using the fee triangulator{seed.name ? <> (<strong>{seed.name}</strong>)</> : ''}: <strong className="num">{money(seed.fee)}</strong> across {seed.split.map(([c, v]) => `${c} ${v}%`).join(' · ')}. Choose the project, then Create proposal.</span>
+          <span>{seed.auto ? 'This project’s saved fee' : 'Using the fee triangulator'}{seed.name ? <> (<strong>{seed.name}</strong>)</> : ''}: <strong className="num">{money(seed.fee)}</strong> across {seed.split.map(([c, v]) => `${c} ${v}%`).join(' · ')}. {seed.auto ? 'The proposal starts from it.' : 'Choose the project, then Create proposal.'}</span>
           <button type="button" className="linkbtn" onClick={() => setSeed(null)}>Don’t use</button>
         </div>}
         <div className="row" style={{ alignItems: 'flex-end' }}>

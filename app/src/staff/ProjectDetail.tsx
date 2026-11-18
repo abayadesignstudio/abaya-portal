@@ -18,6 +18,7 @@ import BudgetTab, { TeamTable, type Person as TeamPerson } from './budget/Budget
 import './budget.css'
 import { linkedAgreements, contractFee, syncPctPhases, round2, perPhaseSchedule } from '../lib/fees'
 import FeeChanges from './FeeChanges'
+import { projectEstimates, estimateAvg } from '../lib/feeSeed'
 import { sortPhases, fmtDate, signedPhotoUrls, uid, extOf,
   type Update, type Drawing, type ContractItem, type Meeting, type ServiceRequest } from '../lib/projectContent'
 
@@ -56,11 +57,12 @@ export default function ProjectDetail() {
     const time = must(await supabase.from('time_entries').select('phase_id, profile_id, minutes, profiles(full_name, bill_rate)').eq('project_id', id!)) as unknown as Entry[]
     const invoices = must(await supabase.from('invoices').select('id, number, status, total, amount_paid, issue_date, due_date').eq('project_id', id!).order('issue_date', { ascending: false, nullsFirst: true })) as Inv[]
     const agreements = await linkedAgreements(id!)
+    const estimates = await projectEstimates(id!)
     // who's on each phase (set on the Budget tab): hours × rate as a share of the phase fee
     const allocs = phases.length ? must(await supabase.from('phase_allocations').select('phase_id, profile_id, hours').in('phase_id', phases.map((x) => x.id))) as { phase_id: string; profile_id: string; hours: number }[] : []
     const people = must(await supabase.from('profiles').select('id, full_name, email, initials, title, bill_rate, avatar_url').in('role', ['admin', 'staff']).order('full_name')) as TeamPerson[]
     const members = must(await supabase.from('project_members').select('profile_id, role_label, bill_rate').eq('project_id', id!)) as { profile_id: string; role_label: string | null; bill_rate: number | null }[]
-    return { p, phases, billed, time, invoices, agreements, allocs, people, members }
+    return { p, phases, billed, time, invoices, agreements, allocs, people, members, estimates }
   }, [id])
   // coming back to the Overview after changing things on another tab (team, budget): show the latest
   const firstTab = useRef(true)
@@ -75,7 +77,7 @@ export default function ProjectDetail() {
   }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
   if (error) return <p className="err">{error}</p>
   if (!data) return <p>Loading…</p>
-  const { p, phases, billed, time, invoices, agreements, allocs, people, members } = data
+  const { p, phases, billed, time, invoices, agreements, allocs, people, members, estimates } = data
   const mains = phases.filter((x) => x.code !== 'AS')
   const reorder = async (fromId: string, toId: string) => {
     const ids = mains.map((x) => x.id), from = ids.indexOf(fromId), to = ids.indexOf(toId)
@@ -178,6 +180,13 @@ export default function ProjectDetail() {
               <span><Link to={`/proposals/${g.id}`} style={{ fontWeight: 700 }}>{g.title}</Link> <span className="pill" style={{ marginLeft: 6 }}>{g.status[0].toUpperCase() + g.status.slice(1)}</span></span>
               <strong className="num">{money(Number(g.total_fee ?? 0))}</strong></li>))}
             {agreements.length > 1 && <li className="row between" style={{ padding: '6px 0', borderTop: '1px solid #ece9e3' }}><span className="muted">Total of linked agreements (voided ones don’t count)</span><strong className="num">{money(cf ?? 0)}</strong></li>}</ul>}
+        <h3 style={{ fontSize: 14, margin: '8px 0 0' }}>Fee calculations <span className="muted" style={{ fontWeight: 400 }}>· scratch work, not counted</span></h3>
+        {estimates.length === 0 ? <p className="muted" style={{ margin: 0, fontSize: 13 }}>None linked. In Proposals › Fee triangulator, pick this project next to the fee’s name.</p>
+          : <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{estimates.map((x, i) => (
+            <li key={x.id} className="row between" style={{ padding: '6px 0', borderTop: '1px solid #ece9e3', gap: 8 }}>
+              <span>{x.name}{i === 0 && <span className="muted" style={{ fontSize: 12 }}> · latest</span>}</span>
+              <span className="row" style={{ gap: 10 }}><strong className="num">{money(Math.round(estimateAvg(x)))}</strong>
+                {signedAg || sentAg ? null : <Link className="btn small secondary" to="/proposals" state={{ projectId: p.id, estimateId: x.id }}>{draftAg ? 'Apply to agreement' : 'Start proposal'}</Link>}</span></li>))}</ul>}
       </section>
       <section className="card pad stack" aria-labelledby="pi-h" style={{ gap: 8 }}>
         <div className="row between"><h2 id="pi-h" style={{ fontSize: 17 }}>Invoices <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {invoices.length}</span></h2>
