@@ -1,23 +1,15 @@
 import SwiftUI
 import WebKit
 
-// The native Feed and the app's own tab bar. Screens not yet native (Library, Directory, Settings, profiles, the
-// devotion…) are the web app, shown in place; the web tells the app which screen it is on.
-
-private extension Color {
-    init(hex: UInt32, a: Double = 1) { self.init(.sRGB, red: Double((hex >> 16) & 0xff) / 255, green: Double((hex >> 8) & 0xff) / 255, blue: Double(hex & 0xff) / 255, opacity: a) }
-}
-private enum F {
-    static let paper = Color(hex: 0x3b3e2a), card = Color(hex: 0x414530), ink = Color(hex: 0xf1eedd), muted = Color(hex: 0xc3c3a6)
-    static let rule = Color(hex: 0x4d4f37), like = Color(hex: 0xe08a98), tan = Color(hex: 0x2d301f), soft = Color(hex: 0x454832), cream = Color(hex: 0xf4f1e2)
-    static let green = Color(hex: 0x2f6b45), gold = Color(hex: 0xa8863f), wine = Color(hex: 0x8f4a4f)
-}
-
-// MARK: - Shell
+// The native Feed and tab bar, drawn to the app's own design (its stylesheet, fonts and icons): the masthead, the
+// story pills with their turning rings, the cards that drop from the top, the post cards and their pills, and the dock.
+// Screens not yet native are the web app, shown in place; the web tells the app which screen it is on.
 
 enum Tab: String { case feed, library, people, settings
     var route: String { switch self { case .feed, .settings: "/native"; case .library: "/reading"; case .people: "/people" } }
 }
+
+// MARK: - Shell
 
 struct Shell: View {
     @ObservedObject var web: WebModel
@@ -30,47 +22,51 @@ struct Shell: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
+            T.paper.ignoresSafeArea()
             FeedScreen(m: feed, web: web).opacity(web.tab == .feed ? 1 : 0).allowsHitTesting(web.tab == .feed && !overlay)
             if web.tab == .settings { SettingsScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
             WebView(model: web).ignoresSafeArea()
                 .opacity(showWeb ? 1 : 0).allowsHitTesting(showWeb)
-            if !overlay { TabBar(web: web, feed: feed).transition(.opacity) }
+            if !overlay { Dock(web: web, feed: feed).transition(.opacity) }
+            if let it = feed.detail { DropCard(it: it, m: feed, web: web).zIndex(5) }
         }
         .animation(.easeOut(duration: 0.18), value: showWeb)
         .animation(.easeOut(duration: 0.18), value: overlay)
-        .background(F.paper.ignoresSafeArea())
         .onAppear { feed.web = web.view; feed.open = { id, reply in web.openPost(id, people: feed.people, reply: reply) } }
         // Back from a web page (an edit, a profile) to the Feed: catch up quietly.
         .onChange(of: path) { old, new in if new == "/native" && old != "/native" { Task { await feed.load(quiet: true) } } }
     }
 }
 
-private struct TabBar: View {
+/// .dock — the floating bar: Feed, Library, the write button, Directory, Settings.
+private struct Dock: View {
     @ObservedObject var web: WebModel
     @ObservedObject var feed: FeedModel
     var body: some View {
         HStack(spacing: 0) {
-            item(.feed, "house.fill", "Feed")
-            item(.library, "book", "Library")
+            item(.feed, "feed", "Feed")
+            item(.library, "reading", "Library")
             Button {
                 Haptic.tap()
                 web.composer.present(name: feed.myName, avatar: feed.myAvatar)
             } label: {
-                Image(systemName: "pencil").font(.system(size: 20, weight: .semibold)).foregroundStyle(F.paper)
-                    .frame(width: 46, height: 46).background(Circle().fill(F.ink)).shadow(color: .black.opacity(0.3), radius: 6, y: 3)
-                    .frame(maxWidth: .infinity)
+                GlyphView(n: "pencil", s: 22).foregroundStyle(T.paper)
+                    .frame(width: 44, height: 44).background(Circle().fill(T.ink)).shadow(color: Color(rgb: 0x0c0e08, 0.3), radius: 6, y: 4)
+                    .frame(width: 60, height: 52)
             }
+            .buttonStyle(Press(scale: 0.92)).frame(maxWidth: .infinity)
             .accessibilityLabel("Write a post")
-            item(.people, "person.2", "Directory")
-            item(.settings, "gearshape", "Settings")
+            item(.people, "members", "Directory")
+            item(.settings, "settings", "Settings")
         }
         .padding(.horizontal, 8)
         .frame(width: min(362, UIScreen.main.bounds.width - 28), height: 68)
-        .background(.ultraThinMaterial, in: Capsule())
-        .background(Capsule().fill(Color(hex: 0x454934, a: 0.8)))
+        .background(.ultraThinMaterial.opacity(0.9), in: Capsule())
+        .background(Capsule().fill(Color(rgb: 0x454934, 0.8)))
         .overlay(Capsule().stroke(.white.opacity(0.16), lineWidth: 1))
-        .shadow(color: Color(hex: 0x0c0e08, a: 0.25), radius: 15, y: 10)
-        .padding(.bottom, 4)
+        .overlay(Capsule().inset(by: 1).stroke(LinearGradient(colors: [.white.opacity(0.12), .clear], startPoint: .top, endPoint: .center), lineWidth: 1))
+        .shadow(color: Color(rgb: 0x0c0e08, 0.18), radius: 15, y: 10)
+        .padding(.bottom, 2)
         .environment(\.colorScheme, .dark)
     }
     private func item(_ t: Tab, _ icon: String, _ label: String) -> some View {
@@ -80,248 +76,92 @@ private struct TabBar: View {
             if on && t == .feed { feed.scrollTop += 1; return }
             web.select(t)
         } label: {
-            Image(systemName: icon).font(.system(size: 23, weight: on ? .semibold : .regular))
-                .foregroundStyle(on ? F.ink : F.muted)
-                .frame(width: 60, height: 52).background(Capsule().fill(on ? Color.black.opacity(0.12) : .clear))
-                .frame(maxWidth: .infinity)
+            GlyphView(n: icon, s: 28).foregroundStyle(on ? T.ink : T.muted)
+                .frame(width: 60, height: 52).background(Capsule().fill(on ? Color(rgb: 0x0c0e08, 0.09) : .clear))
         }
+        .buttonStyle(Press(scale: 0.92)).frame(maxWidth: .infinity)
         .accessibilityLabel(label)
+        .animation(.easeOut(duration: 0.2), value: on)
     }
 }
 
-// MARK: - Feed data
+// MARK: - Masthead
 
-struct FPoll: Codable { let id: String; let options: [String]; let closes: Date?; var votes: [String: Int] }   // member → choice
-struct FBook: Codable { let title: String; let author: String?; let cover: URL? }
-struct FPost: Identifiable, Codable {
-    let id: String, userId: String
-    var title: String, subtitle: String, body: String, kind: String, created: Date, edited: Bool, publishAt: Date?
-    var photos: [URL], link: URL?, article: Bool, audio: Bool
-    var likes: Int, liked: Bool, replies: Int, saved: Bool, canReply: Bool, continuations: Int
-    var quoteId: String?, quoteUser: String?, quoteText: String?
-    var poll: FPoll?, book: FBook?
-    var showTitle: Bool {
-        if article { return !title.isEmpty }
-        let n = { (t: String) in t.lowercased().replacingOccurrences(of: #"[…\.\s"“”'‘’,:;!?-]+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces) }
-        let t = n(title); return !t.isEmpty && t != "voice note" && !n(body).hasPrefix(t)
-    }
-}
-struct FPin: Identifiable {
-    enum Kind { case read, study, event, pin }
-    let id: String, kind: Kind, title: String, text: String
-    var detail: String? = nil, when: Date? = nil, place: String? = nil, placeURL: URL? = nil, link: URL? = nil
-    var slug: String? = nil, cover: URL? = nil, sourcePost: String? = nil, rsvp = false, by: String? = nil
-    var rsvpType: String { switch kind { case .study: "study"; case .event: "event"; case .pin: "pin"; case .read: "read" } }
-}
-
-final class FeedModel: ObservableObject {
-    @Published var posts: [FPost] = []
-    @Published var pins: [FPin] = []
-    @Published var people: [String: Person] = [:]
-    @Published var unread = 0
-    @Published var loaded = false
-    @Published var failed: String?
-    @Published var scrollTop = 0
-    @Published var detail: FPin?
-    weak var web: WKWebView?
-    var open: (String, Bool) -> Void = { _, _ in }
-    private(set) var me = ""
-    private var cacheKey: String { "lotm.feed." + me }
-    var myName: String { people[me]?.name ?? "" }
-    var myAvatar: URL? { people[me]?.avatar }
-    private var watching: NSObjectProtocol?
-
-    init() {
-        // The last Feed shows at once; the fresh one replaces it a moment later.
-        if let me = UserDefaults.standard.string(forKey: "lotm.me") {
-            self.me = me
-            if let d = UserDefaults.standard.data(forKey: "lotm.feed." + me), let p = try? JSONDecoder().decode([FPost].self, from: d) { posts = p; loaded = true }
-            if let d = UserDefaults.standard.dictionary(forKey: "lotm.people") as? [String: [String: String]] { people = Self.people(d) }
+/// The title: LIFE of the MIND, in Garamond small capitals, "of the" stacked between.
+struct Wordmark: View {
+    var size: CGFloat = 40
+    var body: some View {
+        HStack(alignment: .top, spacing: size * 0.15) {
+            Text("Life")
+            VStack(spacing: -size * 0.06) { Text("of"); Text("the") }
+                .font(.serif(size * 0.35, .semibold).smallCaps()).tracking(size * 0.35 * 0.06).padding(.top, size * 0.275)
+            Text("Mind")
         }
-        watching = NotificationCenter.default.addObserver(forName: .lotmFeedChanged, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in await self?.load(quiet: true) } }
-    }
-    private static func people(_ d: [String: [String: String]]) -> [String: Person] {
-        d.mapValues { Person(name: $0["name"] ?? "", avatar: ($0["avatar"]).flatMap { $0.isEmpty ? nil : URL(string: $0) }) }
-    }
-
-    @MainActor func auth() async -> SupaAuth? {
-        // The web app may still be starting: wait a little for its session.
-        for _ in 0..<20 { if let a = await webAuth(web) { return a }; try? await Task.sleep(nanoseconds: 300_000_000) }
-        return nil
-    }
-
-    @MainActor func load(quiet: Bool = false) async {
-        guard let a = await auth() else { if posts.isEmpty { failed = "Couldn’t reach the club. Pull to try again." }; return }
-        me = a.me; UserDefaults.standard.set(a.me, forKey: "lotm.me")
-        let db = Supa(a: a)
-        do {
-            async let profiles = db.rows("/rest/v1/profiles?select=id,display_name,avatar_url,status")
-            async let feed = loadPosts(db)
-            async let pinList = loadPins(db)
-            async let notes = db.rows("/rest/v1/notifications?user_id=eq.\(a.me)&read_at=is.null&select=id&limit=99")
-            let (Pr, Fe, Pi, Nn) = try await (profiles, feed, pinList, notes)
-            var map: [String: [String: String]] = [:]
-            for p in Pr { if let id = p["id"] as? String { map[id] = ["name": p["display_name"] as? String ?? "", "avatar": p["avatar_url"] as? String ?? ""] } }
-            people = Self.people(map); UserDefaults.standard.set(map, forKey: "lotm.people")
-            posts = Fe; pins = Pi; unread = Nn.count; loaded = true; failed = nil
-            if let d = try? JSONEncoder().encode(Array(Fe.prefix(25))) { UserDefaults.standard.set(d, forKey: cacheKey) }
-        } catch { if posts.isEmpty { failed = error.localizedDescription } }
-    }
-
-    private static let cols = "id,user_id,title,subtitle,body,aside_type,link_url,thumbnail_url,image_urls,created_at,edited_at,allow_comments,reply_policy,thread_parent_id,quote_of_id,post_format,selected_edition_id,related_edition_id,audio_url,publish_at"
-    private func loadPosts(_ db: Supa) async throws -> [FPost] {
-        let me = db.a.me
-        let rows = try await db.rows("/rest/v1/asides?select=\(Self.cols)&or=(visibility.eq.public,visibility.is.null,and(user_id.eq.\(me),publish_at.not.is.null))&order=created_at.desc&limit=60")
-        let muted = Set(try await db.rows("/rest/v1/member_mutes?user_id=eq.\(me)&select=muted_user_id").compactMap { $0["muted_user_id"] as? String })
-        let top = rows.filter { ($0["thread_parent_id"] as? String) == nil && !muted.contains($0["user_id"] as? String ?? "") }
-        let ids = top.compactMap { $0["id"] as? String }
-        guard !ids.isEmpty else { return [] }
-        let list = ids.joined(separator: ",")
-        let qids = top.compactMap { $0["quote_of_id"] as? String }, eids = Set(top.compactMap { ($0["selected_edition_id"] as? String) ?? ($0["related_edition_id"] as? String) })
-        async let L = db.rows("/rest/v1/aside_likes?aside_id=in.(\(list))&select=aside_id,user_id")
-        async let C = db.rows("/rest/v1/comments?aside_id=in.(\(list))&select=aside_id")
-        async let S = db.rows("/rest/v1/saved_posts?user_id=eq.\(me)&aside_id=in.(\(list))&select=aside_id")
-        async let PO = db.rows("/rest/v1/polls?aside_id=in.(\(list))&select=id,aside_id,options,closes_at,poll_votes(user_id,option_index)")
-        async let T = db.rows("/rest/v1/asides?thread_root_id=in.(\(list))&select=thread_root_id")
-        async let Q = db.rowsIf(!qids.isEmpty, "/rest/v1/asides?id=in.(\(qids.joined(separator: ",")))&select=id,user_id,title,body")
-        async let E = db.rowsIf(!eids.isEmpty, "/rest/v1/editions?id=in.(\(eids.joined(separator: ",")))&select=id,title,author,cover_url")
-        let (likes, cs, saved, polls, conts, quotes, eds) = try await (L, C, S, PO, T, Q, E)
-        func count(_ a: [[String: Any]], _ k: String, _ id: String) -> Int { a.filter { $0[k] as? String == id }.count }
-        return top.map { r in
-            let id = r["id"] as? String ?? "", body = r["body"] as? String ?? ""
-            let photos = ((r["image_urls"] as? [String])?.isEmpty == false ? (r["image_urls"] as? [String] ?? []) : [r["thumbnail_url"] as? String].compactMap { $0 }).compactMap(URL.init(string:))
-            let fmt = r["post_format"] as? String
-            let article = fmt == "article" || (fmt == nil && body.split(whereSeparator: \.isWhitespace).count > 250)
-            let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
-            let link = (r["link_url"] as? String).flatMap(URL.init(string:)) ?? detector?.firstMatch(in: body, range: NSRange(body.startIndex..., in: body))?.url
-            let q = (r["quote_of_id"] as? String).flatMap { qid in quotes.first { $0["id"] as? String == qid } }
-            let pr = polls.first { $0["aside_id"] as? String == id }
-            let poll = pr.map { p -> FPoll in
-                var v: [String: Int] = [:]; for x in (p["poll_votes"] as? [[String: Any]]) ?? [] { if let u = x["user_id"] as? String { v[u] = x["option_index"] as? Int ?? 0 } }
-                return FPoll(id: p["id"] as? String ?? "", options: p["options"] as? [String] ?? [], closes: (p["closes_at"] as? String).map { parseDate($0) }, votes: v)
-            }
-            let eid = (r["selected_edition_id"] as? String) ?? (r["related_edition_id"] as? String)
-            let book = eid.flatMap { e in eds.first { $0["id"] as? String == e } }.map { FBook(title: $0["title"] as? String ?? "", author: $0["author"] as? String, cover: ($0["cover_url"] as? String).flatMap(URL.init(string:))) }
-            let audio = (r["audio_url"] as? String) != nil
-            let kind = (r["publish_at"] as? String) != nil ? "Scheduled" : article ? "Article" : (r["quote_of_id"] as? String) != nil ? "Quote" : poll != nil ? "Poll" : audio ? "Voice note" : (r["aside_type"] as? String ?? "Reflection")
-            return FPost(id: id, userId: r["user_id"] as? String ?? "", title: r["title"] as? String ?? "", subtitle: r["subtitle"] as? String ?? "", body: body, kind: kind,
-                         created: parseDate(r["created_at"]), edited: (r["edited_at"] as? String) != nil, publishAt: (r["publish_at"] as? String).map { parseDate($0) },
-                         photos: article ? [] : photos, link: photos.isEmpty && !audio ? link : nil, article: article, audio: audio,
-                         likes: count(likes, "aside_id", id), liked: likes.contains { $0["aside_id"] as? String == id && $0["user_id"] as? String == me },
-                         replies: count(cs, "aside_id", id), saved: saved.contains { $0["aside_id"] as? String == id },
-                         canReply: (r["allow_comments"] as? Bool ?? true) && (r["reply_policy"] as? String) != "none",
-                         continuations: count(conts, "thread_root_id", id),
-                         quoteId: q?["id"] as? String, quoteUser: q?["user_id"] as? String,
-                         quoteText: q.map { (($0["body"] as? String).flatMap { $0.isEmpty ? nil : $0 }) ?? ($0["title"] as? String ?? "") },
-                         poll: poll, book: book)
-        }
-    }
-
-    private func loadPins(_ db: Supa) async throws -> [FPin] {
-        let now = ISO8601DateFormatter().string(from: Date()), soon = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-3 * 3600))
-        let today = String(now.prefix(10))
-        async let P = db.rows("/rest/v1/weekly_pins?expires_at=gt.\(now)&select=id,user_id,body,source_aside_id,link_url,rsvp_enabled&order=created_at.desc")
-        async let S = db.rows("/rest/v1/club_updates?study_at=gte.\(soon)&select=id,book_title,book_author,cover_url,cover_image_url,reading_position,study_at,study_location,study_location_url&order=study_at.asc,created_at.desc&limit=1")
-        async let R = db.rows("/rest/v1/devotionals?show_from=lte.\(today)&show_until=gte.\(today)&select=slug,title,subtitle")
-        async let E = db.rows("/rest/v1/club_events?starts_at=gte.\(soon)&select=id,title,description,location,location_url,starts_at,external_url&order=starts_at&limit=8")
-        let (pins, study, reads, events) = try await (P, S, R, E)
-        var out: [FPin] = []
-        for r in reads { out.append(FPin(id: "read" + (r["slug"] as? String ?? ""), kind: .read, title: r["title"] as? String ?? "", text: (r["subtitle"] as? String) ?? (r["title"] as? String ?? ""), slug: r["slug"] as? String)) }
-        if let s = study.first, let at = s["study_at"] as? String {
-            let book = (s["book_title"] as? String ?? "").replacingOccurrences(of: #"^Amazon\.com:\s*"#, with: "", options: .regularExpression).components(separatedBy: ":").first ?? ""
-            let pos = (s["reading_position"] as? String).flatMap { $0 == "TBD" || $0.isEmpty ? nil : $0 }
-            out.append(FPin(id: s["id"] as? String ?? "", kind: .study, title: book, text: [book, pos].compactMap { $0 }.joined(separator: ", "),
-                            detail: pos.map { "Read \($0)" }, when: parseDate(at), place: s["study_location"] as? String,
-                            placeURL: (s["study_location_url"] as? String).flatMap(URL.init(string:)),
-                            cover: ((s["cover_url"] as? String) ?? (s["cover_image_url"] as? String)).flatMap(URL.init(string:)), rsvp: true))
-        }
-        for e in events {
-            out.append(FPin(id: e["id"] as? String ?? "", kind: .event, title: e["title"] as? String ?? "", text: e["title"] as? String ?? "",
-                            detail: e["description"] as? String, when: parseDate(e["starts_at"]), place: e["location"] as? String,
-                            placeURL: (e["location_url"] as? String).flatMap(URL.init(string:)), link: (e["external_url"] as? String).flatMap(URL.init(string:)), rsvp: true))
-        }
-        for p in pins {
-            out.append(FPin(id: p["id"] as? String ?? "", kind: .pin, title: "Pinned", text: p["body"] as? String ?? "",
-                            link: (p["link_url"] as? String).flatMap(URL.init(string:)), sourcePost: p["source_aside_id"] as? String,
-                            rsvp: p["rsvp_enabled"] as? Bool ?? false, by: p["user_id"] as? String))
-        }
-        return out
-    }
-
-    // MARK: actions (each flips at once; the server catches up)
-    @MainActor func like(_ p: FPost) async {
-        guard let k = posts.firstIndex(where: { $0.id == p.id }) else { return }
-        posts[k].liked.toggle(); posts[k].likes += posts[k].liked ? 1 : -1
-        let on = posts[k].liked; if on { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
-        guard let a = await auth() else { return }; let db = Supa(a: a)
-        if on { _ = try? await db.req("POST", "/rest/v1/aside_likes", json: ["aside_id": p.id, "user_id": a.me]) }
-        else { _ = try? await db.req("DELETE", "/rest/v1/aside_likes?aside_id=eq.\(p.id)&user_id=eq.\(a.me)") }
-    }
-    @MainActor func save(_ p: FPost) async {
-        guard let k = posts.firstIndex(where: { $0.id == p.id }) else { return }
-        posts[k].saved.toggle(); let on = posts[k].saved; UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        guard let a = await auth() else { return }; let db = Supa(a: a)
-        if on { _ = try? await db.req("POST", "/rest/v1/saved_posts", json: ["aside_id": p.id, "user_id": a.me]) }
-        else { _ = try? await db.req("DELETE", "/rest/v1/saved_posts?aside_id=eq.\(p.id)&user_id=eq.\(a.me)") }
-    }
-    @MainActor func vote(_ p: FPost, _ i: Int) async {
-        guard let k = posts.firstIndex(where: { $0.id == p.id }), var poll = posts[k].poll else { return }
-        if let c = poll.closes, c < Date() { return }
-        let mine = poll.votes[me]
-        if mine == i { poll.votes[me] = nil } else { poll.votes[me] = i }
-        posts[k].poll = poll; UISelectionFeedbackGenerator().selectionChanged()
-        guard let a = await auth() else { return }; let db = Supa(a: a)
-        if mine != nil { _ = try? await db.req("DELETE", "/rest/v1/poll_votes?poll_id=eq.\(poll.id)&user_id=eq.\(a.me)") }
-        if mine != i { _ = try? await db.req("POST", "/rest/v1/poll_votes", json: ["poll_id": poll.id, "user_id": a.me, "option_index": i]) }
-    }
-    @MainActor func delete(_ p: FPost) async {
-        posts.removeAll { $0.id == p.id }
-        guard let a = await auth() else { return }
-        _ = try? await Supa(a: a).req("DELETE", "/rest/v1/asides?id=eq.\(p.id)")
-    }
-    @MainActor func mute(_ p: FPost) async {
-        posts.removeAll { $0.userId == p.userId }
-        guard let a = await auth() else { return }
-        _ = try? await Supa(a: a).req("POST", "/rest/v1/member_mutes", json: ["user_id": a.me, "muted_user_id": p.userId])
-    }
-    @MainActor func report(_ p: FPost, _ reason: String) async {
-        guard let a = await auth() else { return }
-        _ = try? await Supa(a: a).req("POST", "/rest/v1/reports", json: ["reporter_id": a.me, "aside_id": p.id, "reason": reason])
-    }
-    @MainActor func setReplies(_ p: FPost, on: Bool) async {
-        guard let k = posts.firstIndex(where: { $0.id == p.id }) else { return }
-        posts[k].canReply = on
-        guard let a = await auth() else { return }
-        _ = try? await Supa(a: a).req("PATCH", "/rest/v1/asides?id=eq.\(p.id)", json: ["reply_policy": on ? "everyone" : "none", "allow_comments": on])
+        .font(.serif(size, .semibold).smallCaps()).tracking(size * 0.02)
+        .lineLimit(1).minimumScaleFactor(0.7)
+        .foregroundStyle(T.cream)
     }
 }
 
-// MARK: - Feed screen
+/// .mast — search, the title, and the bell with its count, on the tan-to-olive gradient.
+struct Mast: View {
+    let unread: Int
+    let search: () -> Void, bell: () -> Void, title: () -> Void
+    var body: some View {
+        HStack(spacing: 8) {
+            ibtn("search", search)
+            Wordmark().frame(maxWidth: .infinity).contentShape(Rectangle()).onTapGesture(perform: title)
+            ibtn("bell", bell)
+                .overlay(alignment: .topTrailing) {
+                    if unread > 0 {
+                        Text(unread > 9 ? "9+" : "\(unread)").font(.sans(10, .bold)).foregroundStyle(.white)
+                            .padding(.horizontal, 4).frame(minWidth: 16, minHeight: 16).background(Capsule().fill(T.like)).offset(x: 4, y: -3)
+                    }
+                }
+                .offset(x: -4)
+        }
+        .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 12)
+        .background(LinearGradient(stops: [.init(color: T.tan, location: 0), .init(color: T.tan, location: 0.3), .init(color: T.paper, location: 1)], startPoint: .top, endPoint: .bottom).ignoresSafeArea(edges: .top))
+    }
+    private func ibtn(_ icon: String, _ run: @escaping () -> Void) -> some View {
+        Button { Haptic.tap(); run() } label: {
+            GlyphView(n: icon, s: 18).foregroundStyle(T.cream).frame(width: 36, height: 36).background(Circle().fill(Color(rgb: 0xf3eddf, 0.14)))
+        }
+        .buttonStyle(Press())
+    }
+}
+
+// MARK: - Feed
 
 struct FeedScreen: View {
     @ObservedObject var m: FeedModel
     @ObservedObject var web: WebModel
+    @State private var acting: FPost?
     @State private var reporting: FPost?
     @State private var reason = ""
     @State private var deleting: FPost?
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            Mast(unread: m.unread,
+                 search: { presentSlide(SearchScreen(feed: m, web: web)) },
+                 bell: { presentSlide(NotificationsScreen(feed: m, web: web)) },
+                 title: { m.scrollTop += 1 })
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         Color.clear.frame(height: 0).id("top")
-                        if !m.pins.isEmpty { pinRow }
+                        if !m.pins.isEmpty { StoryRow(m: m, web: web) }
                         if !m.loaded {
-                            ProgressView().tint(F.muted).padding(.top, 80)
+                            Text("Loading…").font(.sans(15)).foregroundStyle(T.muted).padding(40)
                         } else if let f = m.failed, m.posts.isEmpty {
-                            Text(f).font(.system(size: 16)).foregroundStyle(F.muted).multilineTextAlignment(.center).padding(40)
+                            Text(f).font(.sans(15)).foregroundStyle(T.muted).multilineTextAlignment(.center).padding(40)
                         } else if m.posts.isEmpty {
-                            Text("Nothing here yet.").font(.system(size: 17, design: .serif)).foregroundStyle(F.muted).padding(.top, 60)
+                            Text("Nothing here yet.").font(.serif(17)).foregroundStyle(T.muted).padding(40)
                         }
-                        ForEach(m.posts) { p in
-                            PostCard(p: p, m: m, web: web, report: { reporting = p; reason = "" }, delete: { deleting = p })
+                        ForEach(Array(m.posts.enumerated()), id: \.element.id) { k, p in
+                            PostCard(p: p, m: m, web: web, more: { acting = p })
+                                .padding(.top, k == 0 ? 10 : 0)
                         }
                         Color.clear.frame(height: 110)
                     }
@@ -330,170 +170,262 @@ struct FeedScreen: View {
                 .onChange(of: m.scrollTop) { _, _ in withAnimation(.snappy) { proxy.scrollTo("top", anchor: .top) } }
             }
         }
-        .background(F.paper.ignoresSafeArea())
+        .background(T.paper.ignoresSafeArea())
         .task { await m.load() }
-        .sheet(item: $m.detail) { PinSheet(it: $0, m: m, web: web).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
-            .presentationContentInteraction(.resizes).presentationCornerRadius(24).presentationBackground(F.card) }
-        .alert("Report this post", isPresented: Binding(get: { reporting != nil }, set: { if !$0 { reporting = nil } })) {
-            TextField("What is wrong with it?", text: $reason)
+        .sheet(item: $acting) { p in
+            PostActions(p: p, m: m, web: web, close: { acting = nil }, report: { acting = nil; reporting = p; reason = "" }, delete: { acting = nil; deleting = p })
+                .presentationDetents([.medium, .large])
+        }
+        .alert("What is wrong with this post?", isPresented: Binding(get: { reporting != nil }, set: { if !$0 { reporting = nil } })) {
+            TextField("Sent to the administrators", text: $reason)
             Button("Cancel", role: .cancel) {}
-            Button("Send to an admin") { if let p = reporting { Task { await m.report(p, reason) } } }
-        } message: { Text("It goes to the administrators.") }
+            Button("Report") { if let p = reporting { Task { await m.report(p, reason) } } }
+        }
         .confirmationDialog("Delete this post? This cannot be undone.", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
             Button("Delete", role: .destructive) { if let p = deleting { Task { await m.delete(p) } } }
         }
         .environment(\.openURL, OpenURLAction { url in openInApp(url); return .handled })
         .preferredColorScheme(.dark)
     }
+}
 
-    private var header: some View {
-        HStack {
-            circleButton("magnifyingglass") { Haptic.tap(); presentSlide(SearchScreen(feed: m, web: web)) }
-            Spacer()
-            HStack(alignment: .center, spacing: 6) {
-                Text("Life")
-                VStack(spacing: -3) { Text("of"); Text("the") }.font(.system(size: 11, weight: .semibold, design: .serif).smallCaps()).padding(.bottom, 6)
-                Text("Mind")
-            }
-            .font(.system(size: 32, weight: .semibold, design: .serif).smallCaps())
-            .foregroundStyle(F.cream)
-            .onTapGesture { m.scrollTop += 1 }
-            Spacer()
-            circleButton("bell") { Haptic.tap(); presentSlide(NotificationsScreen(feed: m, web: web)) }
-                .overlay(alignment: .topTrailing) {
-                    if m.unread > 0 {
-                        Text(m.unread > 9 ? "9+" : "\(m.unread)").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-                            .padding(.horizontal, 5).frame(minWidth: 18, minHeight: 18).background(Capsule().fill(Color(hex: 0xc9382f))).offset(x: 4, y: -4)
-                    }
-                }
-        }
-        .padding(.horizontal, 14).padding(.top, 6).padding(.bottom, 12)
-        .background(LinearGradient(colors: [F.tan, F.tan, F.paper], startPoint: .top, endPoint: .bottom).ignoresSafeArea(edges: .top))
-    }
-    private func circleButton(_ icon: String, _ run: @escaping () -> Void) -> some View {
-        Button(action: run) { Image(systemName: icon).font(.system(size: 16, weight: .semibold)).foregroundStyle(F.cream).frame(width: 36, height: 36).background(Circle().fill(Color.white.opacity(0.12))) }
-    }
+// MARK: - Story pills ("Coming up and pinned")
 
-    private var pinRow: some View {
+private let seenKey = "lotm.seen2"
+private func dayLine(_ d: Date?) -> String {
+    guard let d else { return "" }
+    return "\(d.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())) · \(d.formatted(date: .omitted, time: .shortened).replacingOccurrences(of: ":00", with: ""))"
+}
+
+private struct StoryRow: View {
+    @ObservedObject var m: FeedModel
+    @ObservedObject var web: WebModel
+    @State private var seen: Set<String> = Set(UserDefaults.standard.stringArray(forKey: seenKey) ?? [])
+    var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 ForEach(m.pins) { it in
                     Button {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        Haptic.tap()
+                        seen.insert(it.id); UserDefaults.standard.set(Array(seen.suffix(300)), forKey: seenKey)
                         if it.kind == .read, let s = it.slug { web.go("/read/\(s)") } else { m.detail = it }
-                    } label: { PinCard(it: it, m: m) }
-                    .buttonStyle(.plain)
+                    } label: { StoryPill(it: it, m: m, fresh: !seen.contains(it.id)) }
+                    .buttonStyle(Press())
                 }
             }
-            .padding(.horizontal, 16).padding(.vertical, 10)
+            .padding(.horizontal, 20).padding(.vertical, 12)
         }
+        .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.04), .init(color: .black, location: 0.92), .init(color: .clear, location: 1)], startPoint: .leading, endPoint: .trailing))
+        .padding(.vertical, 1)
+        .overlay(alignment: .bottom) { T.rule.frame(height: 1) }
     }
 }
 
-private func kicker(_ it: FPin) -> String {
-    switch it.kind { case .read: "Pray"; case .study: "Next study"; case .event: "Coming up"; case .pin: "Pinned" }
-}
-private func when(_ d: Date?) -> String {
-    guard let d else { return "" }
-    return d.formatted(.dateTime.weekday(.wide).hour().minute()).replacingOccurrences(of: ":00", with: "")
-}
-
-private struct PinCard: View {
+private struct StoryPill: View {
     let it: FPin
     @ObservedObject var m: FeedModel
+    let fresh: Bool
+    private var ring: [Color] {
+        switch it.kind {
+        case .read: [Color(rgb: 0xb3203a), Color(rgb: 0xf2c46b), Color(rgb: 0x6b2a35), Color(rgb: 0xb3203a)]
+        case .pin: [Color(rgb: 0xe08a98), Color(rgb: 0xd9b26a), Color(rgb: 0xa7b36e), Color(rgb: 0xe08a98)]
+        default: [Color(rgb: 0xd9b26a), Color(rgb: 0xf1eedd), Color(rgb: 0xa7b36e), Color(rgb: 0xd9b26a)]
+        }
+    }
+    private var caption: String {
+        switch it.kind { case .read: it.title; case .study: it.title.isEmpty ? "Next study" : it.title; case .event: it.text; case .pin: m.people[it.by ?? ""]?.name.split(separator: " ").first.map(String.init) ?? "Pinned" }
+    }
+    private var line2: String {
+        switch it.kind {
+        case .read: Date().formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
+        case .study: ["Next study", dayLine(it.when)].filter { !$0.isEmpty }.joined(separator: " · ")
+        case .event: [dayLine(it.when), it.place?.components(separatedBy: ",").first ?? ""].filter { !$0.isEmpty }.joined(separator: " · ")
+        case .pin: it.text
+        }
+    }
     var body: some View {
         HStack(spacing: 10) {
-            if let c = it.cover {
-                AsyncImage(url: c) { $0.resizable().scaledToFill() } placeholder: { F.soft }.frame(width: 38, height: 56).clipShape(RoundedRectangle(cornerRadius: 3))
-            } else if it.kind == .read {
-                Image(systemName: "sun.and.horizon").font(.system(size: 22)).foregroundStyle(F.cream).frame(width: 38)
-            } else if let w = it.when {
-                VStack(spacing: 0) {
-                    Text(w.formatted(.dateTime.weekday(.abbreviated)).uppercased()).font(.system(size: 9, weight: .bold)).foregroundStyle(F.muted)
-                    Text(w.formatted(.dateTime.day())).font(.system(size: 19, weight: .semibold)).foregroundStyle(F.ink)
-                }
-                .frame(width: 44, height: 44).background(Circle().fill(F.card))
-            } else if let by = it.by {
-                PersonFace(p: m.people[by] ?? Person(name: "", avatar: nil), size: 40)
-            }
+            face.frame(width: 48, height: 48)
             VStack(alignment: .leading, spacing: 2) {
-                Text(kicker(it).uppercased()).font(.system(size: 10.5, weight: .bold)).tracking(0.8).foregroundStyle(F.muted)
-                Text(it.kind == .pin ? it.text : it.title).font(.system(size: 16, weight: .semibold, design: .serif)).foregroundStyle(F.ink).lineLimit(2).multilineTextAlignment(.leading)
-                if it.kind == .read { Text(it.text).font(.system(size: 13)).foregroundStyle(F.muted).lineLimit(1) }
-                else if it.when != nil { Text(when(it.when) + (it.place.map { " · " + $0 } ?? "")).font(.system(size: 13)).foregroundStyle(F.muted).lineLimit(1) }
+                Text(caption).font(.serif(16, .semibold)).foregroundStyle(T.ink).lineLimit(1)
+                Text(line2).font(.sans(12)).foregroundStyle(T.muted).lineLimit(1)
             }
             Spacer(minLength: 0)
         }
-        .padding(12).frame(width: 268, height: 84, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 18).fill(F.card))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(F.rule))
+        .padding(.leading, 4).padding(.trailing, 14).padding(.vertical, 4)
+        .background(Capsule().fill(T.card))
+        .padding(2)
+        .frame(width: 236)
+        .background {
+            if fresh {
+                // A new item wears a slowly turning ring and a soft breathing glow until it has been opened.
+                TimelineView(.animation) { tl in
+                    let t = tl.date.timeIntervalSinceReferenceDate
+                    let turn = Angle.degrees((t.truncatingRemainder(dividingBy: 6)) / 6 * 360), breathe = 0.35 + 0.55 * (0.5 + 0.5 * sin(t / 2.8 * .pi))
+                    ZStack {
+                        Capsule().fill(AngularGradient(colors: ring, center: .center, angle: turn)).padding(-3).blur(radius: 6).opacity(breathe)
+                        Capsule().fill(AngularGradient(colors: ring, center: .center, angle: turn))
+                    }
+                }
+            } else { Capsule().fill(T.rule) }
+        }
+    }
+    @ViewBuilder private var face: some View {
+        switch it.kind {
+        case .pin: Face(m.people[it.by ?? ""], s: 48)
+        case .read: Image("advent-story").resizable().scaledToFill().frame(width: 48, height: 48).clipShape(Circle())
+        case .event where it.link != nil: LinkFace(url: it.link!, when: it.when)
+        case .study where it.cover != nil:
+            AsyncImage(url: it.cover) { $0.resizable().scaledToFill() } placeholder: { T.card }.frame(width: 48, height: 48).clipShape(Circle())
+        default: DateBubble(when: it.when, study: it.kind == .study)
+        }
     }
 }
 
-private struct PinSheet: View {
+private struct DateBubble: View {
+    let when: Date?, study: Bool
+    var body: some View {
+        VStack(spacing: 1) {
+            Text(when.map { $0.formatted(.dateTime.weekday(.abbreviated)).uppercased() } ?? "").font(.sans(9, .bold)).tracking(0.5).foregroundStyle(study ? Color(rgb: 0xd9b26a) : T.muted)
+            Text(when.map { $0.formatted(.dateTime.day()) } ?? "•").font(.serif(19, .semibold)).foregroundStyle(T.ink)
+        }
+        .frame(width: 48, height: 48).background(Circle().fill(study ? T.tan : T.card))
+    }
+}
+
+/// An event's face: its link's picture, or the date.
+private struct LinkFace: View {
+    let url: URL, when: Date?
+    @State private var image: URL?
+    var body: some View {
+        ZStack {
+            if let image { AsyncImage(url: image) { $0.resizable().scaledToFill() } placeholder: { T.card }.frame(width: 48, height: 48).clipShape(Circle()) }
+            else { DateBubble(when: when, study: false) }
+        }
+        .task { image = await LinkMeta.get(url)?.image }
+    }
+}
+
+// MARK: - The card that drops from the top (study, event, pin)
+
+private func band(_ x: CGFloat) -> CGFloat { (1 - 1 / (x * 0.55 / 220 + 1)) * 220 }   // pulled down, it stretches like a rubber band
+
+private struct DropCard: View {
     let it: FPin
     @ObservedObject var m: FeedModel
     @ObservedObject var web: WebModel
-    @State private var rsvps: [String: String] = [:]     // member → yes | maybe | no
+    @State private var dy: CGFloat = 0
+    @State private var shown = false
+    @State private var rsvps: [String: String] = [:]
+    @State private var hero: URL?
+
+    private var kicker: String { it.kind == .study ? "Next study" : it.kind == .event ? "Coming up" : "Pinned" }
+    private func close() { withAnimation(.easeIn(duration: 0.24)) { shown = false }; DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { m.detail = nil } }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(kicker(it).uppercased()).font(.system(size: 12, weight: .bold)).tracking(0.8).foregroundStyle(F.muted)
-                Text(it.kind == .pin ? "Pinned" : it.title).font(.system(size: 28, weight: .semibold, design: .serif)).foregroundStyle(F.ink)
-                if let w = it.when {
-                    Label(w.formatted(.dateTime.weekday(.wide).month(.wide).day().hour().minute()), systemImage: "calendar").font(.system(size: 16)).foregroundStyle(F.ink)
+        ZStack(alignment: .top) {
+            Color(rgb: 0x0a0c06, 0.5).ignoresSafeArea().opacity(shown ? 1 : 0).onTapGesture(perform: close)
+            VStack(spacing: 0) {
+                HStack {
+                    Text(kicker.uppercased()).font(.sans(11.5, .bold)).tracking(1.15).foregroundStyle(T.muted)
+                    Spacer()
+                    Button(action: close) { Text("✕").font(.sans(15)).foregroundStyle(T.ink).frame(width: 34, height: 34).background(Circle().fill(Color(rgb: 0x0c0e08, 0.12))) }
                 }
-                if let place = it.place {
-                    Button { openInApp(it.placeURL ?? URL(string: "https://maps.apple.com/?q=" + (place.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""))!) } label: {
-                        Label(place, systemImage: "mappin.and.ellipse").font(.system(size: 16)).foregroundStyle(F.ink).underline()
+                .padding(.leading, 20).padding(.trailing, 10).padding(.top, 4)
+                ScrollView {
+                    content.padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 14)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(maxHeight: UIScreen.main.bounds.height * 0.6)
+                Capsule().fill(Color(rgb: 0xf1eedd, 0.3)).frame(width: 40, height: 5).frame(maxWidth: .infinity).padding(.top, 10).padding(.bottom, 16).contentShape(Rectangle())
+            }
+            .padding(.top, safeTop + 6)
+            // the card reaches up past the top of the screen, so pulling it down never shows a gap above it
+            .background(alignment: .bottom) { UnevenRoundedRectangle(bottomLeadingRadius: 26, bottomTrailingRadius: 26).fill(T.card).padding(.top, -400) }
+            .shadow(color: .black.opacity(0.45), radius: 22, y: 18)
+            .frame(maxWidth: 640)
+            .offset(y: shown ? dy : -UIScreen.main.bounds.height * 0.8)
+            .gesture(DragGesture(minimumDistance: 4).onChanged { g in
+                let raw = g.translation.height
+                dy = raw < 0 ? raw : band(raw)                 // up follows the finger; down stretches
+            }.onEnded { g in
+                if g.translation.height < -60 || g.predictedEndTranslation.height < -160 { close() }
+                else { withAnimation(.spring(response: 0.45, dampingFraction: 0.62)) { dy = 0 } }
+            })
+        }
+        .onAppear { withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { shown = true } }
+        .task { await loadRsvps(); if it.kind == .event, let l = it.link { hero = await LinkMeta.get(l)?.image } }
+    }
+    private var safeTop: CGFloat { UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.top }.first ?? 47 }
+
+    @ViewBuilder private var content: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let hero { AsyncImage(url: hero) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x2a2d1d) }.frame(height: 180).clipShape(RoundedRectangle(cornerRadius: 14)) }
+            HStack(alignment: .top, spacing: 14) {
+                if it.kind == .study {
+                    AsyncImage(url: it.cover) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x9c5463) }.frame(width: 70, height: 105).clipShape(RoundedRectangle(cornerRadius: 4)).shadow(color: .black.opacity(0.3), radius: 5, y: 4)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(it.kind == .pin ? (m.people[it.by ?? ""]?.name ?? "A member") : it.title).font(.serif(24, .semibold)).foregroundStyle(T.ink).fixedSize(horizontal: false, vertical: true)
+                    if let a = it.author { Text("by \(a)").font(.serif(16, italic: true)).foregroundStyle(T.muted) }
+                }
+            }
+            if it.when != nil || it.place != nil {
+                HStack(spacing: 12) {
+                    if let d = it.when {
+                        VStack(spacing: 0) {
+                            Text(d.formatted(.dateTime.month(.abbreviated)).uppercased()).font(.sans(10, .bold)).foregroundStyle(T.cream).frame(maxWidth: .infinity).padding(.vertical, 3).background(T.tan)
+                            Text(d.formatted(.dateTime.day())).font(.serif(22, .semibold)).foregroundStyle(T.ink).padding(.top, 2).padding(.bottom, 4)
+                        }
+                        .frame(width: 50).background(T.paper).clipShape(RoundedRectangle(cornerRadius: 11)).overlay(RoundedRectangle(cornerRadius: 11).stroke(T.rule))
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        if let d = it.when { Text("\(d.formatted(.dateTime.weekday(.wide).month(.wide).day())) · \(d.formatted(date: .omitted, time: .shortened))").font(.sans(15, .semibold)).foregroundStyle(T.ink) }
+                        if let p = it.place {
+                            Button { openInApp(it.placeURL ?? URL(string: "https://maps.apple.com/?q=" + (p.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""))!) } label: {
+                                Text("\(p) ↗").font(.sans(14)).foregroundStyle(T.muted).multilineTextAlignment(.leading)
+                            }
+                        }
                     }
                 }
-                if let d = (it.kind == .pin ? Optional(it.text) : it.detail), !d.isEmpty {
-                    Text(linked(d)).font(.system(size: 18, design: .serif)).foregroundStyle(F.ink).lineSpacing(3).textSelection(.enabled)
-                }
-                HStack(spacing: 10) {
-                    if let w = it.when { calendarButton(w) }
-                    if let l = it.link { pill("Open link", "safari") { openInApp(l) } }
-                    if let s = it.sourcePost { pill("Open post", "text.bubble") { m.detail = nil; m.open(s, false) } }
-                }
-                if it.rsvp { rsvpRow }
             }
-            .padding(24)
+            if let d = (it.kind == .pin ? Optional(it.text) : it.detail), !d.isEmpty {
+                Text(linked(d)).font(.serif(17)).foregroundStyle(T.ink).lineSpacing(3).textSelection(.enabled)
+            }
+            if it.rsvp { rsvpRow }
+            FlowButtons(items: buttons)
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .background(F.card.ignoresSafeArea())
-        .task { await loadRsvps() }
-        .preferredColorScheme(.dark)
     }
-    private func pill(_ t: String, _ icon: String, _ run: @escaping () -> Void) -> some View {
-        Button(action: run) { Label(t, systemImage: icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(F.ink).padding(.horizontal, 14).frame(height: 38).background(Capsule().fill(F.soft)) }
+    private var buttons: [(String, () -> Void)] {
+        var b: [(String, () -> Void)] = []
+        if let w = it.when, w > Date(), it.kind != .pin { b.append(("Add to calendar", { addToCalendar(w) })) }
+        if let l = it.link { b.append(("Details ↗", { openInApp(l) })) }
+        if let s = it.sourcePost { b.append(("Open the post", { close(); m.open(s, false) })) }
+        return b
     }
-    private func calendarButton(_ w: Date) -> some View {
-        pill("Add to Calendar", "calendar.badge.plus") {
-            let f = ISO8601DateFormatter()
-            var c = URLComponents(string: "https://lotmstudy.org/ics")!
-            c.queryItems = [URLQueryItem(name: "title", value: it.kind == .study ? "Life of the Mind — \(it.title)" : it.title),
-                            URLQueryItem(name: "start", value: f.string(from: w)), URLQueryItem(name: "end", value: f.string(from: w.addingTimeInterval(7200))),
-                            URLQueryItem(name: "uid", value: "\(it.rsvpType)-\(it.id)")] + (it.place.map { [URLQueryItem(name: "location", value: $0)] } ?? [])
-            if let u = c.url { UIApplication.shared.open(u) }
-        }
+    private func addToCalendar(_ w: Date) {
+        let f = ISO8601DateFormatter()
+        var c = URLComponents(string: "https://lotmstudy.org/ics")!
+        c.queryItems = [URLQueryItem(name: "title", value: it.kind == .study ? "Life of the Mind — \(it.title)" : it.title), URLQueryItem(name: "start", value: f.string(from: w)),
+                        URLQueryItem(name: "end", value: f.string(from: w.addingTimeInterval(7200))), URLQueryItem(name: "uid", value: "\(it.rsvpType)-\(it.id)")]
+            + (it.place.map { [URLQueryItem(name: "location", value: $0)] } ?? [])
+        if let u = c.url { UIApplication.shared.open(u) }
     }
     private var rsvpRow: some View {
         let going = rsvps.filter { $0.value == "yes" }.map(\.key), maybe = rsvps.filter { $0.value == "maybe" }.count, no = rsvps.filter { $0.value == "no" }.count
         let mine = rsvps[m.me]
         return HStack(spacing: 8) {
-            HStack(spacing: -7) { ForEach(going.prefix(3), id: \.self) { PersonFace(p: m.people[$0] ?? Person(name: "", avatar: nil), size: 24).overlay(Circle().stroke(F.card, lineWidth: 2)) } }
+            HStack(spacing: -7) { ForEach(going.prefix(3), id: \.self) { Face(m.people[$0], s: 22).overlay(Circle().stroke(T.card, lineWidth: 2)) } }
             Text([going.isEmpty ? "No one yet" : "\(going.count) going", maybe > 0 ? "\(maybe) maybe" : nil, no > 0 ? "\(no) can’t" : nil].compactMap { $0 }.joined(separator: " · "))
-                .font(.system(size: 13)).foregroundStyle(F.muted)
-            Spacer()
-            ForEach([("yes", "hand.thumbsup", F.green), ("maybe", "questionmark", F.gold), ("no", "hand.thumbsdown", F.wine)], id: \.0) { v, icon, tone in
+                .font(.sans(13)).foregroundStyle(T.muted).frame(maxWidth: .infinity, alignment: .leading)
+            ForEach([("yes", "thumbup", Color(rgb: 0x2f6b45)), ("maybe", "question", Color(rgb: 0xa8863f)), ("no", "thumbdown", Color(rgb: 0x8f4a4f))], id: \.0) { v, icon, tone in
                 Button { Task { await set(v) } } label: {
-                    Image(systemName: icon).font(.system(size: 17)).foregroundStyle(mine == v ? .white : F.ink)
-                        .frame(width: 40, height: 40).background(Circle().fill(mine == v ? tone : .clear)).overlay(Circle().stroke(mine == v ? .clear : Color(hex: 0x50533a)))
-                }
+                    GlyphView(n: icon, s: 21, w: 1.9).foregroundStyle(mine == v ? .white : T.ink)
+                        .frame(width: 40, height: 40).background(Circle().fill(mine == v ? tone : .clear)).overlay(Circle().stroke(mine == v ? .clear : T.softBd))
+                }.buttonStyle(Press())
             }
         }
-        .padding(.top, 14).overlay(alignment: .top) { F.rule.frame(height: 0.5) }
+        .padding(.top, 14).overlay(alignment: .top) { T.rule.frame(height: 1) }
     }
     @MainActor private func loadRsvps() async {
         guard it.rsvp, let a = await m.auth() else { return }
@@ -503,8 +435,7 @@ private struct PinSheet: View {
         rsvps = out
     }
     @MainActor private func set(_ v: String) async {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        rsvps[m.me] = v
+        Haptic.tap(); rsvps[m.me] = v
         guard let a = await m.auth() else { return }
         _ = try? await Supa(a: a).req("POST", "/rest/v1/rsvps?on_conflict=target_type,target_id,user_id",
                                       json: ["target_type": it.rsvpType, "target_id": it.id, "user_id": a.me, "going": v == "yes", "maybe": v == "maybe", "updated_at": ISO8601DateFormatter().string(from: Date())],
@@ -513,118 +444,221 @@ private struct PinSheet: View {
     }
 }
 
-// MARK: - A post in the Feed
+/// Pills that wrap onto a second line when they don't fit (the card's buttons).
+private struct FlowButtons: View {
+    let items: [(String, () -> Void)]
+    var body: some View {
+        if !items.isEmpty {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8)], spacing: 8) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, b in
+                    Button(action: b.1) { Text(b.0) }.buttonStyle(PillStyle())
+                }
+            }
+        }
+    }
+}
+
+// MARK: - A post in the Feed (.postcard)
 
 private struct PostCard: View {
     let p: FPost
     @ObservedObject var m: FeedModel
     @ObservedObject var web: WebModel
-    let report: () -> Void
-    let delete: () -> Void
-    private var person: Person { m.people[p.userId] ?? Person(name: "Member", avatar: nil) }
-    private var mine: Bool { p.userId == m.me }
-    private var shareURL: URL { URL(string: "https://lotmstudy.org/next/#/post/\(p.id)")! }
-
+    let more: () -> Void
+    @State private var open = false
+    private let z = T.z
+    private var person: Person? { m.people[p.userId] }
+    private var kindLine: String {
+        if let s = p.publishAt { return "Scheduled · posts \(s.formatted(.dateTime.weekday(.abbreviated).hour().minute()))" }
+        return "\(p.kind) · \(ago(p.created))\(p.edited ? " · Edited" : "")"
+    }
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                Button { web.go("/member/\(p.userId)") } label: { PersonFace(p: person, size: 36) }
-                HStack(spacing: 4) {
-                    Text(person.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(F.ink).lineLimit(1)
-                    Text("· \(p.publishAt.map { "Scheduled · " + $0.formatted(.dateTime.weekday(.abbreviated).hour().minute()) } ?? "\(p.kind) · \(ago(p.created))")\(p.edited ? " · Edited" : "")")
-                        .font(.system(size: 14)).foregroundStyle(F.muted).lineLimit(1)
-                }
+                Button { web.go("/member/\(p.userId)") } label: { Face(person, s: 36 * z) }.buttonStyle(.plain)
+                (Text(person?.name ?? "Member").font(.sans(14 * z, .semibold)).foregroundColor(T.ink) + Text(" · \(kindLine)").font(.sans(14 * z)).foregroundColor(T.muted))
+                    .lineLimit(1)
                 Spacer(minLength: 0)
-                menu
+                Button(action: more) { Text("···").font(.sans(15 * z, .bold)).tracking(1).foregroundStyle(T.muted).padding(.horizontal, 2).frame(height: 28) }.buttonStyle(.plain)
             }
-            if p.showTitle {
-                Text(p.title).font(.system(size: p.article ? 24 : 20, weight: .semibold, design: .serif)).foregroundStyle(F.ink).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 0) {
+                if p.article { article } else { note }
+                actions.padding(.top, 10 * z)
             }
-            if p.article && !p.subtitle.isEmpty { Text(p.subtitle).font(.system(size: 16, design: .serif)).foregroundStyle(Color(hex: 0xcdcbb4)) }
-            if !p.body.isEmpty {
-                Text(linked(p.body)).font(.system(size: 18, design: .serif)).foregroundStyle(F.ink).lineSpacing(3)
-                    .lineLimit(p.article ? 4 : 9).fixedSize(horizontal: false, vertical: true)
-            }
-            if p.audio { Label("Voice note", systemImage: "waveform").font(.system(size: 15, weight: .semibold)).foregroundStyle(F.ink).padding(.horizontal, 14).frame(height: 38).background(Capsule().fill(F.soft)) }
-            PhotoStrip(urls: p.photos)
-            if let b = p.book {
-                HStack(spacing: 10) {
-                    AsyncImage(url: b.cover) { $0.resizable().scaledToFill() } placeholder: { Color(hex: 0xc9c7af) }.frame(width: 28, height: 40).clipShape(RoundedRectangle(cornerRadius: 3))
-                    VStack(alignment: .leading, spacing: 1) { Text(b.title).font(.system(size: 14, design: .serif).italic()).foregroundStyle(F.ink); if let a = b.author { Text(a).font(.system(size: 12)).foregroundStyle(F.muted) } }
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 12).padding(.vertical, 8).background(RoundedRectangle(cornerRadius: 12).fill(F.card)).overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0x54563c)))
-            }
-            if let qid = p.quoteId {
-                Button { m.open(qid, false) } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) { PersonFace(p: m.people[p.quoteUser ?? ""] ?? Person(name: "", avatar: nil), size: 20); Text(m.people[p.quoteUser ?? ""]?.name ?? "").font(.system(size: 14, weight: .semibold)).foregroundStyle(F.ink) }
-                        Text(p.quoteText ?? "").font(.system(size: 16, design: .serif)).foregroundStyle(F.ink).lineLimit(3).multilineTextAlignment(.leading)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(12).background(RoundedRectangle(cornerRadius: 12).fill(F.card)).overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0x54563c)))
-                }
-                .buttonStyle(.plain)
-            }
-            if let poll = p.poll { PollBox(poll: poll, me: m.me) { i in Task { await m.vote(p, i) } } }
-            if let l = p.link {
-                Button { openInApp(l) } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text((l.host ?? "").replacingOccurrences(of: "www.", with: "").uppercased()).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(F.muted)
-                        Text(l.absoluteString).font(.system(size: 15, design: .serif)).foregroundStyle(F.ink).lineLimit(2).multilineTextAlignment(.leading)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(12).background(RoundedRectangle(cornerRadius: 14).fill(F.paper)).overlay(RoundedRectangle(cornerRadius: 14).stroke(F.rule))
-                }
-                .buttonStyle(.plain)
-            }
-            if p.continuations > 0 {
-                Text("Show this thread · \(p.continuations + 1) posts").font(.system(size: 14, weight: .semibold)).foregroundStyle(F.muted)
-            }
-            actions
+            .padding(.top, 6 * z)
         }
-        .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 10)
+        .padding(.horizontal, 16 * z).padding(.vertical, 14 * z)
+        .background(RoundedRectangle(cornerRadius: 20).fill(T.card))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(T.rule))
+        .shadow(color: Color(rgb: 0x0c0e08, open ? 0.28 : 0.14), radius: open ? 11 : 5, y: open ? 6 : 2)
+        .padding(.horizontal, 10).padding(.bottom, 10)
         .contentShape(Rectangle())
+        .onTapGesture { withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) { open.toggle() } }
+    }
+
+    @ViewBuilder private var note: some View {
+        if p.showTitle {
+            Text(p.title).font(.serif(21 * z, .bold)).foregroundStyle(T.ink).fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 9).overlay(alignment: .bottom) { T.rule.frame(height: 1) }.padding(.vertical, 8)
+        }
+        if !p.body.isEmpty && !(p.audio && p.body.trimmingCharacters(in: .whitespaces) == "Voice note") {
+            Text(linked(p.body)).font(.serif(18 * z)).foregroundStyle(T.ink).lineSpacing(18 * z * 0.4 - 6)
+                .lineLimit(open ? nil : 6).fixedSize(horizontal: false, vertical: true)
+        }
+        if p.audio { Button { m.open(p.id, false) } label: { Label("Voice note", systemImage: "play.fill") }.buttonStyle(PillStyle()).padding(.top, 10) }
+        PhotoRow(urls: p.photos).padding(.top, p.photos.isEmpty ? 0 : 10)
+        if let b = p.book { BookCard(b: b).padding(.top, 8) }
+        if let q = p.quoteId { QuoteEmbed(userId: p.quoteUser ?? "", text: p.quoteText ?? "", m: m).onTapGesture { m.open(q, false) }.padding(.top, 8) }
+        if let poll = p.poll { PollView(poll: poll, me: m.me) { i in Task { await m.vote(p, i) } }.padding(.top, 10) }
+        if let l = p.link { LinkCard(url: l).padding(.top, 10) }
+        if !p.tags.isEmpty {
+            HStack(spacing: 8) { ForEach(p.tags, id: \.self) { t in Button("#\(t)") { presentSlide(SearchScreen(feed: m, web: web, start: "#" + t)) }.font(.sans(13)).foregroundStyle(T.ticker) } }.padding(.top, 6)
+        }
+        if p.continuations > 0 && !open {
+            Button { m.open(p.id, false) } label: { Text("Show this thread").font(.sans(14)).foregroundStyle(T.muted) }.buttonStyle(.plain).padding(.top, 6)
+        }
+        if open && (p.replies > 0 || p.continuations > 0) {
+            Button { m.open(p.id, false) } label: { Text(p.continuations > 0 ? "Open the thread" : "Read \(p.replies) \(p.replies == 1 ? "reply" : "replies")").font(.sans(14, .semibold)).foregroundStyle(T.sub) }.buttonStyle(.plain).padding(.top, 8)
+        }
+    }
+
+    @ViewBuilder private var article: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let t = p.thumb { AsyncImage(url: t) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x626546) }.frame(height: 140).clipped() }
+            else { Color(rgb: 0x626546).frame(height: 96) }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(p.title).font(.serif(18 * z, .semibold)).foregroundStyle(T.ink)
+                if !(p.subtitle.isEmpty && p.body.isEmpty) { Text(p.subtitle.isEmpty ? p.body : p.subtitle).font(.serif(14 * z)).foregroundStyle(T.sub).lineLimit(2) }
+                Text("\(max(1, Int((Double(p.body.split(whereSeparator: \.isWhitespace).count) / 230).rounded()))) min read").font(.sans(12 * z)).foregroundStyle(T.muted).padding(.top, 3)
+            }
+            .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 12)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(T.paper).clipShape(RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).stroke(T.rule))
+        .padding(.top, 8)
         .onTapGesture { m.open(p.id, false) }
-        .overlay(alignment: .bottom) { F.rule.frame(height: 0.5) }
     }
 
     private var actions: some View {
         HStack(spacing: 6) {
-            pill { m.open(p.id, true) } content: { Image(systemName: "bubble.right"); if p.replies > 0 { Text("\(p.replies)") } }
-                .disabled(!p.canReply).opacity(p.canReply ? 1 : 0.45)
-            pill { Task { await m.like(p) } } content: {
-                Image(systemName: p.liked ? "heart.fill" : "heart").foregroundStyle(p.liked ? F.like : F.muted).symbolEffect(.bounce, value: p.liked)
-                if p.likes > 0 { Text("\(p.likes)").foregroundStyle(p.liked ? F.like : F.muted) }
+            Button { m.open(p.id, true) } label: { HStack(spacing: 5) { GlyphView(n: "reply", s: 20); if p.replies > 0 { Text("\(p.replies)") } } }
+                .buttonStyle(PillStyle()).disabled(!p.canReply).opacity(p.canReply ? 1 : 0.45)
+            Button { Task { await m.like(p) } } label: {
+                HStack(spacing: 5) { GlyphView(n: "heart", s: 20, fill: p.liked).symbolPop(p.liked); if p.likes > 0 { Text("\(p.likes)") } }
             }
-            pill { Task { await m.save(p) } } content: { Image(systemName: p.saved ? "bookmark.fill" : "bookmark").symbolEffect(.bounce, value: p.saved) }
-            ShareLink(item: shareURL) { Image(systemName: "square.and.arrow.up").frame(height: 34).padding(.horizontal, 12) }
-            Spacer()
+            .buttonStyle(PillStyle(liked: p.liked))
+            Button { Task { await m.save(p) } } label: { GlyphView(n: "bookmark", s: 20, fill: p.saved).symbolPop(p.saved) }.buttonStyle(PillStyle())
+            Button(action: more) { GlyphView(n: "share", s: 20) }.buttonStyle(PillStyle())
         }
-        .font(.system(size: 16)).foregroundStyle(F.muted)
-    }
-    private func pill<C: View>(_ run: @escaping () -> Void, @ViewBuilder content: () -> C) -> some View {
-        Button(action: run) { HStack(spacing: 5) { content() }.frame(height: 34).padding(.horizontal, 12).contentShape(Capsule()) }
-            .buttonStyle(.plain)
-    }
-    private var menu: some View {
-        Menu {
-            Button("Copy link", systemImage: "link") { UIPasteboard.general.url = shareURL }
-            Button("Quote in a post", systemImage: "quote.opening") { web.go("/write?quote=\(p.id)") }
-            if mine {
-                Section("Your post") {
-                    Button("Edit", systemImage: "pencil") { web.go("/write/\(p.id)") }
-                    Button("Continue this thread", systemImage: "plus") { web.go("/write?continue=\(p.id)") }
-                    Button(p.canReply ? "Turn replies off" : "Turn replies on", systemImage: "bubble.left.and.bubble.right") { Task { await m.setReplies(p, on: !p.canReply) } }
-                    Button("Delete", systemImage: "trash", role: .destructive, action: delete)
-                }
-            } else {
-                Button("Mute \(person.name.split(separator: " ").first.map(String.init) ?? "")", systemImage: "speaker.slash") { Task { await m.mute(p) } }
-                Button("Report to an admin", systemImage: "flag", role: .destructive, action: report)
-            }
-        } label: { Image(systemName: "ellipsis").font(.system(size: 16, weight: .bold)).foregroundStyle(F.muted).frame(width: 34, height: 28) }
     }
 }
 
-private struct PollBox: View {
+/// The heart and bookmark pop when they turn on (the app's like-pop), with a fading ring.
+private struct Pop: ViewModifier {
+    let on: Bool
+    @State private var k = 0
+    func body(content: Content) -> some View {
+        content
+            .keyframeAnimator(initialValue: 1.0, trigger: k) { v, s in v.scaleEffect(s) } keyframes: { _ in
+                SpringKeyframe(1.35, duration: 0.18); SpringKeyframe(0.92, duration: 0.14); SpringKeyframe(1.0, duration: 0.18)
+            }
+            .overlay {
+                Circle().stroke(T.like, lineWidth: 2).padding(-6)
+                    .keyframeAnimator(initialValue: 0.0, trigger: k) { v, o in v.opacity(o).scaleEffect(0.6 + (1 - o) * 0.8) } keyframes: { _ in
+                        LinearKeyframe(0.9, duration: 0.01); LinearKeyframe(0, duration: 0.5)
+                    }
+                    .opacity(k == 0 ? 0 : 1)
+            }
+            .onChange(of: on) { _, now in if now { k += 1 } }
+    }
+}
+extension View { func symbolPop(_ on: Bool) -> some View { modifier(Pop(on: on)) } }
+
+// MARK: - Pieces inside a post
+
+/// One photo full width; several in a sideways row. Tap for the full-screen view.
+struct PhotoRow: View {
+    let urls: [URL]
+    @State private var openAt: Int?
+    var body: some View {
+        ZStack {
+            if urls.count == 1 {
+                AsyncImage(url: urls[0]) { $0.resizable().scaledToFit() } placeholder: { Color(rgb: 0x2a2d1d).frame(height: 240) }
+                    .frame(maxWidth: .infinity, maxHeight: 560).clipShape(RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.rule))
+                    .onTapGesture { openAt = 0 }
+            } else if urls.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(urls.enumerated()), id: \.offset) { i, u in
+                            AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x2a2d1d) }
+                                .frame(width: 240, height: 300).clipShape(RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.rule))
+                                .onTapGesture { openAt = i }
+                        }
+                    }
+                    .scrollTargetLayout()
+                }
+                .scrollTargetBehavior(.viewAligned)
+                .padding(.trailing, -16)
+            }
+        }
+        .fullScreenCover(item: Binding(get: { openAt.map { IntBox(v: $0) } }, set: { openAt = $0?.v })) { b in Lightbox(urls: urls, start: b.v) }
+    }
+}
+private struct IntBox: Identifiable { let v: Int; var id: Int { v } }
+
+/// Full-screen photos: swipe sideways for the next, swipe down or ✕ to close.
+private struct Lightbox: View {
+    let urls: [URL], start: Int
+    @State private var i = 0
+    @State private var drop: CGFloat = 0
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.opacity(1 - min(0.6, abs(drop) / 600)).ignoresSafeArea()
+            TabView(selection: $i) {
+                ForEach(Array(urls.enumerated()), id: \.offset) { k, u in
+                    AsyncImage(url: u) { $0.resizable().scaledToFit() } placeholder: { ProgressView().tint(.white) }.tag(k)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: urls.count > 1 ? .automatic : .never))
+            .offset(y: drop)
+            .gesture(DragGesture().onChanged { drop = max(0, $0.translation.height) }.onEnded { g in if g.translation.height > 120 { dismiss() } else { withAnimation(.spring) { drop = 0 } } })
+            Button { dismiss() } label: { Text("✕").font(.sans(17)).foregroundStyle(.white).frame(width: 40, height: 40).background(Circle().fill(.white.opacity(0.15))) }.padding(16)
+        }
+        .onAppear { i = start }
+        .statusBarHidden()
+    }
+}
+
+private struct BookCard: View {
+    let b: FBook
+    var body: some View {
+        HStack(spacing: 10) {
+            AsyncImage(url: b.cover) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0xc9c7af) }.frame(width: 28, height: 40).clipShape(RoundedRectangle(cornerRadius: 3))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(b.title).font(.serif(14, italic: true)).foregroundStyle(T.ink)
+                if let a = b.author { Text(a).font(.sans(12)).foregroundStyle(T.muted) }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8).background(RoundedRectangle(cornerRadius: 12).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 12).stroke(T.border))
+    }
+}
+
+private struct QuoteEmbed: View {
+    let userId: String, text: String
+    @ObservedObject var m: FeedModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) { Face(m.people[userId], s: 20); Text(m.people[userId]?.name ?? "").font(.sans(14, .semibold)).foregroundStyle(T.ink) }
+            Text(text).font(.serif(16)).foregroundStyle(T.ink).lineLimit(3).multilineTextAlignment(.leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 12).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 12).stroke(T.border))
+    }
+}
+
+private struct PollView: View {
     let poll: FPoll, me: String
     let vote: (Int) -> Void
     var body: some View {
@@ -634,24 +668,110 @@ private struct PollBox: View {
                 let n = poll.votes.values.filter { $0 == i }.count, pct = total > 0 ? Double(n) / Double(total) : 0
                 Button { vote(i) } label: {
                     HStack { Text(o + (mine == i ? " ✓" : "")); Spacer(); if show { Text("\(Int((pct * 100).rounded()))%") } }
-                        .font(.system(size: 15)).foregroundStyle(F.ink).padding(.horizontal, 12).frame(height: 38)
-                        .background(alignment: .leading) { GeometryReader { g in Rectangle().fill(mine == i ? Color(hex: 0x4d5038) : Color(hex: 0x434530)).frame(width: show ? g.size.width * pct : 0) } }
-                        .background(F.card).clipShape(RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x54563c)))
+                        .font(.sans(14)).foregroundStyle(T.ink).padding(.horizontal, 12).frame(height: 36)
+                        .background(alignment: .leading) { GeometryReader { g in Rectangle().fill(mine == i ? Color(rgb: 0x4d5038) : Color(rgb: 0x434530)).frame(width: show ? g.size.width * pct : 0) } }
+                        .background(T.card).clipShape(RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(T.border))
                 }
                 .buttonStyle(.plain).disabled(closed)
             }
-            Text("\(total) vote\(total == 1 ? "" : "s")\(poll.closes.map { $0 < Date() ? " · Final results" : " · Closes " + $0.formatted(.relative(presentation: .named)) } ?? "")")
-                .font(.system(size: 13)).foregroundStyle(F.muted)
+            Text("\(total) vote\(total == 1 ? "" : "s")\(poll.closes.map { $0 < Date() ? " · Final results" : " · " + left($0) } ?? "")").font(.sans(13)).foregroundStyle(T.muted)
         }
+    }
+    private func left(_ d: Date) -> String { let h = d.timeIntervalSinceNow / 3600; return h < 1 ? "Closing soon" : h < 24 ? "\(Int(h.rounded())) hours left" : "\(Int((h / 24).rounded())) days left" }
+}
+
+/// A link's preview (.linkcard): its picture, the site, and the title — read from the club's own link reader.
+enum LinkMeta {
+    struct Meta { let title: String?, image: URL?, publication: String? }
+    @MainActor private static var cache: [URL: Meta] = [:]
+    @MainActor static func get(_ url: URL) async -> Meta? {
+        if let m = cache[url] { return m }
+        if let id = youtube(url) { let m = Meta(title: "YouTube video", image: URL(string: "https://i.ytimg.com/vi/\(id)/hqdefault.jpg"), publication: "YouTube"); cache[url] = m; return m }
+        var c = URLComponents(string: "https://lotmstudy.org/fetch-metadata")!; c.queryItems = [URLQueryItem(name: "url", value: url.absoluteString)]
+        guard let u = c.url, let (d, _) = try? await URLSession.shared.data(from: u), let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any], o["error"] == nil else { return nil }
+        let m = Meta(title: o["title"] as? String, image: (o["image"] as? String).flatMap(URL.init(string:)), publication: o["publication"] as? String)
+        cache[url] = m; return m
+    }
+    static func youtube(_ u: URL) -> String? {
+        let s = u.absoluteString
+        guard let r = s.range(of: #"(?:youtube\.com/(?:watch\?(?:.*&)?v=|shorts/|embed/|live/)|youtu\.be/)([\w-]{11})"#, options: .regularExpression) else { return nil }
+        return String(s[r].suffix(11))
+    }
+}
+struct LinkCard: View {
+    let url: URL
+    @State private var meta: LinkMeta.Meta?
+    @State private var tried = false
+    var body: some View {
+        Button { openInApp(url) } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                if let img = meta?.image {
+                    AsyncImage(url: img) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x2a2d1d) }.frame(maxWidth: .infinity).aspectRatio(1.91, contentMode: .fit).clipped()
+                } else if !tried { LinearGradient(colors: [Color(rgb: 0x3e412c), Color(rgb: 0x46492f), Color(rgb: 0x3e412c)], startPoint: .leading, endPoint: .trailing).aspectRatio(1.91, contentMode: .fit) }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text((meta?.publication ?? url.host?.replacingOccurrences(of: "www.", with: "") ?? "").uppercased()).font(.sans(11.5, .semibold)).tracking(0.7).foregroundStyle(T.muted)
+                    Text(meta?.title ?? url.host ?? "").font(.serif(16, .semibold)).foregroundStyle(T.ink).lineLimit(2).multilineTextAlignment(.leading)
+                }
+                .padding(.horizontal, 12).padding(.top, 9).padding(.bottom, 10)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(T.paper).clipShape(RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).stroke(T.rule))
+        }
+        .buttonStyle(.plain)
+        .task { meta = await LinkMeta.get(url); tried = true }
     }
 }
 
-extension Supa {
-    func rowsIf(_ c: Bool, _ path: String) async throws -> [[String: Any]] { c ? try await rows(path) : [] }
-}
+// MARK: - The post's sheet (share, quote, your post's tools)
 
-/// A light tap, ready before it is needed (an unprepared generator is often too slow to be felt).
-enum Haptic {
-    private static let light: UIImpactFeedbackGenerator = { let g = UIImpactFeedbackGenerator(style: .light); g.prepare(); return g }()
-    static func tap() { light.impactOccurred(); light.prepare() }
+private struct PostActions: View {
+    let p: FPost
+    @ObservedObject var m: FeedModel
+    @ObservedObject var web: WebModel
+    let close: () -> Void, report: () -> Void, delete: () -> Void
+    @State private var pinned: String?
+    private var mine: Bool { p.userId == m.me }
+    private var link: URL { URL(string: "https://lotmstudy.org/next/#/post/\(p.id)")! }
+    var body: some View {
+        SheetBody {
+            Card14 {
+                GroupRow(icon: "quote", label: "Quote in a post", action: { close(); web.go("/write?quote=\(p.id)") }) { EmptyView() }
+                GroupLine()
+                ShareLink(item: link) { HStack(spacing: 14) { GlyphView(n: "link", s: 20); Text("Copy or share link").font(.sans(15)).frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(T.ink).padding(.horizontal, 16).frame(minHeight: 50) }
+            }
+            if mine {
+                Card14 {
+                    Eyebrow(t: "Your post").frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 4)
+                    GroupRow(icon: "pencil", label: "Edit", action: { close(); web.go("/write/\(p.id)") }) { EmptyView() }; GroupLine()
+                    GroupRow(icon: "plus", label: "Continue this thread", action: { close(); web.go("/write?continue=\(p.id)") }) { EmptyView() }; GroupLine()
+                    GroupRow(icon: "x", label: "Hide a reply…", action: { close(); web.go("/post/\(p.id)?hide=1") }) { EmptyView() }; GroupLine()
+                    GroupRow(icon: "reply", label: "Who can reply", action: { Task { await m.setReplies(p, on: !p.canReply) }; close() }) { Text(p.canReply ? "Everyone ›" : "No one ›").font(.sans(15)).foregroundStyle(T.muted) }; GroupLine()
+                    GroupRow(icon: "pin", label: pinned == nil ? "Pin for a week" : "Unpin", action: { Task { await togglePin() }; close() }) { EmptyView() }; GroupLine()
+                    GroupRow(icon: "trash", label: "Delete", danger: true, action: delete) { EmptyView() }
+                }
+                .padding(.top, 10)
+            } else {
+                Card14 {
+                    GroupRow(icon: "x", label: "Mute \(m.people[p.userId]?.name.split(separator: " ").first.map(String.init) ?? "")", action: { Task { await m.mute(p) }; close() }) { EmptyView() }; GroupLine()
+                    GroupRow(icon: "flag", label: "Report to an admin", danger: true, action: report) { EmptyView() }
+                }
+                .padding(.top, 10)
+            }
+        }
+        .task { await loadPin() }
+    }
+    @MainActor private func loadPin() async {
+        guard let a = await m.auth() else { return }
+        pinned = ((try? await Supa(a: a).rows("/rest/v1/weekly_pins?source_aside_id=eq.\(p.id)&expires_at=gt.\(ISO8601DateFormatter().string(from: Date()))&select=id&limit=1")) ?? []).first?["id"] as? String
+    }
+    @MainActor private func togglePin() async {
+        guard let a = await m.auth() else { return }; let db = Supa(a: a)
+        if pinned != nil { _ = try? await db.req("DELETE", "/rest/v1/weekly_pins?source_aside_id=eq.\(p.id)") }
+        else {
+            let body = (p.showTitle ? p.title + " — " : "") + String(p.body.prefix(400))
+            _ = try? await db.req("POST", "/rest/v1/weekly_pins", json: ["user_id": a.me, "body": body, "week_start": String(ISO8601DateFormatter().string(from: Date()).prefix(10)),
+                                                                     "expires_at": ISO8601DateFormatter().string(from: Date().addingTimeInterval(7 * 86400)), "source_aside_id": p.id])
+        }
+        await m.load(quiet: true)
+    }
 }

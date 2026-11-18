@@ -97,10 +97,10 @@ struct ComposeView: View {
         VStack(spacing: 0) {
             // top bar
             ZStack {
-                Text("New post").font(.system(size: 17, weight: .bold)).foregroundStyle(C.ink)
+                Text("New post").font(.sans(17, .bold)).foregroundStyle(C.ink)
                 HStack {
                     Button("Cancel") { if m.hasContent { confirmCancel = true } else { m.close() } }
-                        .font(.system(size: 17)).foregroundStyle(C.ink)
+                        .font(.sans(17)).foregroundStyle(C.ink)
                     Spacer()
                 }
             }
@@ -126,7 +126,7 @@ struct ComposeView: View {
                             } label: {
                                 HStack(spacing: 22) {
                                     Avatar(url: m.avatar, name: m.name, size: 22).opacity(0.55).frame(width: 40)
-                                    Text("Add to thread").font(.system(size: 16, weight: .semibold)).foregroundStyle(C.muted)
+                                    Text("Add to thread").font(.sans(16, .semibold)).foregroundStyle(C.muted)
                                     Spacer()
                                 }
                             }
@@ -148,14 +148,14 @@ struct ComposeView: View {
                     Button { m.policy = "none" } label: { Label("No one (replies off)", systemImage: m.policy == "none" ? "checkmark" : "nosign") }
                 } label: {
                     Text(m.policy == "none" ? "Replies are off" : "Anyone in the club can reply")
-                        .font(.system(size: 15)).foregroundStyle(C.muted).lineLimit(1)
+                        .font(.sans(15)).foregroundStyle(C.muted).lineLimit(1)
                 }
                 Spacer(minLength: 8)
                 let n = words(current.text)
-                Text("\(n)/\(LIMIT)").font(.system(size: 14).monospacedDigit())
+                Text("\(n)/\(LIMIT)").font(.sans(14).monospacedDigit())
                     .foregroundStyle(n > LIMIT ? C.red : n > LIMIT - 30 ? C.ink : C.muted)
                 Button { focus = nil; m.post() } label: {
-                    Group { if m.busy { ProgressView().tint(C.paper) } else { Text("Post").font(.system(size: 16, weight: .semibold)) } }
+                    Group { if m.busy { ProgressView().tint(C.paper) } else { Text("Post").font(.sans(16, .semibold)) } }
                         .frame(minWidth: 44).padding(.horizontal, 18).frame(height: 38)
                         .foregroundStyle(m.canPost ? C.paper : C.faint)
                         .background(Capsule().fill(m.canPost ? C.ink : .clear))
@@ -201,12 +201,12 @@ private struct PostRow: View {
             .frame(width: 40)
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text(name).font(.system(size: 16, weight: .semibold)).foregroundStyle(C.ink)
+                    Text(name).font(.sans(16, .semibold)).foregroundStyle(C.ink)
                     Spacer()
-                    if let remove { Button(action: remove) { Image(systemName: "xmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(C.muted).frame(width: 28, height: 28) } }
+                    if let remove { Button(action: remove) { Image(systemName: "xmark").font(.sans(13, .semibold)).foregroundStyle(C.muted).frame(width: 28, height: 28) } }
                 }
                 TextField(index == 0 ? "What’s on your mind?" : "Say more…", text: $post.text, axis: .vertical)
-                    .font(.system(size: 20, design: .serif)).foregroundStyle(C.ink).lineSpacing(3)
+                    .font(.serif(20)).foregroundStyle(C.ink).lineSpacing(3)
                     .focused(focus, equals: post.id)
                     .textInputAutocapitalization(.sentences)
                 if !post.images.isEmpty {
@@ -219,7 +219,7 @@ private struct PostRow: View {
                                     .overlay(RoundedRectangle(cornerRadius: 14).stroke(C.rule, lineWidth: 1))
                                     .overlay(alignment: .topTrailing) {
                                         Button { withAnimation(.snappy) { _ = post.images.remove(at: k) } } label: {
-                                            Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
+                                            Image(systemName: "xmark").font(.sans(12, .bold)).foregroundStyle(.white)
                                                 .frame(width: 26, height: 26).background(Circle().fill(.black.opacity(0.65)))
                                         }.padding(6)
                                     }
@@ -231,13 +231,13 @@ private struct PostRow: View {
                 let n = words(post.text)
                 if n > LIMIT {
                     Button(action: splitOver) {
-                        Text("Over \(LIMIT) words — continue as a thread").font(.system(size: 15, weight: .semibold)).foregroundStyle(C.red)
+                        Text("Over \(LIMIT) words — continue as a thread").font(.sans(15, .semibold)).foregroundStyle(C.red)
                     }.padding(.top, 4)
                 }
                 // tools for this post
                 HStack(spacing: 22) {
                     PhotosPicker(selection: $picks, maxSelectionCount: max(1, 10 - post.images.count), matching: .images) {
-                        Image(systemName: "photo.on.rectangle").font(.system(size: 19))
+                        Image(systemName: "photo.on.rectangle").font(.sans(19))
                     }
                     .disabled(post.images.count >= 10)
                 }
@@ -263,7 +263,7 @@ private struct Avatar: View {
         ZStack {
             Circle().fill(Color(hex: 0x2d301f))
             Text(name.split(separator: " ").prefix(2).compactMap { $0.first.map(String.init) }.joined().uppercased())
-                .font(.system(size: size * 0.36, weight: .semibold)).foregroundStyle(C.ink)
+                .font(.sans(size * 0.36, .semibold)).foregroundStyle(C.ink)
             if let url { AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.clear } }
         }
         .frame(width: size, height: size).clipShape(Circle())

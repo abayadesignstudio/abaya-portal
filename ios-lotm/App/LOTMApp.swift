@@ -40,10 +40,7 @@ struct LOTMApp: App {
     @StateObject private var web = WebModel()
     var body: some Scene {
         WindowGroup {
-            // The app's own design (the web screens); the native composer and post screen open from it.
-            WebView(model: web)
-                .ignoresSafeArea()
-                .background(Color(red: 0.176, green: 0.188, blue: 0.122))
+            Shell(web: web)
                 .onOpenURL { web.handle($0) }
                 .onAppear { AppDelegate.web = web }
         }
@@ -74,6 +71,8 @@ final class WebModel: NSObject, ObservableObject {
         cfg.userContentController.add(composer, name: "compose")
         cfg.userContentController.add(poster, name: "post")
         let routes = RouteHandler(); cfg.userContentController.add(routes, name: "route")
+        // The web app knows it is inside the app's native shell (it hides its own tab bar and Feed).
+        cfg.userContentController.addUserScript(WKUserScript(source: "document.documentElement.classList.add('native-shell')", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         // The web app knows it is inside the app's native shell (it hides its own tab bar and Feed).
         view = WKWebView(frame: .zero, configuration: cfg)
         super.init()

@@ -2,55 +2,8 @@ import SwiftUI
 import PhotosUI
 import WebKit
 
-// The Settings tab, native: your profile, notifications and devotion reminders, drafts, saved posts, muted members,
-// and (for administrators) members waiting for approval and reports.
-
-private struct Row<Trailing: View>: View {
-    let icon: String, label: String
-    var danger = false
-    let action: () -> Void
-    @ViewBuilder var trailing: () -> Trailing
-    var body: some View {
-        Button(action: { Haptic.tap(); action() }) {
-            HStack(spacing: 14) {
-                Image(systemName: icon).font(.system(size: 18)).frame(width: 26).foregroundStyle(danger ? Color(red: 0.9, green: 0.56, blue: 0.5) : S.ink)
-                Text(label).font(.system(size: 17)).foregroundStyle(danger ? Color(red: 0.9, green: 0.56, blue: 0.5) : S.ink)
-                Spacer()
-                trailing()
-            }
-            .padding(.horizontal, 16).frame(minHeight: 52).contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-private extension Row where Trailing == AnyView {
-    init(_ icon: String, _ label: String, count: Int? = nil, badge: Int = 0, chevron: Bool = true, danger: Bool = false, action: @escaping () -> Void) {
-        self.init(icon: icon, label: label, danger: danger, action: action) {
-            AnyView(HStack(spacing: 8) {
-                if let count { Text("\(count)").font(.system(size: 15)).foregroundStyle(S.muted) }
-                if badge > 0 { Text("\(badge)").font(.system(size: 12, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 6).frame(minWidth: 20, minHeight: 20).background(Capsule().fill(Color(red: 0.88, green: 0.54, blue: 0.6))) }
-                if chevron { Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(S.muted.opacity(0.8)) }
-            })
-        }
-    }
-}
-private struct Box<Content: View>: View {
-    @ViewBuilder var content: () -> Content
-    var body: some View {
-        VStack(spacing: 0) { content() }
-            .background(RoundedRectangle(cornerRadius: 16).fill(S.card)).overlay(RoundedRectangle(cornerRadius: 16).stroke(S.rule))
-            .padding(.horizontal, 16)
-    }
-}
-private struct Line: View { var body: some View { S.rule.frame(height: 0.5).padding(.leading, 56) } }
-private struct Toggler: View {
-    let label: String
-    @Binding var on: Bool
-    var body: some View {
-        Toggle(isOn: $on) { Text(label).font(.system(size: 17)).foregroundStyle(S.ink) }
-            .tint(Color(red: 0.2, green: 0.78, blue: 0.35)).padding(.horizontal, 16).frame(minHeight: 52)
-    }
-}
+// The Settings tab, native and in the app's own design: your profile, notifications and devotion reminders, drafts,
+// saved posts, muted members, and (for administrators) members waiting for approval and reports.
 
 struct Me { var name = "", bio = "", avatar: URL? = nil, role = "member", since = "" }
 struct Pref: Equatable { var tagged = true, likes = true, study = true, reading = true, email = false }
@@ -168,54 +121,57 @@ struct SettingsScreen: View {
     @State private var confirmSignOut = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Settings").font(.system(size: 30, weight: .semibold, design: .serif)).foregroundStyle(S.ink).padding(.horizontal, 20).padding(.top, 8)
-                Button { Haptic.tap(); sheet = .profile } label: {
-                    HStack(spacing: 14) {
-                        PersonFace(p: Person(name: m.me.name, avatar: m.me.avatar), size: 60)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(m.me.name).font(.system(size: 18, weight: .bold)).foregroundStyle(S.ink)
-                            Text("\(m.me.role.capitalized)\(m.me.since.isEmpty ? "" : " · since \(m.me.since)")").font(.system(size: 14)).foregroundStyle(S.muted)
-                            Text("Edit profile").font(.system(size: 14, weight: .semibold)).foregroundStyle(S.sub)
+        VStack(spacing: 0) {
+            Mast(unread: feed.unread,
+                 search: { presentSlide(SearchScreen(feed: feed, web: web)) },
+                 bell: { presentSlide(NotificationsScreen(feed: feed, web: web)) },
+                 title: { web.select(.feed) })
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Settings").font(.serif(20, .semibold)).tracking(-0.2).foregroundStyle(T.ink).padding(.horizontal, 20).padding(.top, 12)
+                    Button { Haptic.tap(); sheet = .profile } label: {
+                        HStack(spacing: 14) {
+                            Face(name: m.me.name, url: m.me.avatar, s: 60)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(m.me.name).font(.sans(17, .bold)).foregroundStyle(T.ink)
+                                Text("\(m.me.role.capitalized)\(m.me.since.isEmpty ? "" : " · since \(m.me.since)")").font(.sans(14)).foregroundStyle(T.muted)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            Chevron()
                         }
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(S.muted)
-                    }
-                    .padding(14).background(RoundedRectangle(cornerRadius: 16).fill(S.card)).overlay(RoundedRectangle(cornerRadius: 16).stroke(S.rule))
-                    .padding(.horizontal, 16)
-                }.buttonStyle(.plain)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 16).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.rule))
+                        .padding(.horizontal, 16).padding(.top, 10)
+                    }.buttonStyle(Press(scale: 0.98))
 
-                Box {
-                    Row("person.2", "Members", count: m.members.count, badge: m.admin ? m.pending.count : 0) { sheet = .members }
-                    Line()
-                    Row("bell", "Notifications") { sheet = .notifications }
-                    Line()
-                    Row("square.and.pencil", "Drafts and scheduled", count: m.drafts.count) { sheet = .drafts }
-                    Line()
-                    Row("bookmark", "Saved posts") { presentSlide(SavedScreen(feed: feed)) }
+                    Card14 {
+                        GroupRow(icon: "members", label: "Members", action: { sheet = .members }) { HStack(spacing: 8) { CountText(n: m.members.count); LikeBadge(n: m.admin ? m.pending.count : 0); Chevron() } }; GroupLine()
+                        GroupRow(icon: "bell", label: "Notifications", action: { sheet = .notifications }) { Chevron() }; GroupLine()
+                        GroupRow(icon: "pencil", label: "Drafts and scheduled", action: { sheet = .drafts }) { HStack(spacing: 8) { CountText(n: m.drafts.count); Chevron() } }; GroupLine()
+                        GroupRow(icon: "bookmark", label: "Saved posts", action: { presentSlide(SavedScreen(feed: feed)) }) { Chevron() }
+                    }
+                    .padding(.top, 12)
+                    Card14 {
+                        GroupRow(icon: "mute", label: "Muted members", action: { sheet = .mutes }) { HStack(spacing: 8) { CountText(n: m.mutes.count); Chevron() } }
+                        if m.admin { GroupLine(); GroupRow(icon: "flag", label: "Reports", action: { sheet = .reports }) { HStack(spacing: 8) { LikeBadge(n: m.reports.count); Chevron() } } }
+                    }
+                    .padding(.top, 12)
+                    if m.admin { Text("Reports are shown to administrators only.").font(.sans(12)).foregroundStyle(T.muted).padding(.horizontal, 30).padding(.top, 6) }
+                    Card14 {
+                        GroupRow(icon: "link", label: "Open the classic site", action: { openInApp(URL(string: "https://lotmstudy.org/")!) }) { Text("↗").font(.sans(15)).foregroundStyle(T.chev) }; GroupLine()
+                        GroupRow(icon: "logout", label: "Sign out", danger: true, action: { confirmSignOut = true }) { EmptyView() }
+                    }
+                    .padding(.top, 12)
+                    Text("Life of the Mind · version 2.0").font(.sans(12)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(.top, 14)
+                    Color.clear.frame(height: 110)
                 }
-                Box {
-                    Row("speaker.slash", "Muted members", count: m.mutes.count) { sheet = .mutes }
-                    if m.admin { Line(); Row("flag", "Reports", badge: m.reports.count) { sheet = .reports } }
-                }
-                Box {
-                    Row("safari", "Open the classic site", chevron: false) { openInApp(URL(string: "https://lotmstudy.org/")!) }
-                    Line()
-                    Row("rectangle.portrait.and.arrow.right", "Sign out", chevron: false, danger: true) { confirmSignOut = true }
-                }
-                Text("Life of the Mind · version 2.0").font(.system(size: 12)).foregroundStyle(S.muted).frame(maxWidth: .infinity).padding(.top, 4)
-                Color.clear.frame(height: 110)
             }
-            .padding(.top, 6)
+            .refreshable { await m.load() }
         }
-        .refreshable { await m.load() }
-        .background(S.paper.ignoresSafeArea())
+        .background(T.paper.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .task { m.feed = feed; await m.load() }
-        .sheet(item: $sheet) { s in
-            sheetView(s).presentationDragIndicator(.visible).presentationBackground(S.paper).presentationCornerRadius(24)
-        }
+        .sheet(item: $sheet) { s in sheetView(s).presentationDetents([.medium, .large]) }
         .confirmationDialog("Sign out of Life of the Mind?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) {
                 UserDefaults.standard.removeObject(forKey: "lotm.me")
@@ -237,19 +193,40 @@ struct SettingsScreen: View {
     }
 }
 
-// MARK: - Sheets
+// MARK: - Sheets (the app's .sheet: card colour, grab bar, .group lists)
 
-private struct SheetTitle: View {
+private struct SheetEyebrow: View {
     let t: String
-    var body: some View { Text(t).font(.system(size: 22, weight: .semibold, design: .serif)).foregroundStyle(S.ink).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.top, 24).padding(.bottom, 6) }
+    var body: some View { Eyebrow(t: t).padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 2) }
 }
-private struct Caption: View {
+private struct Note: View {
     let t: String
-    var body: some View { Text(t).font(.system(size: 13)).foregroundStyle(S.muted).lineSpacing(2).padding(.horizontal, 32).padding(.top, -6) }
+    var body: some View { Text(t).font(.sans(12.5)).foregroundStyle(T.muted).lineSpacing(3).padding(.horizontal, 30).padding(.top, 6) }
 }
-private struct Eyebrow: View {
-    let t: String
-    var body: some View { Text(t.uppercased()).font(.system(size: 11, weight: .bold)).tracking(0.9).foregroundStyle(S.muted).padding(.horizontal, 32).padding(.top, 10) }
+private struct Field: View {
+    let label: String
+    @Binding var text: String
+    var lines = 1
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.sans(13, .semibold)).foregroundStyle(T.muted)
+            TextField("", text: $text, axis: lines > 1 ? .vertical : .horizontal).lineLimit(lines...max(lines, 6))
+                .font(.sans(16)).foregroundStyle(T.ink).padding(.horizontal, 12).padding(.vertical, 11)
+                .background(RoundedRectangle(cornerRadius: 12).fill(T.paper)).overlay(RoundedRectangle(cornerRadius: 12).stroke(T.softBd))
+        }
+    }
+}
+/// .btn — the solid button.
+private struct SolidButton: ButtonStyle {
+    var ghost = false
+    var h: CGFloat = 48
+    func makeBody(configuration c: Configuration) -> some View {
+        c.label.font(.sans(16, .semibold)).foregroundStyle(ghost ? T.ink : T.paper)
+            .frame(maxWidth: .infinity).frame(height: h)
+            .background(RoundedRectangle(cornerRadius: 14).fill(ghost ? .clear : T.ink))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(ghost ? T.softBd : .clear))
+            .scaleEffect(c.isPressed ? 0.97 : 1).animation(.easeOut(duration: 0.1), value: c.isPressed)
+    }
 }
 
 private struct ProfileSheet: View {
@@ -263,42 +240,26 @@ private struct ProfileSheet: View {
     @State private var error: String?
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
+        SheetBody {
+            VStack(spacing: 12) {
                 PhotosPicker(selection: $pickAvatar, matching: .images) {
-                    VStack(spacing: 6) {
-                        PersonFace(p: Person(name: m.me.name, avatar: m.me.avatar), size: 88)
-                        Text(busy ? "Uploading…" : "Change photo").font(.system(size: 14, weight: .semibold)).foregroundStyle(S.sub)
-                    }
+                    VStack(spacing: 4) { Face(name: m.me.name, url: m.me.avatar, s: 84); Text(busy ? "Uploading…" : "Change photo").font(.sans(13)).foregroundStyle(T.muted) }
                 }
-                .padding(.top, 28)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Name").font(.system(size: 13, weight: .semibold)).foregroundStyle(S.muted)
-                    TextField("Your name", text: $name).font(.system(size: 17)).foregroundStyle(S.ink).padding(12).background(RoundedRectangle(cornerRadius: 12).fill(S.card))
-                    Text("Bio").font(.system(size: 13, weight: .semibold)).foregroundStyle(S.muted).padding(.top, 8)
-                    TextField("A line about you", text: $bio, axis: .vertical).lineLimit(3...6).font(.system(size: 17, design: .serif)).foregroundStyle(S.ink).padding(12).background(RoundedRectangle(cornerRadius: 12).fill(S.card))
-                }
-                .padding(.horizontal, 20)
-                PhotosPicker(selection: $pickBanner, matching: .images) {
-                    Text("Change banner image").font(.system(size: 16, weight: .semibold)).foregroundStyle(S.ink).frame(maxWidth: .infinity).frame(height: 48)
-                        .background(RoundedRectangle(cornerRadius: 14).stroke(S.rule))
-                }
-                .padding(.horizontal, 20)
-                Button {
+                Field(label: "Name", text: $name)
+                Field(label: "Bio", text: $bio, lines: 3)
+                PhotosPicker(selection: $pickBanner, matching: .images) { Text("Change banner image").font(.sans(16, .semibold)).foregroundStyle(T.ink).frame(maxWidth: .infinity).frame(height: 48).overlay(RoundedRectangle(cornerRadius: 14).stroke(T.softBd)) }
+                Button("Save") {
                     Task { busy = true; error = await m.saveProfile(name: name.trimmingCharacters(in: .whitespaces), bio: bio.trimmingCharacters(in: .whitespacesAndNewlines)); busy = false; if error == nil { Haptic.tap(); dismiss() } }
-                } label: {
-                    Text("Save").font(.system(size: 17, weight: .semibold)).foregroundStyle(S.paper).frame(maxWidth: .infinity).frame(height: 50).background(RoundedRectangle(cornerRadius: 14).fill(S.ink))
                 }
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || busy).padding(.horizontal, 20)
-                if let error { Text(error).font(.system(size: 14)).foregroundStyle(Color(red: 0.9, green: 0.56, blue: 0.5)) }
-                Button("View my profile", action: viewProfile).font(.system(size: 15)).foregroundStyle(S.muted)
+                .buttonStyle(SolidButton()).disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || busy)
+                if let error { Text(error).font(.sans(14)).foregroundStyle(T.danger) }
+                Button("View my profile", action: viewProfile).font(.sans(14)).foregroundStyle(T.muted)
             }
-            .padding(.bottom, 30)
+            .padding(.horizontal, 20)
         }
         .onAppear { name = m.me.name; bio = m.me.bio }
         .onChange(of: pickAvatar) { _, it in upload(it, "avatar_url") }
         .onChange(of: pickBanner) { _, it in upload(it, "background_url") }
-        .preferredColorScheme(.dark)
     }
     private func upload(_ it: PhotosPickerItem?, _ field: String) {
         guard let it else { return }
@@ -315,91 +276,79 @@ private struct MembersSheet: View {
     @ObservedObject var m: SettingsModel
     let open: (String) -> Void
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                if m.admin && !m.pending.isEmpty {
-                    SheetTitle(t: "Waiting for approval")
-                    Box {
-                        ForEach(m.pending, id: \.0) { item in
-                            HStack(spacing: 12) {
-                                PersonFace(p: item.1, size: 38)
-                                Text(item.1.name).font(.system(size: 17)).foregroundStyle(S.ink)
-                                Spacer()
-                                Button("Decline") { Task { await m.decide(item.0, approve: false) } }.font(.system(size: 14, weight: .semibold)).foregroundStyle(S.muted)
-                                Button("Approve") { Task { await m.decide(item.0, approve: true) } }.font(.system(size: 14, weight: .semibold)).foregroundStyle(S.paper)
-                                    .padding(.horizontal, 12).frame(height: 32).background(Capsule().fill(S.ink))
-                            }
-                            .padding(.horizontal, 16).frame(minHeight: 56)
+        SheetBody {
+            if m.admin && !m.pending.isEmpty {
+                SheetEyebrow(t: "Waiting for approval")
+                Card14 {
+                    ForEach(m.pending, id: \.0) { item in
+                        HStack(spacing: 10) {
+                            Face(item.1, s: 34)
+                            Text(item.1.name).font(.sans(15)).foregroundStyle(T.ink).frame(maxWidth: .infinity, alignment: .leading)
+                            Button("Decline") { Task { await m.decide(item.0, approve: false) } }.font(.sans(14, .semibold)).foregroundStyle(T.muted)
+                            Button("Approve") { Task { await m.decide(item.0, approve: true) } }.font(.sans(14, .semibold)).foregroundStyle(T.paper).padding(.horizontal, 12).frame(height: 32).background(RoundedRectangle(cornerRadius: 10).fill(T.ink))
                         }
-                    }
-                }
-                SheetTitle(t: "Members · \(m.members.count)")
-                Box {
-                    ForEach(Array(m.members.enumerated()), id: \.element.0) { k, item in
-                        if k > 0 { Line() }
-                        Button { open(item.0) } label: {
-                            HStack(spacing: 12) {
-                                PersonFace(p: item.1, size: 38)
-                                Text(item.1.name).font(.system(size: 17)).foregroundStyle(S.ink)
-                                Spacer()
-                                if item.2 != "member" { Text(item.2.capitalized).font(.system(size: 13)).foregroundStyle(S.muted) }
-                            }
-                            .padding(.horizontal, 16).frame(minHeight: 54).contentShape(Rectangle())
-                        }.buttonStyle(.plain)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
                     }
                 }
             }
-            .padding(.bottom, 30)
+            Card14 {
+                ForEach(Array(m.members.enumerated()), id: \.element.0) { k, item in
+                    if k > 0 { GroupLine() }
+                    Button { Haptic.tap(); open(item.0) } label: {
+                        HStack(spacing: 14) {
+                            Face(item.1, s: 34)
+                            Text(item.1.name).font(.sans(15)).foregroundStyle(T.ink).frame(maxWidth: .infinity, alignment: .leading)
+                            if item.2 != "member" { Text(item.2.capitalized).font(.sans(13)).foregroundStyle(T.muted) }
+                        }
+                        .padding(.horizontal, 16).frame(minHeight: 50).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                }
+            }
+            .padding(.top, 10)
         }
-        .preferredColorScheme(.dark)
     }
 }
 
 private struct NotificationsSheet: View {
     @ObservedObject var m: SettingsModel
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                SheetTitle(t: "Notifications")
-                Box {
-                    Button { if let u = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(u) } } label: {
-                        HStack { Text("On this iPhone").font(.system(size: 17)).foregroundStyle(S.ink); Spacer(); Text("iPhone Settings").font(.system(size: 15)).foregroundStyle(S.muted); Image(systemName: "arrow.up.forward").font(.system(size: 12)).foregroundStyle(S.muted) }
-                            .padding(.horizontal, 16).frame(minHeight: 52).contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                }
-                Caption(t: "To turn them off or change how they look, use iPhone Settings › Notifications › LOTM.")
-                Eyebrow(t: "Tell me about")
-                Box {
-                    Toggler(label: "When I am mentioned", on: $m.prefs.tagged); Line()
-                    Toggler(label: "Likes on my posts", on: $m.prefs.likes); Line()
-                    Toggler(label: "Next study reminders", on: $m.prefs.study); Line()
-                    Toggler(label: "Reading changes", on: $m.prefs.reading); Line()
-                    Toggler(label: "Also by email", on: $m.prefs.email)
-                }
-                Eyebrow(t: "Devotion")
-                Box {
-                    reminder("Morning Prayer", on: $m.reminders.morning, at: $m.reminders.morningAt); Line()
-                    reminder("Noonday Prayer", on: $m.reminders.noon, at: $m.reminders.noonAt); Line()
-                    reminder("Evening Prayer", on: $m.reminders.evening, at: $m.reminders.eveningAt)
-                }
-                Caption(t: "A notification arrives when each prayer is ready to be prayed, while a devotional is running. Tap it to open that office.")
+        SheetBody {
+            Card14 {
+                Text("Notifications are on for the iPhone app. To turn them off or change how they appear, go to iPhone Settings › Notifications › LOTM.")
+                    .font(.sans(14)).foregroundStyle(T.ink).lineSpacing(3).padding(.horizontal, 16).padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.bottom, 30)
+            Card14 {
+                toggle("When I am mentioned", $m.prefs.tagged); GroupLine()
+                toggle("Likes on my posts", $m.prefs.likes); GroupLine()
+                toggle("Next study reminders", $m.prefs.study); GroupLine()
+                toggle("Reading changes", $m.prefs.reading); GroupLine()
+                toggle("Also by email", $m.prefs.email)
+            }
+            .padding(.top, 10)
+            SheetEyebrow(t: "Devotion").padding(.top, 4)
+            Card14 {
+                reminder("Morning Prayer", $m.reminders.morning, $m.reminders.morningAt); GroupLine()
+                reminder("Noonday Prayer", $m.reminders.noon, $m.reminders.noonAt); GroupLine()
+                reminder("Evening Prayer", $m.reminders.evening, $m.reminders.eveningAt)
+            }
+            Note(t: "A notification arrives when each prayer is ready to be prayed, while a devotional is running. Tap it to open that office.")
         }
-        .onChange(of: m.prefs) { _, _ in Haptic.tap(); Task { await m.savePrefs() } }
+        .onChange(of: m.prefs) { _, _ in Task { await m.savePrefs() } }
         .onChange(of: m.reminders) { _, _ in Task { await m.saveReminders() } }
-        .preferredColorScheme(.dark)
     }
-    private func reminder(_ label: String, on: Binding<Bool>, at: Binding<String>) -> some View {
+    private func toggle(_ label: String, _ on: Binding<Bool>) -> some View {
+        GroupRow(label: label, action: { on.wrappedValue.toggle() }) { Switch(on: on.wrappedValue) }
+    }
+    private func reminder(_ label: String, _ on: Binding<Bool>, _ at: Binding<String>) -> some View {
         VStack(spacing: 0) {
-            Toggler(label: label, on: on)
+            toggle(label, on)
             if on.wrappedValue {
                 HStack {
-                    Text("Remind me at").font(.system(size: 15)).foregroundStyle(S.muted)
+                    Text("Remind me at").font(.sans(15)).foregroundStyle(T.muted)
                     Spacer()
                     DatePicker("", selection: Binding(get: { time(at.wrappedValue) }, set: { at.wrappedValue = hhmm($0) }), displayedComponents: .hourAndMinute).labelsHidden()
                 }
-                .padding(.leading, 32).padding(.trailing, 16).padding(.bottom, 8)
+                .padding(.leading, 32).padding(.trailing, 16).frame(minHeight: 44)
             }
         }
     }
@@ -412,29 +361,26 @@ private struct DraftsSheet: View {
     let open: (String) -> Void
     @State private var deleting: Draft?
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                let sched = m.drafts.filter(\.scheduled), drafts = m.drafts.filter { !$0.scheduled }
-                if !sched.isEmpty {
-                    SheetTitle(t: "Scheduled")
-                    Box { ForEach(sched) { d in item(d, sub: d.when.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().hour().minute())) { deleting = d } } }
-                    Caption(t: "Tap a scheduled post to delete it.")
-                }
-                SheetTitle(t: "Drafts")
-                if drafts.isEmpty { Text("No drafts.").font(.system(size: 16)).foregroundStyle(S.muted).padding(.horizontal, 20) }
-                else { Box { ForEach(drafts) { d in item(d, sub: ago(d.when)) { open(d.id) } } } }
+        SheetBody {
+            let sched = m.drafts.filter(\.scheduled), drafts = m.drafts.filter { !$0.scheduled }
+            if !sched.isEmpty {
+                SheetEyebrow(t: "Scheduled")
+                Card14 { ForEach(Array(sched.enumerated()), id: \.element.id) { k, d in if k > 0 { GroupLine() }; row(d, d.when.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().hour().minute())) { deleting = d } } }
             }
-            .padding(.bottom, 30)
+            SheetEyebrow(t: "Drafts").padding(.top, 8)
+            Card14 {
+                if drafts.isEmpty { Text("No drafts.").font(.sans(15)).foregroundStyle(T.muted).padding(16).frame(maxWidth: .infinity, alignment: .leading) }
+                ForEach(Array(drafts.enumerated()), id: \.element.id) { k, d in if k > 0 { GroupLine() }; row(d, ago(d.when)) { open(d.id) } }
+            }
         }
         .confirmationDialog("Delete this scheduled post?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
             Button("Delete", role: .destructive) { if let d = deleting { Task { await m.deleteScheduled(d) } } }
         }
-        .preferredColorScheme(.dark)
     }
-    private func item(_ d: Draft, sub: String, _ run: @escaping () -> Void) -> some View {
-        Button(action: run) {
-            HStack { Text(d.title).font(.system(size: 17, design: .serif)).foregroundStyle(S.ink).lineLimit(1); Spacer(); Text(sub).font(.system(size: 13)).foregroundStyle(S.muted) }
-                .padding(.horizontal, 16).frame(minHeight: 52).contentShape(Rectangle())
+    private func row(_ d: Draft, _ sub: String, _ run: @escaping () -> Void) -> some View {
+        Button { Haptic.tap(); run() } label: {
+            HStack { Text(d.title).font(.serif(16)).foregroundStyle(T.ink).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading); Text(sub).font(.sans(13)).foregroundStyle(T.muted) }
+                .padding(.horizontal, 16).frame(minHeight: 50).contentShape(Rectangle())
         }.buttonStyle(.plain)
     }
 }
@@ -443,28 +389,18 @@ private struct MutesSheet: View {
     @ObservedObject var m: SettingsModel
     let people: [String: Person]
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                SheetTitle(t: "Muted members")
-                if m.mutes.isEmpty { Text("You haven’t muted anyone.").font(.system(size: 16)).foregroundStyle(S.muted).padding(.horizontal, 20) }
-                else {
-                    Box {
-                        ForEach(m.mutes, id: \.self) { id in
-                            HStack(spacing: 12) {
-                                PersonFace(p: people[id] ?? Person(name: "", avatar: nil), size: 36)
-                                Text(people[id]?.name ?? "Member").font(.system(size: 17)).foregroundStyle(S.ink)
-                                Spacer()
-                                Button("Unmute") { Haptic.tap(); Task { await m.unmute(id) } }.font(.system(size: 14, weight: .semibold)).foregroundStyle(S.ink)
-                                    .padding(.horizontal, 12).frame(height: 32).background(Capsule().stroke(S.rule))
-                            }
-                            .padding(.horizontal, 16).frame(minHeight: 54)
-                        }
-                    }
+        SheetBody {
+            Card14 {
+                if m.mutes.isEmpty { Text("You haven’t muted anyone.").font(.sans(15)).foregroundStyle(T.muted).padding(16).frame(maxWidth: .infinity, alignment: .leading) }
+                ForEach(Array(m.mutes.enumerated()), id: \.element) { k, id in
+                    if k > 0 { GroupLine() }
+                    Button { Haptic.tap(); Task { await m.unmute(id) } } label: {
+                        HStack(spacing: 14) { Face(people[id], s: 30); Text(people[id]?.name ?? "Member").font(.sans(15)).foregroundStyle(T.ink).frame(maxWidth: .infinity, alignment: .leading); Text("Unmute").font(.sans(13)).foregroundStyle(T.muted) }
+                            .padding(.horizontal, 16).frame(minHeight: 50).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
                 }
             }
-            .padding(.bottom, 30)
         }
-        .preferredColorScheme(.dark)
     }
 }
 
@@ -474,34 +410,27 @@ private struct ReportsSheet: View {
     let openPost: (String) -> Void
     @State private var removing: Report?
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                SheetTitle(t: "Reports")
-                if m.reports.isEmpty { Text("No open reports.").font(.system(size: 16)).foregroundStyle(S.muted).padding(.horizontal, 20) }
+        SheetBody {
+            VStack(spacing: 10) {
+                if m.reports.isEmpty { Text("No open reports.").font(.sans(15)).foregroundStyle(T.muted).frame(maxWidth: .infinity, alignment: .leading) }
                 ForEach(m.reports) { r in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("\(people[r.reporter]?.name ?? "A member") · \(r.created.formatted(date: .abbreviated, time: .omitted))").font(.system(size: 13)).foregroundStyle(S.muted)
-                        Text(r.reason.isEmpty ? "(no reason given)" : r.reason).font(.system(size: 17, design: .serif)).foregroundStyle(S.ink)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("\(people[r.reporter]?.name ?? "A member") · \(r.created.formatted(date: .numeric, time: .omitted))").font(.sans(13)).foregroundStyle(T.muted)
+                        Text(r.reason.isEmpty ? "(no reason given)" : r.reason).font(.sans(15)).foregroundStyle(T.ink)
+                        if let p = r.post { Button("View post") { openPost(p) }.font(.sans(15)).foregroundStyle(T.ticker) }
                         HStack(spacing: 8) {
-                            if let p = r.post { Button("View post") { openPost(p) }.font(.system(size: 14, weight: .semibold)).foregroundStyle(S.sub) }
-                            Spacer()
-                            Button("Dismiss") { Task { await m.resolve(r, removePost: false) } }.font(.system(size: 14, weight: .semibold)).foregroundStyle(S.ink)
-                                .padding(.horizontal, 12).frame(height: 32).background(Capsule().stroke(S.rule))
-                            if r.post != nil {
-                                Button("Delete post") { removing = r }.font(.system(size: 14, weight: .semibold)).foregroundStyle(S.paper)
-                                    .padding(.horizontal, 12).frame(height: 32).background(Capsule().fill(S.ink))
-                            }
+                            Button("Dismiss") { Task { await m.resolve(r, removePost: false) } }.buttonStyle(SolidButton(ghost: true, h: 34))
+                            if r.post != nil { Button("Delete post") { removing = r }.buttonStyle(SolidButton(h: 34)) }
                         }
                     }
-                    .padding(14).background(RoundedRectangle(cornerRadius: 16).fill(S.card)).overlay(RoundedRectangle(cornerRadius: 16).stroke(S.rule)).padding(.horizontal, 16)
+                    .padding(.horizontal, 16).padding(.vertical, 14).background(RoundedRectangle(cornerRadius: 16).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.rule))
                 }
             }
-            .padding(.bottom, 30)
+            .padding(.horizontal, 16)
         }
         .confirmationDialog("Delete the reported post for everyone?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
             Button("Delete post", role: .destructive) { if let r = removing { Task { await m.resolve(r, removePost: true) } } }
         }
-        .preferredColorScheme(.dark)
     }
 }
 
@@ -511,34 +440,22 @@ private struct SavedHit: Identifiable { let id: String, userId: String, title: S
 
 struct SavedScreen: View {
     @ObservedObject var feed: FeedModel
+    @Environment(\.closeScreen) private var close
     @State private var items: [SavedHit] = []
     @State private var loaded = false
     var body: some View {
         VStack(spacing: 0) {
-            ScreenBar(title: "Saved posts", back: "Settings")
+            PageBar(title: "Saved posts", back: "Settings") { close() }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(items) { h in
-                        Button { feed.open(h.id, false) } label: {
-                            HStack(alignment: .top, spacing: 12) {
-                                PersonFace(p: feed.people[h.userId] ?? Person(name: "", avatar: nil), size: 36)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    HStack(spacing: 4) { Text(feed.people[h.userId]?.name ?? "Member").font(.system(size: 15, weight: .semibold)).foregroundStyle(S.ink); Text("· \(ago(h.created))").font(.system(size: 14)).foregroundStyle(S.muted) }
-                                    if !h.title.isEmpty { Text(h.title).font(.system(size: 17, weight: .semibold, design: .serif)).foregroundStyle(S.ink).lineLimit(2).multilineTextAlignment(.leading) }
-                                    Text(h.text).font(.system(size: 16, design: .serif)).foregroundStyle(S.sub).lineLimit(4).multilineTextAlignment(.leading)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 20).padding(.vertical, 12).overlay(alignment: .bottom) { S.rule.frame(height: 0.5) }.contentShape(Rectangle())
-                        }.buttonStyle(.plain)
-                    }
-                    if loaded && items.isEmpty { Text("Nothing saved yet. Tap the bookmark on a post to keep it here.").font(.system(size: 16)).foregroundStyle(S.muted).multilineTextAlignment(.center).padding(40) }
-                    if !loaded { ProgressView().tint(S.muted).frame(maxWidth: .infinity).padding(.top, 60) }
+                    ForEach(items) { h in HitRow(person: feed.people[h.userId], title: h.title, text: h.text, created: h.created) { feed.open(h.id, false) } }
+                    if loaded && items.isEmpty { Text("Nothing saved yet.").font(.serif(17)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(40) }
+                    if !loaded { Text("Loading…").font(.sans(15)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(40) }
                 }
             }
             .refreshable { await load() }
         }
-        .background(S.paper.ignoresSafeArea())
+        .background(T.paper.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .task { await load() }
     }
@@ -552,5 +469,26 @@ struct SavedScreen: View {
             return SavedHit(id: r["id"] as? String ?? "", userId: r["user_id"] as? String ?? "", title: body.lowercased().hasPrefix(title.lowercased().prefix(20)) ? "" : title, text: body, created: parseDate(r["created_at"]))
         }
         loaded = true
+    }
+}
+
+/// A post in a list (search results, saved posts): face, name and time, title, a few lines of the writing.
+struct HitRow: View {
+    let person: Person?, title: String, text: String, created: Date
+    let tap: () -> Void
+    var body: some View {
+        Button { Haptic.tap(); tap() } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Face(person, s: 36)
+                VStack(alignment: .leading, spacing: 3) {
+                    (Text(person?.name ?? "Member").font(.sans(14, .semibold)).foregroundColor(T.ink) + Text(" · \(ago(created))").font(.sans(14)).foregroundColor(T.muted))
+                    if !title.isEmpty { Text(title).font(.serif(18, .semibold)).foregroundStyle(T.ink).lineLimit(2).multilineTextAlignment(.leading) }
+                    Text(text).font(.serif(17)).foregroundStyle(T.ink).lineLimit(4).multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 20).padding(.vertical, 14).overlay(alignment: .bottom) { T.rule.frame(height: 1) }.contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

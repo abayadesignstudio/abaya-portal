@@ -1,16 +1,7 @@
 import SwiftUI
 import WebKit
 
-// Native screens that slide in over the app (Notifications, Search…), and the pieces they share.
-
-private extension Color {
-    init(hex: UInt32) { self.init(red: Double((hex >> 16) & 0xff) / 255, green: Double((hex >> 8) & 0xff) / 255, blue: Double(hex & 0xff) / 255) }
-}
-enum S {
-    static let paper = Color(hex: 0x3b3e2a), card = Color(hex: 0x414530), ink = Color(hex: 0xf1eedd), muted = Color(hex: 0xc3c3a6)
-    static let rule = Color(hex: 0x4d4f37), tan = Color(hex: 0x2d301f), soft = Color(hex: 0x454832), unread = Color(hex: 0x424530), blue = Color(hex: 0x2f6fb0)
-    static let sub = Color(hex: 0xcdcbb4)
-}
+// Native screens that slide in over the app (Notifications, Search, Saved posts), in the app's own design.
 
 // MARK: - Sliding screens
 
@@ -50,52 +41,6 @@ func presentSlide<V: View>(_ screen: V) {
     top.present(vc, animated: true)
 }
 
-/// The bar at the top of a sliding screen: Back on the left, the title, an optional button on the right.
-struct ScreenBar<Trailing: View>: View {
-    let title: String
-    var back = "Back"
-    @ViewBuilder var trailing: () -> Trailing
-    @Environment(\.closeScreen) private var close
-    var body: some View {
-        ZStack {
-            Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(S.ink)
-            HStack {
-                Button { close() } label: {
-                    HStack(spacing: 3) { Image(systemName: "chevron.left").font(.system(size: 20, weight: .semibold)); Text(back).font(.system(size: 17)) }
-                        .foregroundStyle(S.ink).padding(.vertical, 8).contentShape(Rectangle())
-                }
-                Spacer()
-                trailing()
-            }
-        }
-        .padding(.horizontal, 12).frame(height: 48)
-        .background(S.tan)
-        .overlay(alignment: .bottom) { S.rule.frame(height: 0.5) }
-    }
-}
-extension ScreenBar where Trailing == EmptyView {
-    init(title: String, back: String = "Back") { self.init(title: title, back: back, trailing: { EmptyView() }) }
-}
-
-/// A row of choices, like the segmented control in Apple's apps but in the club's colours.
-struct Chips: View {
-    let options: [String]
-    @Binding var value: String
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(options, id: \.self) { o in
-                Button { Haptic.tap(); withAnimation(.snappy) { value = o } } label: {
-                    Text(o).font(.system(size: 14, weight: value == o ? .semibold : .regular)).foregroundStyle(S.ink)
-                        .frame(maxWidth: .infinity).frame(height: 32)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(value == o ? S.card : .clear).shadow(color: .black.opacity(value == o ? 0.15 : 0), radius: 2, y: 1))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(2).background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.12)))
-    }
-}
-
 // MARK: - Notifications
 
 private struct NItem: Identifiable {
@@ -104,6 +49,7 @@ private struct NItem: Identifiable {
     var mention: Bool { kind == "mention" || title.range(of: "mention|tagged", options: [.regularExpression, .caseInsensitive]) != nil }
 }
 private let clubKinds: Set<String> = ["book", "event", "membership_request", "membership_approved", "membership_rejected", "report"]
+private let unreadBg = Color(rgb: 0x424530), blue = Color(rgb: 0x2f6fb0)
 
 struct NotificationsScreen: View {
     @ObservedObject var feed: FeedModel
@@ -116,63 +62,65 @@ struct NotificationsScreen: View {
     private var shown: [NItem] { items.filter { tab == "All" || (tab == "Mentions" ? $0.mention : clubKinds.contains($0.kind)) } }
     var body: some View {
         VStack(spacing: 0) {
-            ScreenBar(title: "Notifications") {
-                Button("Read all") { Task { await readAll() } }.font(.system(size: 15, weight: .semibold)).foregroundStyle(S.sub).disabled(!items.contains { !$0.read })
+            PageBar(title: "Notifications", onBack: { close() }) {
+                Button("Read all") { Task { await readAll() } }.font(.sans(14, .semibold)).foregroundStyle(T.ticker).padding(8)
             }
-            Chips(options: ["All", "Mentions", "Club"], value: $tab).padding(.horizontal, 20).padding(.vertical, 10)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    Seg(options: ["All", "Mentions", "Club"], value: $tab).padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 6)
                     let today = shown.filter { Calendar.current.isDateInToday($0.created) }, earlier = shown.filter { !Calendar.current.isDateInToday($0.created) }
                     group("Today", today)
                     group("Earlier", earlier)
-                    if loaded && shown.isEmpty { Text("You’re all caught up.").font(.system(size: 16)).foregroundStyle(S.muted).frame(maxWidth: .infinity).padding(.top, 60) }
-                    if !loaded { ProgressView().tint(S.muted).frame(maxWidth: .infinity).padding(.top, 60) }
+                    if loaded && shown.isEmpty { Text("You're all caught up.").font(.sans(15)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(40) }
+                    if !loaded { Text("Loading…").font(.sans(15)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(40) }
                 }
                 .padding(.bottom, 40)
             }
             .refreshable { await load() }
         }
-        .background(S.paper.ignoresSafeArea())
+        .background(T.paper.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .task { await load() }
     }
     @ViewBuilder private func group(_ label: String, _ list: [NItem]) -> some View {
         if !list.isEmpty {
-            Text(label.uppercased()).font(.system(size: 11, weight: .bold)).tracking(0.9).foregroundStyle(S.muted).padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 6)
+            Eyebrow(t: label).padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 6)
             ForEach(list) { n in row(n) }
         }
     }
-    private func badge(_ n: NItem) -> (String, Color) {
-        if n.mention { return ("at", Color(red: 0.66, green: 0.53, blue: 0.25)) }
+    private func badge(_ n: NItem) -> (String, Color, Bool)? {
+        if n.mention { return nil }
         switch n.kind {
-        case "like": return ("heart.fill", Color(red: 0.88, green: 0.54, blue: 0.6))
-        case "comment", "reply", "message": return ("bubble.right.fill", S.blue)
-        case "book": return ("book.fill", Color(red: 0.18, green: 0.42, blue: 0.27))
-        case "event": return ("calendar", Color(red: 0.18, green: 0.42, blue: 0.27))
-        default: return ("bell.fill", S.sub)
+        case "like": return ("heart", Color(rgb: 0xe08a98), true)
+        case "comment", "reply", "message": return ("reply", blue, false)
+        case "book": return ("book", Color(rgb: 0x2f6b45), false)
+        case "event": return ("calendar", Color(rgb: 0x2f6b45), false)
+        default: return nil
         }
     }
     private func row(_ n: NItem) -> some View {
-        let (icon, tone) = badge(n)
-        return Button { Task { await open(n) } } label: {
+        Button { Task { await open(n) } } label: {
             HStack(alignment: .top, spacing: 12) {
                 ZStack(alignment: .bottomTrailing) {
-                    if let by = n.by, let p = feed.people[by] { PersonFace(p: p, size: 42) }
-                    else { Text("LM").font(.system(size: 15, weight: .semibold, design: .serif)).foregroundStyle(S.paper).frame(width: 42, height: 42).background(Circle().fill(S.ink)) }
-                    Image(systemName: icon).font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
-                        .frame(width: 20, height: 20).background(Circle().fill(tone)).overlay(Circle().stroke(n.read ? S.paper : S.unread, lineWidth: 2)).offset(x: 3, y: 3)
+                    if let by = n.by, let p = feed.people[by] { Face(p, s: 42) }
+                    else { Text("LM").font(.serif(15)).foregroundStyle(T.paper).frame(width: 42, height: 42).background(Circle().fill(T.ink)) }
+                    ZStack {
+                        Circle().fill(badge(n)?.1 ?? T.sub)
+                        if let b = badge(n) { GlyphView(n: b.0, s: 11, w: 3, fill: b.2).foregroundStyle(.white) } else { Text("@").font(.sans(11, .bold)).foregroundStyle(.white) }
+                    }
+                    .frame(width: 20, height: 20).overlay(Circle().stroke(n.read ? T.paper : unreadBg, lineWidth: 2)).offset(x: 3, y: 3)
                 }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(n.title).font(.system(size: 15, weight: .semibold)).foregroundStyle(S.ink).multilineTextAlignment(.leading)
-                    if !n.message.isEmpty { Text(n.message).font(.system(size: 16, design: .serif)).foregroundStyle(S.sub).lineLimit(1) }
-                    Text(ago(n.created)).font(.system(size: 12)).foregroundStyle(S.muted)
+                    Text(n.title).font(.sans(14, .semibold)).foregroundStyle(T.ink).lineSpacing(2).multilineTextAlignment(.leading)
+                    if !n.message.isEmpty { Text(n.message).font(.serif(16)).foregroundStyle(T.sub).lineLimit(1) }
+                    Text(ago(n.created)).font(.sans(12)).foregroundStyle(T.muted)
                 }
-                Spacer(minLength: 0)
-                if !n.read { Circle().fill(S.blue).frame(width: 10, height: 10).padding(.top, 16) }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if !n.read { Circle().fill(blue).frame(width: 10, height: 10).frame(maxHeight: .infinity) }
             }
             .padding(.horizontal, 20).padding(.vertical, 12)
-            .background(n.read ? Color.clear : S.unread)
-            .overlay(alignment: .bottom) { S.rule.frame(height: 0.5) }
+            .background(n.read ? Color.clear : unreadBg)
+            .overlay(alignment: .bottom) { T.rule.frame(height: 1) }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -217,6 +165,7 @@ private struct NoteHit: Identifiable { let id: String, text: String, book: Strin
 struct SearchScreen: View {
     @ObservedObject var feed: FeedModel
     @ObservedObject var web: WebModel
+    var start = ""
     @Environment(\.closeScreen) private var close
     @State private var q = ""
     @State private var scope = "Top"
@@ -238,33 +187,33 @@ struct SearchScreen: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(S.muted)
-                    TextField("Posts, #topics, members, quotes", text: $q).focused($typing).submitLabel(.search)
-                        .font(.system(size: 17)).foregroundStyle(S.ink).autocorrectionDisabled()
-                    if !q.isEmpty { Button { q = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(S.muted) } }
+                    GlyphView(n: "search", s: 18).foregroundStyle(T.muted)
+                    TextField("", text: $q, prompt: Text("Posts, #topics, members, quotes").foregroundColor(T.muted)).focused($typing).submitLabel(.search)
+                        .font(.sans(16)).foregroundStyle(T.ink).autocorrectionDisabled().textInputAutocapitalization(.never)
+                    if !q.isEmpty { Button { q = "" } label: { Text("×").font(.sans(12)).foregroundStyle(.white).frame(width: 18, height: 18).background(Circle().fill(Color(rgb: 0x5e6043))) } }
                 }
-                .padding(.horizontal, 12).frame(height: 40).background(RoundedRectangle(cornerRadius: 12).fill(Color.black.opacity(0.14)))
-                Button("Cancel") { typing = false; close() }.font(.system(size: 16)).foregroundStyle(S.ink)
+                .padding(.horizontal, 12).frame(height: 40).background(RoundedRectangle(cornerRadius: 12).fill(Color(rgb: 0x0c0e08, 0.07)))
+                Button("Cancel") { typing = false; close() }.font(.sans(15)).foregroundStyle(T.ink)
             }
-            .padding(.horizontal, 12).padding(.vertical, 8).background(S.tan)
-            .overlay(alignment: .bottom) { S.rule.frame(height: 0.5) }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(["Top", "Posts", "Members", "Commonplace"], id: \.self) { s in
-                        Button { Haptic.tap(); scope = s } label: {
-                            Text(s).font(.system(size: 14, weight: .semibold)).foregroundStyle(scope == s ? S.paper : S.ink)
-                                .padding(.horizontal, 14).frame(height: 32).background(Capsule().fill(scope == s ? S.ink : Color.black.opacity(0.12)))
-                        }.buttonStyle(.plain)
-                    }
-                }.padding(.horizontal, 16).padding(.vertical, 10)
-            }
+            .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 10).background(Color(rgb: 0x3a3d2b, 0.96))
+            .overlay(alignment: .bottom) { T.rule.frame(height: 1) }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(["Top", "Posts", "Members", "Commonplace"], id: \.self) { s in
+                                Button { Haptic.tap(); scope = s } label: {
+                                    Text(s).font(.sans(14, .semibold)).foregroundStyle(scope == s ? T.paper : T.ink)
+                                        .padding(.horizontal, 14).frame(height: 32).background(Capsule().fill(scope == s ? T.ink : Color(rgb: 0x0c0e08, 0.07)))
+                                }.buttonStyle(Press())
+                            }
+                        }.padding(.horizontal, 16).padding(.top, 10)
+                    }
                     if show("Posts") && !topics.isEmpty {
                         label("Topics")
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) { ForEach(topics, id: \.0) { t in
-                                Button { q = "#" + t.0 } label: { Text("#\(t.0)  \(t.1)").font(.system(size: 14, weight: .semibold)).foregroundStyle(S.ink).padding(.horizontal, 12).frame(height: 32).background(Capsule().fill(S.soft)) }
+                                Button { q = "#" + t.0 } label: { Text("#\(t.0)  \(t.1)").font(.sans(14, .semibold)).foregroundStyle(T.ink).padding(.horizontal, 12).frame(height: 32).background(Capsule().fill(T.soft)) }.buttonStyle(Press())
                             } }.padding(.horizontal, 20)
                         }
                     }
@@ -272,71 +221,51 @@ struct SearchScreen: View {
                         label("Members")
                         ForEach(people, id: \.0) { item in
                             Button { close { web.go("/member/\(item.0)") } } label: {
-                                HStack(spacing: 12) { PersonFace(p: item.1, size: 40); Text(item.1.name).font(.system(size: 17, weight: .semibold, design: .serif)).foregroundStyle(S.ink); Spacer() }
+                                HStack(spacing: 12) { Face(item.1, s: 40); Text(item.1.name).font(.sans(15, .semibold)).foregroundStyle(T.ink); Spacer() }
                                     .padding(.horizontal, 20).padding(.vertical, 8).contentShape(Rectangle())
                             }.buttonStyle(.plain)
                         }
                     }
                     if show("Posts") && !posts.isEmpty {
                         label("Posts")
-                        ForEach(scope == "Top" ? Array(posts.prefix(6)) : posts) { hitRow($0) }
+                        ForEach(scope == "Top" ? Array(posts.prefix(6)) : posts) { h in HitRow(person: feed.people[h.userId], title: h.title, text: h.text, created: h.created) { typing = false; feed.open(h.post, false) } }
                     }
                     if show("Posts") && !replies.isEmpty {
                         label("Replies")
-                        ForEach(scope == "Top" ? Array(replies.prefix(4)) : replies) { hitRow($0) }
+                        ForEach(scope == "Top" ? Array(replies.prefix(4)) : replies) { h in HitRow(person: feed.people[h.userId], title: "", text: h.text, created: h.created) { typing = false; feed.open(h.post, false) } }
                     }
                     if show("Commonplace") && !notes.isEmpty {
                         label("From your commonplace")
                         ForEach(scope == "Top" ? Array(notes.prefix(3)) : notes) { n in
                             Button { close { web.go("/notebook/\(n.id)") } } label: {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(n.text).font(.system(size: 16, design: .serif)).foregroundStyle(S.ink).lineLimit(3).multilineTextAlignment(.leading)
-                                    if !n.book.isEmpty { Text(n.book).font(.system(size: 13, design: .serif).italic()).foregroundStyle(S.muted) }
+                                    Text(n.text).font(.serif(16)).foregroundStyle(T.ink).lineLimit(3).multilineTextAlignment(.leading)
+                                    if !n.book.isEmpty { Text(n.book).font(.serif(14, italic: true)).foregroundStyle(T.muted) }
                                 }
-                                .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                                .background(RoundedRectangle(cornerRadius: 14).fill(S.card)).overlay(RoundedRectangle(cornerRadius: 14).stroke(S.rule))
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 14).padding(.vertical, 12)
+                                .background(RoundedRectangle(cornerRadius: 14).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 14).stroke(T.rule))
                                 .padding(.horizontal, 16).padding(.bottom, 8)
                             }.buttonStyle(.plain)
                         }
                     }
                     if searched && !q.isEmpty && topics.isEmpty && people.isEmpty && posts.isEmpty && replies.isEmpty && notes.isEmpty {
-                        Text("Nothing matches “\(q)”.").font(.system(size: 16)).foregroundStyle(S.muted).frame(maxWidth: .infinity).padding(.top, 50)
+                        Text("Nothing matches “\(q)”.").font(.sans(15)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(40)
                     }
                 }
                 .padding(.bottom, 40)
             }
             .scrollDismissesKeyboard(.interactively)
         }
-        .background(S.paper.ignoresSafeArea())
+        .background(T.paper.ignoresSafeArea())
         .preferredColorScheme(.dark)
-        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { typing = true } }
+        .onAppear { if !start.isEmpty && q.isEmpty { q = start } else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { typing = true } } }
         .task(id: q) {
             try? await Task.sleep(nanoseconds: 250_000_000)
             if Task.isCancelled { return }
             await run()
         }
     }
-    private func label(_ t: String) -> some View {
-        Text(t.uppercased()).font(.system(size: 11, weight: .bold)).tracking(0.9).foregroundStyle(S.muted).padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 6)
-    }
-    private func hitRow(_ h: Hit) -> some View {
-        Button { typing = false; feed.open(h.post, false) } label: {
-            HStack(alignment: .top, spacing: 12) {
-                PersonFace(p: feed.people[h.userId] ?? Person(name: "", avatar: nil), size: 36)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 4) {
-                        Text(feed.people[h.userId]?.name ?? "Member").font(.system(size: 15, weight: .semibold)).foregroundStyle(S.ink)
-                        Text("· \(ago(h.created))").font(.system(size: 14)).foregroundStyle(S.muted)
-                    }
-                    if !h.title.isEmpty { Text(h.title).font(.system(size: 17, weight: .semibold, design: .serif)).foregroundStyle(S.ink).lineLimit(2).multilineTextAlignment(.leading) }
-                    Text(h.text).font(.system(size: 16, design: .serif)).foregroundStyle(S.sub).lineLimit(3).multilineTextAlignment(.leading)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 20).padding(.vertical, 12).overlay(alignment: .bottom) { S.rule.frame(height: 0.5) }.contentShape(Rectangle())
-        }.buttonStyle(.plain)
-    }
-
+    private func label(_ t: String) -> some View { Eyebrow(t: t).padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 6) }
     @MainActor private func run() async {
         let t = q.trimmingCharacters(in: .whitespaces)
         guard !t.isEmpty else { topics = []; posts = []; replies = []; notes = []; searched = false; return }

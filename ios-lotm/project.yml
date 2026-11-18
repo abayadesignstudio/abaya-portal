@@ -30,6 +30,7 @@ targets:
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIStatusBarStyle: UIStatusBarStyleLightContent
         UIViewControllerBasedStatusBarAppearance: false
+        UIAppFonts: [EBGaramond-Regular.ttf, EBGaramond-Medium.ttf, EBGaramond-SemiBold.ttf, EBGaramond-Bold.ttf, EBGaramond-Italic.ttf, EBGaramond-SemiBoldItalic.ttf, Inter-Regular.ttf, Inter-Medium.ttf, Inter-SemiBold.ttf, Inter-Bold.ttf]
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: Photograph a page or attach a photo to a post.
         NSPhotoLibraryUsageDescription: Attach photos to posts, chats and your Commonplace.
