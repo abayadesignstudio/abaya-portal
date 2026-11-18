@@ -61,6 +61,7 @@ final class WebModel: NSObject, ObservableObject {
         cfg.userContentController.add(HapticHandler(), name: "haptic")
         WKWebView.allowKeyboardWithoutTap()
         cfg.userContentController.add(WidgetHandler(), name: "widget")
+        let outer = OuterScrollHandler(); cfg.userContentController.add(outer, name: "outerScroll")
         view = WKWebView(frame: .zero, configuration: cfg)
         super.init()
         view.scrollView.contentInsetAdjustmentBehavior = .never
@@ -87,6 +88,7 @@ final class WebModel: NSObject, ObservableObject {
         view.isOpaque = false
         view.backgroundColor = UIColor(red: 0.231, green: 0.243, blue: 0.165, alpha: 1)
         view.hideKeyboardAccessoryBar()
+        outer.web = view
         view.load(URLRequest(url: home))
     }
     /// Pull to refresh: the visible tab reloads its data (falls back to a full reload).
@@ -227,5 +229,25 @@ extension WKWebView {
             unsafeBitCast(original, to: Focus.self)(me, sel, info, true, blur, changes, obj)
         }
         method_setImplementation(method, imp_implementationWithBlock(block))
+    }
+}
+
+/// The devotion reader has its own scroller; while it is open the web view's own scrolling (bounce, pull-to-refresh)
+/// is switched off so the two never compete for a swipe. postMessage("off" | "on").
+final class OuterScrollHandler: NSObject, WKScriptMessageHandler {
+    weak var web: WKWebView?
+    private var refresh: UIRefreshControl?
+    func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
+        guard let sv = web?.scrollView else { return }
+        let on = (m.body as? String) != "off"
+        DispatchQueue.main.async {
+            if on {
+                sv.isScrollEnabled = true; sv.bounces = true; sv.alwaysBounceVertical = true
+                if sv.refreshControl == nil, let r = self.refresh { sv.refreshControl = r }
+            } else {
+                if let r = sv.refreshControl { self.refresh = r; sv.refreshControl = nil }
+                sv.bounces = false; sv.alwaysBounceVertical = false; sv.isScrollEnabled = false
+            }
+        }
     }
 }
