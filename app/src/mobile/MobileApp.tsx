@@ -147,15 +147,25 @@ function TimeScreen({ api, me, onEdit }: { api: TimerApi; me: string; onEdit: (c
   const week = useLoad(async () => {
     const entries = must(await supabase.from('time_entries').select('id, project_id, phase_id, role_label, activity, minutes, work_date, note, projects(number, name, sector), phases(code, name)')
       .eq('profile_id', me).gte('work_date', days[0]).lte('work_date', days[6])) as unknown as Entry[]
-    const rows = must(await supabase.from('timesheet_rows').select('project_id, phase_id, role_label, activity, projects(number, name, sector, status), phases(code, name)').eq('profile_id', me).order('created_at')) as unknown as (Omit<Card, 'key' | 'minutes' | 'day'> & { projects: { status: string } | null })[]
-    return { entries, rows }
+    const rows = must(await supabase.from('timesheet_rows').select('project_id, phase_id, role_label, activity, created_at, projects(number, name, sector, status), phases(code, name)').eq('profile_id', me).order('created_at')) as unknown as (Omit<Card, 'key' | 'minutes' | 'day'> & { projects: { status: string } | null })[]
+    // cards: rows with time in the two weeks before this week (or this week), or rows added in that span — old rows drop off
+    const since = (() => { const d = new Date(days[0] + 'T12:00:00'); d.setDate(d.getDate() - 14); return iso(d) })()
+    const recent = must(await supabase.from('time_entries').select('project_id, phase_id, role_label, activity')
+      .eq('profile_id', me).gte('work_date', since).lte('work_date', days[6])) as unknown as Parameters<typeof keyOf>[0][]
+    return { entries, rows, used: new Set(recent.map(keyOf)), since }
   }, [me, days[0]])
   useEffect(() => { const f = () => week.reload(); window.addEventListener(TIME_CHANGED, f); return () => window.removeEventListener(TIME_CHANGED, f) }, [week.reload]) // eslint-disable-line react-hooks/exhaustive-deps
   const perDay = (d: string) => (week.data?.entries ?? []).filter((e) => e.work_date === d).reduce((a, e) => a + e.minutes, 0)
   const weekMin = days.reduce((a, d) => a + perDay(d), 0)
   const cards = useMemo(() => {
     const m = new Map<string, Card>()
-    for (const r of week.data?.rows ?? []) if (r.projects?.status !== 'complete') m.set(keyOf(r), { ...r, key: keyOf(r), minutes: 0, day })
+    const w = week.data
+    for (const r of w?.rows ?? []) {
+      const k = keyOf(r)
+      if (r.projects?.status === 'complete' || !(w!.used.has(k) || (r as { created_at?: string }).created_at!.slice(0, 10) >= w!.since)) continue
+      const { created_at: _c, ...card } = r as typeof r & { created_at?: string }; void _c
+      m.set(k, { ...card, key: k, minutes: 0, day })
+    }
     for (const e of (week.data?.entries ?? []).filter((x) => x.work_date === day)) {
       const k = keyOf(e); const c = m.get(k) ?? { key: k, project_id: e.project_id, phase_id: e.phase_id, role_label: e.role_label, activity: e.activity, minutes: 0, day, projects: e.projects, phases: e.phases }
       c.minutes += e.minutes; m.set(k, c)
