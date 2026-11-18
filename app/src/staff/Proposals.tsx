@@ -185,12 +185,15 @@ export default function Proposals() {
     { label: 'Rename…', onSelect: () => rename(r) },
     { label: 'Duplicate', onSelect: () => duplicate(r) },
     'divider',
-    ...(['draft', 'sent', 'signed'] as const).filter((s) => s !== r.status)
+    ...(['draft', 'sent', 'signed'] as const).filter((s) => s !== r.status && r.status !== 'signed')
       .map((s) => ({ label: `Mark as ${STATUS[s][0].toLowerCase()}`, onSelect: () => setStatus(r, s) })),
-    ...(r.status !== 'void' ? [{ label: 'Void', onSelect: () => setStatus(r, 'void') }] : []),
+    ...(r.status === 'signed'
+      ? (profile?.role === 'admin' ? [{ label: 'Void signed agreement… (admin)', danger: true, onSelect: () => { if (window.confirm(`Void “${r.title}”? It’s signed: voiding unlocks its phase fees on the project. Only do this if the contract is cancelled or replaced.`)) setStatus(r, 'void') } }]
+        : [{ label: 'Void', disabled: true, hint: 'Only an admin can void a signed agreement.', onSelect: () => {} }])
+      : r.status !== 'void' ? [{ label: 'Void', onSelect: () => setStatus(r, 'void') }] : []),
     'divider',
     r.status === 'signed'
-      ? { label: 'Delete', danger: true, disabled: true, hint: 'Signed agreements can’t be deleted. Void it instead.', onSelect: () => {} }
+      ? { label: 'Delete', danger: true, disabled: true, hint: 'Signed agreements can’t be deleted. An admin can void it instead.', onSelect: () => {} }
       : { label: 'Delete', danger: true, onSelect: () => remove(r) },
   ]
 
