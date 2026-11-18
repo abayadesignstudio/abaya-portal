@@ -117,6 +117,20 @@ button.m-card{cursor:pointer}
 .cvp-group .tk-sub,.cvp-group .tk-pname{font-size:13px;color:#6b6b70}
 .cvp-group .tk-g,.cvp-group .tk-bill,.cvp-group .tk.done{background:#fff}
 .cvp-group .tk-bill.over{background:#fff}
+.cvp-late{margin-top:12px}
+.cvp-lbar{display:flex;align-items:center;gap:8px;width:100%;min-height:36px;padding:0 12px;border:0;border-radius:10px;background:#fff;font:inherit;font-size:14px;color:#000;text-align:left;cursor:pointer}
+.cvp-ldot{width:7px;height:7px;border-radius:4px;background:#c4320a;flex:none}
+.cvp-ltxt{flex:1;min-width:0}
+.cvp-ltxt b{color:#b42318}
+.cvp-lchev{color:#6b6b70;transition:transform .2s}
+.cvp-lbar[aria-expanded="true"]{border-radius:10px 10px 0 0}
+.cvp-lbar[aria-expanded="true"] .cvp-lchev{transform:rotate(180deg)}
+.cvp-llist{list-style:none;margin:0;padding:0;border-radius:0 0 12px 12px;border-top:.5px solid #d1d1d6;max-height:46vh;overflow-y:auto}
+.cvp-lrow{display:flex;align-items:flex-start}
+.cvp-lrow + .cvp-lrow{border-top:.5px solid #e5e5ea}
+.cvp-ld{flex:none;width:52px;padding:11px 0 0 12px;font-size:13px;font-weight:600;color:#b42318;font-variant-numeric:tabular-nums}
+.cvp-lrow .tk-list{flex:1;min-width:0}
+.cvp-lrow .tk{margin-left:4px}
 .cvp-empty{margin:16px;color:#6b6b70;font-size:15px}
 .cvp-month{margin-top:14px;background:#fff;border-radius:12px;padding:8px 6px 6px}
 .cvp-mh{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));text-align:center;font-size:11px;font-weight:600;color:#6b6b70;padding-bottom:4px}

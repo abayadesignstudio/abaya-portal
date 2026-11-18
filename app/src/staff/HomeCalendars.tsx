@@ -690,7 +690,16 @@ export function MonthCalendar({ me, admin, people, projects, phone }: { me: stri
     for (const l of m.values()) l.sort((a, b) => (a.all_day === b.all_day ? a.start.localeCompare(b.start) : a.all_day ? -1 : 1))
     return m
   }, [feed.data, me, prefs])
-  useCalendarChanges((kind) => { if (kind === 'tasks') { tasks.reload(); evs.reload(); marks.reload() } else { feed.reload(); links.reload() } })
+  // phone: unfinished tasks from before today, for the "Earlier, not done" drop-down (follows the Everyone / person filter)
+  const lateDay = isoDate(new Date())
+  const late = useLoad(async () => {
+    if (!phone) return [] as Task[]
+    let q = supabase.from('tasks').select(TASK_SELECT).is('done_at', null).lt('due_on', lateDay).order('due_on').limit(50)
+    if (who !== 'all') q = q.eq('assignee', who)
+    return must(await q) as unknown as Task[]
+  }, [phone, who, lateDay])
+  const [lateOpen, setLateOpen] = useState(false)
+  useCalendarChanges((kind) => { if (kind === 'tasks') { tasks.reload(); evs.reload(); marks.reload(); late.reload() } else { feed.reload(); links.reload() } })
   const reload = () => calendarChanged('tasks')
   const today = isoDate(new Date())
   const shift = (n: number) => setCursor(phone && view !== 'month' ? addDays(day0, 7 * n) : view === 'month' ? new Date(month.getFullYear(), month.getMonth() + n, 1) : addDays(day0, n * (view === 'week' ? 7 * weeks : view === 'day' ? 1 : SCHEDULE_DAYS)))
@@ -819,6 +828,19 @@ export function MonthCalendar({ me, admin, people, projects, phone }: { me: stri
           {(['list', 'day', 'month'] as const).map((v) => <button key={v} type="button" aria-pressed={phoneView === v} onClick={() => setPhoneView(v)}>{v === 'list' ? 'List' : v === 'day' ? 'Day' : 'Month'}</button>)}
         </div>
         {calsOpen && <Pop anchor={calsOpen} label="Calendars" onClose={() => setCalsOpen(null)}><CalendarsPanel me={me} admin={admin} people={people} events={feed.data?.events ?? []} /></Pop>}
+        {(late.data?.length ?? 0) > 0 && <div className="cvp-late">
+          <button type="button" className="cvp-lbar" aria-expanded={lateOpen} aria-controls="cvp-late-list" onClick={() => setLateOpen(!lateOpen)}>
+            <span className="cvp-ldot" aria-hidden="true" />
+            <span className="cvp-ltxt"><b className="num">{late.data!.length}</b> earlier {late.data!.length === 1 ? 'task' : 'tasks'} not done</span>
+            <svg className="cvp-lchev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+          </button>
+          {lateOpen && <ul id="cvp-late-list" className="cvp-group cvp-llist">
+            {late.data!.map((t) => <li key={t.id} className="cvp-lrow">
+              <span className="cvp-ld">{parseDate(t.due_on).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+              <ul className="tk-list"><TaskItem t={t} me={me} admin={admin} people={people} prefixName={who === 'all'} onChange={reload} onEdit={(x, el) => pop({ kind: 'task', task: x }, el)} /></ul>
+            </li>)}
+          </ul>}
+        </div>}
       </>}
       {!phone && <><div className="row between">
         <h2 id="mc-h">{heading}</h2>
