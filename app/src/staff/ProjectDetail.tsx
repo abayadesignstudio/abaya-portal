@@ -660,8 +660,11 @@ type TeamMember = { id: string; name: string; initials: string; avatar: string |
 type PhaseDrag = { handle: React.ReactNode; row: React.HTMLAttributes<HTMLTableRowElement> & { draggable?: boolean } }
 function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSaved, drag }: { ph: Phase; total: number | null; team: TeamMember[]; teamOpen: boolean; onTeam: () => void; billed: number; ahead: number; used: { hrs: number; cost: number }; onSaved: () => void; drag?: PhaseDrag }) {
   const startMode = ph.fee_pct != null && total !== null ? 'pct' : 'amt'
-  const [f, setF] = useState({ mode: startMode as 'amt' | 'pct', fee: String(ph.fee), pct: ph.fee_pct != null ? String(Number(ph.fee_pct)) : total ? String(Math.round(Number(ph.fee) / total * 10000) / 100) : '',
+  const fromPh = () => ({ mode: startMode as 'amt' | 'pct', fee: String(ph.fee), pct: ph.fee_pct != null ? String(Number(ph.fee_pct)) : total ? String(Math.round(Number(ph.fee) / total * 10000) / 100) : '',
     status: ph.status, start_date: ph.start_date ?? '', end_date: ph.end_date ?? '' })
+  const [f, setF] = useState(fromPh)
+  // after a save (or any reload) show what the database now holds, so Save goes away
+  useEffect(() => { setF(fromPh()) }, [ph.fee, ph.fee_pct, ph.status, ph.start_date, ph.end_date, total]) // eslint-disable-line react-hooks/exhaustive-deps
   const [msg, setMsg] = useState('')
   const dirty = f.mode !== startMode || (f.mode === 'amt' ? f.fee !== String(ph.fee) : f.pct !== String(Number(ph.fee_pct ?? NaN))) || f.status !== ph.status || f.start_date !== (ph.start_date ?? '') || f.end_date !== (ph.end_date ?? '')
   const pct = Number(ph.fee) ? used.cost / Number(ph.fee) * 100 : 0
@@ -669,8 +672,11 @@ function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSa
     const p = Number(f.pct)
     if (f.mode === 'pct' && !(p >= 0 && p <= 100)) return setMsg('Percent must be between 0 and 100.')
     const fee = f.mode === 'pct' ? round2((total ?? 0) * p / 100) : Number(f.fee) || 0
-    const { error } = await supabase.from('phases').update({ fee, fee_pct: f.mode === 'pct' ? p : null, status: f.status, start_date: f.start_date || null, end_date: f.end_date || null }).eq('id', ph.id)
-    setMsg(error ? error.message : ''); if (!error) onSaved()
+    const { data, error } = await supabase.from('phases').update({ fee, fee_pct: f.mode === 'pct' ? p : null, status: f.status, start_date: f.start_date || null, end_date: f.end_date || null }).eq('id', ph.id).select('status').maybeSingle()
+    if (error) return setMsg(error.message)
+    if (!data) return setMsg('Not saved: you may not have permission to change this phase.')
+    setMsg(data.status !== f.status ? `Saved, but the status is “${({ not_started: 'Not started', in_progress: 'In progress', paused: 'Paused', complete: 'Complete' } as Record<string, string>)[data.status] ?? data.status}” because of its dates.` : '')
+    onSaved()
   }
   const setStatus = async (status: string) => {
     const { error } = await supabase.from('phases').update({ status }).eq('id', ph.id)
