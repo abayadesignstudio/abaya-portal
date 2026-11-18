@@ -15,7 +15,7 @@ import '../staff/agreement.css'
 
 type Row = { id: string; title: string; status: string; doc: DocState; doc_hash: string | null; published_logo: string | null; initial_sections: number[]; sent_at: string | null; project_id: string | null }
 type Sig = { signer_name: string; signer_title: string | null; signer_email: string; signature: string; initials_img: string; initials: Record<string, string>; signed_at: string; ip: string | null; user_agent: string | null; doc_hash: string; method: string }
-type Adopted = { name: string; title: string; method: 'style' | 'draw' | 'upload'; sig: string; init: string }
+export type Adopted = { name: string; title: string; method: 'style' | 'draw' | 'upload'; sig: string; init: string }
 
 const STYLES = [
   { font: "'Great Vibes', cursive", label: 'Style 1', size: 1 },
@@ -158,7 +158,7 @@ function ConsentAndSign({ busy, err, onCancel, onSign }: { busy: boolean; err: s
 }
 
 /** Choose how to sign: a style for your typed name, draw it, or upload an image. Makes both the signature and the initials. */
-function AdoptDialog({ defaultName, defaultTitle, onAdopt, onCancel }: { defaultName: string; defaultTitle: string; onAdopt: (a: Adopted) => void; onCancel: () => void }) {
+export function AdoptDialog({ defaultName, defaultTitle, onAdopt, onCancel }: { defaultName: string; defaultTitle: string; onAdopt: (a: Adopted) => void; onCancel: () => void }) {
   const [tab, setTab] = useState<'style' | 'draw' | 'upload'>('style')
   const [name, setName] = useState(defaultName)
   const [title, setTitle] = useState(defaultTitle)

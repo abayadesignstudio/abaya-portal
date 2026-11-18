@@ -11,6 +11,7 @@ import ClientInvoices from '../client/ClientInvoices'
 import { PreviewNav, type PreviewNavT } from '../client/preview'
 import { UpdatesTab, DrawingsTab, ContractTab, RequestsTab, ClientAccessTab, type Phase, type Project, type Inv } from './ProjectDetail'
 import ClientAgreement from '../client/ClientAgreement'
+import ClientFeeChange from '../client/ClientFeeChange'
 import './client-portal.css'
 
 type Section = EditSection | 'access'
@@ -82,6 +83,7 @@ export default function ClientPortal() {
               {path === '/' ? <ClientHome key={'h' + reloadKey} />
                 : path.startsWith('/invoices') ? <ClientInvoices key={'i' + reloadKey} />
                 : path.startsWith('/agreements/') ? <ClientAgreement key={path + reloadKey} previewId={path.slice('/agreements/'.length)} />
+                : path.startsWith('/fee-changes/') ? <ClientFeeChange key={path + reloadKey} previewId={path.slice('/fee-changes/'.length)} />
                 : <ClientProjectView key={p.id} projectId={p.id} preview={{ onEdit: setEdit, active: edit === 'access' ? null : edit, reloadKey }} />}
             </div>
           </PreviewNav.Provider>

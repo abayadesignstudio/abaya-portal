@@ -42,6 +42,7 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
     meetings: must(await supabase.from('meetings').select('*').eq('project_id', id!)) as Meeting[],
     requests: must(await supabase.from('service_requests').select('*').eq('project_id', id!).order('created_at', { ascending: false })) as ServiceRequest[],
     invoices: must(await supabase.from('invoices').select('id, number, status, issue_date, total, amount_paid, due_date').eq('project_id', id!).order('issue_date', { ascending: false })) as Inv[],
+    feeChanges: must(await supabase.from('fee_changes').select('id, title, status, total_from, total_to, signed_at').eq('project_id', id!).in('status', ['sent', 'signed']).order('number', { ascending: false })) as { id: string; title: string; status: string; total_from: number; total_to: number; signed_at: string | null }[],
     agreements: must(await supabase.from('agreements').select('id, title, status, signed_at').eq('project_id', id!).in('status', pv ? ['draft', 'sent', 'signed'] : ['sent', 'signed']).order('created_at', { ascending: false })) as { id: string; title: string; status: string; signed_at: string | null }[],
     marks: [
       ...(must(await supabase.from('milestones').select('id, phase_id, title, date, done').eq('project_id', id!)) as { id: string; phase_id: string | null; title: string; date: string; done: boolean }[]).map((m) => ({ id: m.id, kind: 'milestone' as const, phase_id: m.phase_id, title: m.title, date: m.date, done: m.done })),
@@ -60,7 +61,7 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
 
   if (d.error) return <p className="err">{d.error}</p>
   if (!d.data) return <p>Loading…</p>
-  const { p, phases, drawings, items, meetings, requests, invoices, models, team, agreements, marks } = d.data
+  const { p, phases, drawings, items, meetings, requests, invoices, models, team, agreements, marks, feeChanges } = d.data
   // staff can read hidden updates; the preview shows only what the client sees
   const updates = d.data.updates.filter((u) => u.visible_to_client)
   const invById = Object.fromEntries(invoices.map((i) => [i.id, i]))
@@ -90,6 +91,12 @@ export function ClientProjectView({ projectId, preview: pv }: { projectId: strin
             <Link className="btn" to={`/agreements/${a.id}`}>Review &amp; sign</Link></div>
         : <div key={a.id} className="card pad row between" style={{ padding: '10px 16px' }}><span><span style={{ color: 'var(--green)', fontWeight: 700 }}>✓ Signed</span> {a.title}{a.signed_at ? ` · ${new Date(a.signed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}</span>
             <Link className="btn small secondary" to={`/agreements/${a.id}`}>View</Link></div>)}
+
+      {feeChanges.map((f) => f.status === 'sent'
+        ? <div key={f.id} className="card pad row between cs-ready"><span><strong>A fee change needs your approval.</strong> {f.title}: {money(f.total_from)} → {money(f.total_to)}</span>
+            <Link className="btn" to={`/fee-changes/${f.id}`}>Review &amp; sign</Link></div>
+        : <div key={f.id} className="card pad row between" style={{ padding: '10px 16px' }}><span><span style={{ color: 'var(--green)', fontWeight: 700 }}>✓ Signed</span> {f.title}{f.signed_at ? ` · ${new Date(f.signed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}</span>
+            <Link className="btn small secondary" to={`/fee-changes/${f.id}`}>View</Link></div>)}
 
       <Ed pv={pv} s="model"><ModelPanel projectId={p.id} files={models.map((m) => ({ name: m.name, at: m.updated_at ?? m.created_at ?? '' }))} /></Ed>
 

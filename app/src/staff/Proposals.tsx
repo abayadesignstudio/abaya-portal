@@ -36,7 +36,7 @@ export default function Proposals() {
   const [busy, setBusy] = useState(false)
   // fee carried over from the triangulator's Create agreement button
   const [seed, setSeed] = useState<FeeSeed | null>(null)
-  const takeSeed = (x: FeeSeed) => { setSeed(x); setErr(''); setTimeout(() => { document.getElementById('np-h')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); document.getElementById('np-proj')?.focus({ preventScroll: true }) }, 50) }
+  const takeSeed = (x: FeeSeed) => { setSeed(x); if (x.projectId) setProjectId(x.projectId); setErr(''); setTimeout(() => { document.getElementById('np-h')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); document.getElementById('np-proj')?.focus({ preventScroll: true }) }, 50) }
   const [err, setErr] = useState('')
   const list = useLoad(async () => must(await supabase.from('agreements')
     .select('id, title, status, total_fee, updated_at, clients(name), projects(number, name, sector)').order('updated_at', { ascending: false })) as unknown as Row[])
@@ -61,6 +61,29 @@ export default function Proposals() {
       } catch (e) { setBusy(false); return setErr(/duplicate|unique/i.test(String((e as Error).message)) ? `Project number ${np.number.trim()} is already used.` : (e as Error).message) }
     }
     if (!p) { setBusy(false); return setErr('That project wasn’t found. Reload the page and try again.') }
+    // one working agreement per project: update its draft instead of starting a second one
+    if (projectId !== 'new') {
+      const { data: cur } = await supabase.from('agreements').select('id, status, doc, title').eq('project_id', p.id).neq('status', 'void').maybeSingle()
+      const c = cur as { id: string; status: string; doc: ReturnType<typeof newDoc>; title: string } | null
+      if (c?.status === 'signed') { setBusy(false); return setErr(`${p.number}’s agreement is signed, so its fee is locked. To change it, open the project and use Change fee; the client signs the change.`) }
+      if (c?.status === 'sent') { setBusy(false); return setErr(`${p.number}’s agreement (“${c.title}”) is out for the client’s signature. Unpublish it on the agreement page first, then apply this fee.`) }
+      if (c) {
+        if (seed) {
+          const d = c.doc
+          d.v.fee = String(seed.fee)
+          if (seed.sf > 0 && !d.v.projSize) d.v.projSize = `${seed.sf.toLocaleString()} SF`
+          Object.keys(d.ph).forEach((k) => { d.ph[k].on = seed.split.some(([u]) => u === k) })
+          const nameOf = (k: string) => PHASES.find(([x]) => x === k)?.[1] ?? k
+          d.pay = seed.split.map(([k, v], i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${nameOf(k)}`, phase: nameOf(k), pct: String(v) }))
+          const { error } = await supabase.from('agreements').update({ doc: d, total_fee: seed.fee, updated_at: new Date().toISOString() }).eq('id', c.id)
+          setBusy(false)
+          if (error) return setErr(error.message)
+          setSeed(null)
+        } else setBusy(false)
+        nav('/proposals/' + c.id, { state: { note: seed ? `Updated this draft with the new fee: phases on ${p.number} follow it.` : `${p.number} already has this agreement; each project has one.` } })
+        return
+      }
+    }
     const fees = p ? Object.fromEntries((p.phases ?? []).filter((ph) => Number(ph.fee) > 0).map((ph) => [ph.code, Number(ph.fee)])) : {}
     const doc = newDoc(p ? {
       projName: p.name, projAddr: p.address ?? '', projType: (p.categories ?? []).join(',') || p.category || 'S',
@@ -90,9 +113,10 @@ export default function Proposals() {
   const duplicate = async (r: Row) => {
     const { data: src, error } = await supabase.from('agreements').select('title, project_id, client_id, doc, total_fee').eq('id', r.id).single()
     if (error) return fail(error.message)
-    const { error: e2 } = await supabase.from('agreements').insert({ ...src, title: `${src.title} (copy)`, status: 'draft', created_by: profile?.id })
+    // each project has one agreement, so the copy starts unlinked (link it to a project from the agreement)
+    const { error: e2 } = await supabase.from('agreements').insert({ ...src, project_id: null, title: `${src.title} (copy)`, status: 'draft', created_by: profile?.id })
     if (e2) return fail(e2.message)
-    ok(`Duplicated “${r.title}” as a new draft.`); list.reload()
+    ok(`Duplicated “${r.title}” as a new draft, not linked to a project.`); list.reload()
   }
   const rename = async (r: Row) => {
     const t = window.prompt('Proposal name', r.title)?.trim()

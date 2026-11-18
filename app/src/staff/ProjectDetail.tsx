@@ -16,7 +16,8 @@ import { useAuth } from '../lib/auth'
 import UpdateCard from '../client/UpdateCard'
 import BudgetTab, { TeamTable, type Person as TeamPerson } from './budget/BudgetTab'
 import './budget.css'
-import { linkedAgreements, contractFee, syncPctPhases, round2 } from '../lib/fees'
+import { linkedAgreements, contractFee, syncPctPhases, round2, perPhaseSchedule } from '../lib/fees'
+import FeeChanges from './FeeChanges'
 import { sortPhases, fmtDate, signedPhotoUrls, uid, extOf,
   type Update, type Drawing, type ContractItem, type Meeting, type ServiceRequest } from '../lib/projectContent'
 
@@ -68,6 +69,7 @@ export default function ProjectDetail() {
   useEffect(() => {
     if (!data) return
     const cf = contractFee(data.agreements)
+    if (data.agreements.some((g) => g.status === 'sent' || g.status === 'signed')) return // fees are locked
     if (cf !== null && data.phases.some((x) => x.fee_pct != null && Math.abs(round2(cf * Number(x.fee_pct) / 100) - Number(x.fee)) >= 0.005))
       syncPctPhases(data.p.id, cf).then((n) => { if (n) reload() })
   }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -125,6 +127,14 @@ export default function ProjectDetail() {
   const aheadOf = (ph: Phase) => Math.max(0, round2((billedBy[ph.id] ?? 0) - earned(ph)))
   const totAhead = round2(phases.reduce((a, ph) => a + aheadOf(ph), 0))
   const missing = PHASES.filter(([c]) => !phases.some((x) => x.code === c))
+  // where the fees come from: signed agreement (locked; fee changes only), out for signature (locked), a draft agreement, or the phases
+  const signedAg = agreements.find((g) => g.status === 'signed')
+  const sentAg = agreements.find((g) => g.status === 'sent')
+  const draftAg = agreements.find((g) => g.status === 'draft')
+  const fromSchedule = !!draftAg && perPhaseSchedule(draftAg)
+  const feeLock: string | null = signedAg ? 'Locked by the signed agreement. Use Change fee.' : sentAg ? 'Locked while the agreement is out for signature.' : fromSchedule ? 'Set by the agreement’s payment schedule.' : null
+  // once signed, the phases are the contract (agreement + signed fee changes)
+  const lockedTotal = round2(phaseSum + asSum)
 
   return (
     <div className="stack">
@@ -151,9 +161,9 @@ export default function ProjectDetail() {
         <div className="stack" style={{ minWidth: 0 }}>
       {tab === 'overview' && <>
       <section className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }} aria-label="Summary">
-        {([['Total fee', money(totFee), (cf === null ? 'Sum of phase fees (no agreement linked)' : `From ${agreements.length === 1 ? 'the agreement' : `${agreements.length} agreements`}`) + (asSum ? ` + ${money(asSum)} additional services` : '')],
+        {([['Total fee', money(signedAg ? lockedTotal : totFee), signedAg ? (Math.abs(lockedTotal - Number(signedAg.total_fee ?? 0)) < 0.005 ? '🔒 Signed agreement' : `🔒 Signed agreement ${money(Number(signedAg.total_fee ?? 0))} + signed fee changes ${lockedTotal >= Number(signedAg.total_fee ?? 0) ? '+' : '−'}${money(Math.abs(lockedTotal - Number(signedAg.total_fee ?? 0)))}`) : (cf === null ? 'Sum of phase fees (no agreement linked)' : `From ${agreements.length === 1 ? 'the agreement' : `${agreements.length} agreements`}`) + (asSum ? ` + ${money(asSum)} additional services` : '')],
           ['Contract split into phases', money(phaseSum), cf === null ? '' : Math.abs(phaseSum - cf) < 0.005 ? '100% of the fee' : `${cf ? Math.round(phaseSum / cf * 1000) / 10 : 0}% of the fee · ${money(Math.abs(cf - phaseSum))} ${phaseSum < cf ? 'unassigned' : 'over'}`],
-          ['Invoiced', money(totBilled), ''], ['Left to bill', money(totFee - totBilled), ''],
+          ['Invoiced', money(totBilled), ''], ['Left to bill', money((signedAg ? lockedTotal : totFee) - totBilled), ''],
           ...(totAhead > 0 ? [['Billed ahead of work', money(totAhead), 'Collected for work not done yet. Shrinks as phases progress.']] : []),
           ['Hours logged', totHrs.toFixed(1), '']] as [string, string, string][]).map(([l, v, sub]) => (
           <div key={l} style={{ padding: '16px 20px', borderRight: '1px solid #ece9e3' }}><div className="muted" style={{ fontSize: 14 }}>{l}</div><div className="num" style={{ fontSize: 26, fontWeight: 700 }}>{v}</div>
@@ -184,12 +194,20 @@ export default function ProjectDetail() {
           </table></div>}
       </section>
       </div>
+      {(signedAg || sentAg || draftAg) && <div className={'fee-src' + (signedAg || sentAg ? ' locked' : '')} role="note">
+        {signedAg ? <><strong>🔒 Fees are locked.</strong> <span>The client signed <Link to={`/proposals/${signedAg.id}`}>{signedAg.title}</Link>. Phase fees, hourly not-to-exceed amounts and additional services change only through a fee change the client signs.</span></>
+          : sentAg ? <><strong>🔒 Out for signature.</strong> <span><Link to={`/proposals/${sentAg.id}`}>{sentAg.title}</Link> is with the client, so its fees are locked. To change them, unpublish it on the agreement page.</span></>
+          : fromSchedule ? <><strong>Fees come from the agreement.</strong> <span>The payment schedule of <Link to={`/proposals/${draftAg!.id}`}>{draftAg!.title}</Link> has one payment per phase, so it sets each phase’s fee. Change fees there.</span></>
+          : <><strong>Fees follow the agreement total.</strong> <span>The payment schedule of <Link to={`/proposals/${draftAg!.id}`}>{draftAg!.title}</Link> combines phases, so split its {money(Number(draftAg!.total_fee ?? 0))} into phases here (percentages follow the total). The phases must add up to the fee before it can be published.</span></>}
+      </div>}
+      <FeeChanges projectId={p.id} signed={!!signedAg} onChanged={reload}
+        phases={phases.map((x) => ({ id: x.id, code: x.code, name: x.name ?? null, fee: Number(x.fee), billing: x.billing ?? 'fixed', parent_phase_id: x.parent_phase_id ?? null }))} />
       <section className="card pad stack">
         <h2>Phases</h2>{reorderErr && <p className="err" role="alert" style={{ margin: 0 }}>{reorderErr}</p>}
         <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 1150 }}>
           <thead><tr><th>Phase</th><th>Status</th><th>Start</th><th>End</th><th className="r">Fee</th><th>Team</th><th className="r">Billed</th><th className="r">Hours</th><th>Fee used (labor at rates)</th><th></th></tr></thead>
           <tbody>{phases.map((ph) => <Fragment key={ph.id}>
-            <PhaseRow key={ph.id + ph.fee + (ph.fee_pct ?? '')} drag={dragFor(ph)} ph={ph} total={cf} team={teamOf(ph)} teamOpen={teamOpen === ph.id} onTeam={() => setTeamOpen(teamOpen === ph.id ? null : ph.id)} billed={billedBy[ph.id] ?? 0} ahead={aheadOf(ph)} used={used(ph.id)} onSaved={reload} />
+            <PhaseRow key={ph.id + ph.fee + (ph.fee_pct ?? '')} drag={dragFor(ph)} ph={ph} total={cf} feeLock={feeLock} team={teamOf(ph)} teamOpen={teamOpen === ph.id} onTeam={() => setTeamOpen(teamOpen === ph.id ? null : ph.id)} billed={billedBy[ph.id] ?? 0} ahead={aheadOf(ph)} used={used(ph.id)} onSaved={reload} />
             {teamOpen === ph.id && <tr className="ph-team-row"><td colSpan={10}>
               <div className="ph-team-edit">
                 <div className="row between"><strong>{ph.code} team</strong><button type="button" className="linkbtn" onClick={() => setTeamOpen(null)}>Done</button></div>
@@ -203,11 +221,12 @@ export default function ProjectDetail() {
             <td className="r num" style={{ fontWeight: 700, color: cf !== null && Math.abs(phaseSum - cf) >= 0.005 ? 'var(--amber)' : undefined }}>{money(phaseSum)}{cf !== null && <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>of {money(cf)}</div>}</td><td colSpan={5} /></tr>
             {asSum > 0 && <tr><td colSpan={4} className="muted">Additional services (on top of the contract)</td><td className="r num">{money(asSum)}</td><td colSpan={5} /></tr>}</tfoot>}
         </table></div>
-        {fromAgreement.length > 0 && <div className="row" style={{ gap: 8 }}>
+        {fromAgreement.length > 0 && !signedAg && !sentAg && !fromSchedule && <div className="row" style={{ gap: 8 }}>
           <button className="btn small" onClick={async () => { await supabase.from('phases').insert(fromAgreement.map((code) => ({ project_id: p.id, code, fee: 0 }))); reload() }}>
             + Add {fromAgreement.join(', ')} from the agreement</button>
           <span className="muted" style={{ fontSize: 13 }}>Phases included in the linked agreement{agreements.length > 1 ? 's' : ''} but not set up here yet.</span></div>}
-        {<AddPhase projectId={p.id} codes={missing.map(([c]) => c)} total={cf} onSaved={reload} />}
+        {signedAg ? <p className="muted" style={{ margin: 0, fontSize: 13 }}>New phases and additional services with a fee are added through <strong>Change fee</strong> above, so the client signs them.</p>
+          : sentAg ? null : <AddPhase projectId={p.id} codes={missing.map(([c]) => c)} total={cf} onSaved={reload} />}
         <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>A phase fee is a fixed amount ($) or a percentage of the total fee (%); percentage phases update automatically when the agreement’s fee changes. Fee used = hours × each person’s billable rate. The bar turns orange at 75% and red at 90%. Phase start and end dates drive the client’s schedule. Assign the team and hours on the Budget page.</em></p>
       </section>
       </>}
@@ -658,7 +677,7 @@ function FeeInput({ id, mode, amt, pct, total, onMode, onAmt, onPct }: { id: str
 
 type TeamMember = { id: string; name: string; initials: string; avatar: string | null; hours: number; pct: number }
 type PhaseDrag = { handle: React.ReactNode; row: React.HTMLAttributes<HTMLTableRowElement> & { draggable?: boolean } }
-function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSaved, drag }: { ph: Phase; total: number | null; team: TeamMember[]; teamOpen: boolean; onTeam: () => void; billed: number; ahead: number; used: { hrs: number; cost: number }; onSaved: () => void; drag?: PhaseDrag }) {
+function PhaseRow({ ph, total, feeLock, team, teamOpen, onTeam, billed, ahead, used, onSaved, drag }: { ph: Phase; total: number | null; feeLock: string | null; team: TeamMember[]; teamOpen: boolean; onTeam: () => void; billed: number; ahead: number; used: { hrs: number; cost: number }; onSaved: () => void; drag?: PhaseDrag }) {
   const startMode = ph.fee_pct != null && total !== null ? 'pct' : 'amt'
   const fromPh = () => ({ mode: startMode as 'amt' | 'pct', fee: String(ph.fee), pct: ph.fee_pct != null ? String(Number(ph.fee_pct)) : total ? String(Math.round(Number(ph.fee) / total * 10000) / 100) : '',
     status: ph.status, start_date: ph.start_date ?? '', end_date: ph.end_date ?? '' })
@@ -666,13 +685,14 @@ function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSa
   // after a save (or any reload) show what the database now holds, so Save goes away
   useEffect(() => { setF(fromPh()) }, [ph.fee, ph.fee_pct, ph.status, ph.start_date, ph.end_date, total]) // eslint-disable-line react-hooks/exhaustive-deps
   const [msg, setMsg] = useState('')
-  const dirty = f.mode !== startMode || (f.mode === 'amt' ? f.fee !== String(ph.fee) : f.pct !== String(Number(ph.fee_pct ?? NaN))) || f.status !== ph.status || f.start_date !== (ph.start_date ?? '') || f.end_date !== (ph.end_date ?? '')
+  const dirty = (!feeLock && (f.mode !== startMode || (f.mode === 'amt' ? f.fee !== String(ph.fee) : f.pct !== String(Number(ph.fee_pct ?? NaN))))) || f.status !== ph.status || f.start_date !== (ph.start_date ?? '') || f.end_date !== (ph.end_date ?? '')
   const pct = Number(ph.fee) ? used.cost / Number(ph.fee) * 100 : 0
   const save = async () => {
     const p = Number(f.pct)
     if (f.mode === 'pct' && !(p >= 0 && p <= 100)) return setMsg('Percent must be between 0 and 100.')
     const fee = f.mode === 'pct' ? round2((total ?? 0) * p / 100) : Number(f.fee) || 0
-    const { data, error } = await supabase.from('phases').update({ fee, fee_pct: f.mode === 'pct' ? p : null, status: f.status, start_date: f.start_date || null, end_date: f.end_date || null }).eq('id', ph.id).select('status').maybeSingle()
+    const dates = { status: f.status, start_date: f.start_date || null, end_date: f.end_date || null }
+    const { data, error } = await supabase.from('phases').update(feeLock ? dates : { ...dates, fee, fee_pct: f.mode === 'pct' ? p : null }).eq('id', ph.id).select('status').maybeSingle()
     if (error) return setMsg(error.message)
     if (!data) return setMsg('Not saved: you may not have permission to change this phase.')
     setMsg(data.status !== f.status ? `Saved, but the status is “${({ not_started: 'Not started', in_progress: 'In progress', paused: 'Paused', complete: 'Complete' } as Record<string, string>)[data.status] ?? data.status}” because of its dates.` : '')
@@ -698,7 +718,7 @@ function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSa
         <option value="not_started">Not started</option><option value="in_progress">In progress</option><option value="paused">Paused</option><option value="complete">Complete</option></select></td>
       <td><label className="sr" htmlFor={'sd' + ph.id}>Start</label><input id={'sd' + ph.id} type="date" className="input" value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} /></td>
       <td><label className="sr" htmlFor={'ed' + ph.id}>End</label><input id={'ed' + ph.id} type="date" className="input" value={f.end_date} onChange={(e) => setF({ ...f, end_date: e.target.value })} /></td>
-      <td className="r"><FeeInput id={ph.id} mode={f.mode} amt={f.fee} pct={f.pct} total={total} onMode={(m) => setF({ ...f, mode: m })} onAmt={(v) => setF({ ...f, fee: v })} onPct={(v) => setF({ ...f, pct: v })} /></td>
+      <td className="r">{feeLock ? <span className="fee-locked" title={feeLock}><span className="num">{money(ph.fee)}</span>{ph.billing === 'hourly' && <span className="muted" style={{ fontSize: 12 }}> NTE</span>}<span className="muted" style={{ display: 'block', fontSize: 11.5 }}>{feeLock.startsWith('Set by') ? 'from agreement' : '🔒 locked'}</span></span> : <FeeInput id={ph.id} mode={f.mode} amt={f.fee} pct={f.pct} total={total} onMode={(m) => setF({ ...f, mode: m })} onAmt={(v) => setF({ ...f, fee: v })} onPct={(v) => setF({ ...f, pct: v })} />}</td>
       <td style={{ minWidth: 150 }}>
         {team.length > 0 && <ul className="ph-team">{team.map((m) => <li key={m.id} title={`${m.name}: ${Math.round(m.hours * 10) / 10} hrs`}>
           <Avatar className="pb-avatar" url={m.avatar} initials={m.initials} /><span className="sr">{m.name}</span><span className="num">{Math.round(m.pct)}%</span></li>)}
@@ -712,10 +732,9 @@ function PhaseRow({ ph, total, team, teamOpen, onTeam, billed, ahead, used, onSa
         <RowMenu label={`${ph.code} actions`} items={[
           { label: teamOpen ? 'Close team' : team.length ? 'Edit team' : 'Assign team', onSelect: onTeam },
           ...(['not_started', 'in_progress', 'paused', 'complete'] as const).filter((st) => st !== ph.status).map((st) => ({ label: `Mark ${({ not_started: 'not started', in_progress: 'in progress', paused: 'paused', complete: 'complete' })[st]}`, onSelect: () => setStatus(st) })),
-          { label: ph.billing === 'hourly' ? 'Bill as a fixed fee' : 'Bill hourly', onSelect: async () => { const { error } = await supabase.from('phases').update({ billing: ph.billing === 'hourly' ? 'fixed' : 'hourly' }).eq('id', ph.id); setMsg(error ? error.message : ''); if (!error) onSaved() } },
+          ...(feeLock ? [] : [{ label: ph.billing === 'hourly' ? 'Bill as a fixed fee' : 'Bill hourly', onSelect: async () => { const { error } = await supabase.from('phases').update({ billing: ph.billing === 'hourly' ? 'fixed' : 'hourly' }).eq('id', ph.id); setMsg(error ? error.message : ''); if (!error) onSaved() } }]),
           ...(ph.code === 'CU' ? [{ label: 'Rename…', onSelect: async () => { const n = window.prompt('Phase name', ph.name ?? ''); if (!n?.trim()) return; const { error } = await supabase.from('phases').update({ name: n.trim() }).eq('id', ph.id); setMsg(error ? error.message : ''); if (!error) onSaved() } }] : []),
-          'divider',
-          { label: 'Delete phase…', danger: true, onSelect: remove },
+          ...(feeLock && Number(ph.fee) ? [] : ['divider' as const, { label: 'Delete phase…', danger: true, onSelect: remove }]),
         ]} /></div></td>
     </tr>)
 }

@@ -3,11 +3,11 @@
 // the dollar amount, so invoices and budgets read one number; syncPctPhases keeps it in step with the total.
 import { supabase } from './supabase'
 
-export type LinkedAgreement = { id: string; title: string; status: string; total_fee: number | null; ph: Record<string, { on?: boolean }> | null }
+export type LinkedAgreement = { id: string; title: string; status: string; total_fee: number | null; ph: Record<string, { on?: boolean }> | null; pay: { phase?: string; pct?: string }[] | null }
 export const round2 = (n: number) => Math.round(n * 100) / 100
 
 export async function linkedAgreements(projectId: string) {
-  const { data, error } = await supabase.from('agreements').select('id, title, status, total_fee, ph:doc->ph').eq('project_id', projectId).neq('status', 'void').order('created_at')
+  const { data, error } = await supabase.from('agreements').select('id, title, status, total_fee, ph:doc->ph, pay:doc->pay').eq('project_id', projectId).neq('status', 'void').order('created_at')
   if (error) throw error
   return (data ?? []) as unknown as LinkedAgreement[]
 }
@@ -28,3 +28,8 @@ export async function syncPctPhases(projectId: string, total?: number | null) {
 
 /** Billing multiplier: billable rate = pay × MULTIPLIER, so pay = billed ÷ MULTIPLIER and the rest is overhead & profit. */
 export const MULTIPLIER = 2
+
+const PHASE_BY_NAME: Record<string, string> = { 'conceptual / exploratory': 'CE', 'schematic design': 'SD', 'design development': 'DD', 'construction documents': 'CD',
+  'bidding & negotiation': 'BN', 'bidding and negotiation': 'BN', permitting: 'PM', 'construction administration': 'CA' }
+/** True when the agreement's payment schedule is one payment per phase — then it sets the phase fees (database trigger 0060). */
+export const perPhaseSchedule = (g: LinkedAgreement) => !!g.pay?.length && g.pay.every((x) => PHASE_BY_NAME[String(x.phase ?? '').trim().toLowerCase()])
