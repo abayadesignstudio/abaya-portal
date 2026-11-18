@@ -647,12 +647,20 @@ function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model
         <button type="button" className="btn small secondary" onClick={() => preset('one')}>One payment</button>
       </div>
       {split && <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>Tick the phases each payment covers; its % fills in from the phase fees. {uncovered.length > 0 && <span style={{ color: RED }}>Not in any payment yet: {uncovered.join(', ')}.</span>}</p>}
-      {doc.pay.map((p, i) => { const set = (k: 'label' | 'due' | 'phase' | 'pct') => (e: React.ChangeEvent<HTMLInputElement>) => { const val = e.target.value; up((d) => { d.pay[i][k] = val }) }
+      {doc.pay.map((p, i) => { const set = (k: 'label' | 'due' | 'phase' | 'pct') => (e: React.ChangeEvent<HTMLInputElement>) => { const val = e.target.value; up((d) => {
+          d.pay[i][k] = val
+          // percentages stay tied: the balancing payment (the last one, or the one before it when editing the last) takes what's left of 100%
+          if (k === 'pct' && d.pay.length > 1) {
+            const j = i === d.pay.length - 1 ? i - 1 : d.pay.length - 1
+            const others = d.pay.reduce((a, x, n) => (n === j ? a : a + (+x.pct || 0)), 0)
+            d.pay[j].pct = String(Math.max(0, Math.round((100 - others) * 100) / 100))
+          }
+        }) }
         return (
           <div key={i} className="ag-f" style={{ border: '1px solid #e4e0d8', borderRadius: 8, padding: '8px 10px', background: '#fff' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 70px', gap: 8 }}>
               <Field id={'pl-' + i} label="Payment"><input id={'pl-' + i} className="input" value={p.label} onChange={set('label')} /></Field>
-              <Field id={'pc-' + i} label="%"><input id={'pc-' + i} type="number" min={0} max={100} className="input" value={p.pct} onChange={set('pct')} /></Field>
+              <Field id={'pc-' + i} label={doc.pay.length > 1 && i === doc.pay.length - 1 ? '% (balance)' : '%'}><input id={'pc-' + i} type="number" min={0} max={100} className="input" value={p.pct} onChange={set('pct')} /></Field>
             </div>
             <Field id={'pd-' + i} label="When due"><input id={'pd-' + i} className="input" value={p.due} onChange={set('due')} /></Field>
             <div className="ag-chips" role="group" aria-label={`Phases in ${p.label || 'this payment'}`}>
