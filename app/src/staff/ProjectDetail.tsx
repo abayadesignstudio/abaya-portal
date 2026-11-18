@@ -16,7 +16,7 @@ import { useAuth } from '../lib/auth'
 import UpdateCard from '../client/UpdateCard'
 import BudgetTab, { TeamTable, type Person as TeamPerson } from './budget/BudgetTab'
 import './budget.css'
-import { linkedAgreements, contractFee, syncPctPhases, round2, perPhaseSchedule, hasFeeSplit } from '../lib/fees'
+import { linkedAgreements, contractFee, syncPctPhases, round2, perPhaseSchedule, hasFeeSplit, agreementCodes as codesOf } from '../lib/fees'
 import FeeChanges from './FeeChanges'
 import { projectEstimates, estimateAvg } from '../lib/feeSeed'
 import { sortPhases, fmtDate, signedPhotoUrls, uid, extOf,
@@ -134,7 +134,20 @@ export default function ProjectDetail() {
   const sentAg = agreements.find((g) => g.status === 'sent')
   const draftAg = agreements.find((g) => g.status === 'draft')
   const fromSchedule = !!draftAg && perPhaseSchedule(draftAg)
-  const feeLock: string | null = signedAg ? 'Locked by the signed agreement. Use Change fee.' : sentAg ? 'Locked while the agreement is out for signature.' : fromSchedule ? 'Set by the agreement’s payment schedule.' : null
+  // agreements go one at a time; each holds its own phases
+  const signedCodes = [...new Set(agreements.filter((g) => g.status === 'signed').flatMap(codesOf))]
+  const sentCodes = sentAg ? codesOf(sentAg) : []
+  const draftCodes = draftAg && fromSchedule ? codesOf(draftAg) : []
+  const STD = ['CE', 'SD', 'DD', 'CD', 'BN', 'PM', 'CA']
+  const lockFor = (code: string): string | null => {
+    const extra = !STD.includes(code)
+    if (extra ? !!signedAg : signedCodes.includes(code)) return 'Locked by a signed agreement. Use Change fee.'
+    if (extra ? !!sentAg : sentCodes.includes(code)) return 'Locked while the agreement is out for signature.'
+    if (!extra && draftCodes.includes(code)) return 'Set by the agreement’s fee by phase.'
+    return null
+  }
+  const signedSum = round2(agreements.filter((g) => g.status === 'signed').reduce((a, g) => a + Number(g.total_fee ?? 0), 0))
+  const openSum = round2(agreements.filter((g) => g.status === 'draft' || g.status === 'sent').reduce((a, g) => a + Number(g.total_fee ?? 0), 0))
   // once signed, the phases are the contract (agreement + signed fee changes)
   const lockedTotal = round2(phaseSum + asSum)
 
@@ -163,7 +176,7 @@ export default function ProjectDetail() {
         <div className="stack" style={{ minWidth: 0 }}>
       {tab === 'overview' && <>
       <section className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }} aria-label="Summary">
-        {([['Total fee', money(signedAg ? lockedTotal : totFee), signedAg ? (Math.abs(lockedTotal - Number(signedAg.total_fee ?? 0)) < 0.005 ? '🔒 Signed agreement' : `🔒 Signed agreement ${money(Number(signedAg.total_fee ?? 0))} + signed fee changes ${lockedTotal >= Number(signedAg.total_fee ?? 0) ? '+' : '−'}${money(Math.abs(lockedTotal - Number(signedAg.total_fee ?? 0)))}`) : (cf === null ? 'Sum of phase fees (no agreement linked)' : `From ${agreements.length === 1 ? 'the agreement' : `${agreements.length} agreements`}`) + (asSum ? ` + ${money(asSum)} additional services` : '')],
+        {([['Total fee', money(signedAg ? lockedTotal : totFee), signedAg ? `🔒 Signed ${money(signedSum)}${openSum ? ` · ${draftAg ? 'draft' : 'out for signature'} ${money(openSum)}` : ''}${Math.abs(lockedTotal - signedSum - openSum) >= 0.005 ? ` · fee changes ${lockedTotal - signedSum - openSum >= 0 ? '+' : '−'}${money(Math.abs(lockedTotal - signedSum - openSum))}` : ''}` : (cf === null ? 'Sum of phase fees (no agreement linked)' : `From ${agreements.length === 1 ? 'the agreement' : `${agreements.length} agreements`}`) + (asSum ? ` + ${money(asSum)} additional services` : '')],
           ['Contract split into phases', money(phaseSum), cf === null ? '' : Math.abs(phaseSum - cf) < 0.005 ? '100% of the fee' : `${cf ? Math.round(phaseSum / cf * 1000) / 10 : 0}% of the fee · ${money(Math.abs(cf - phaseSum))} ${phaseSum < cf ? 'unassigned' : 'over'}`],
           ['Invoiced', money(totBilled), ''], ['Left to bill', money((signedAg ? lockedTotal : totFee) - totBilled), ''],
           ...(totAhead > 0 ? [['Billed ahead of work', money(totAhead), 'Collected for work not done yet. Shrinks as phases progress.']] : []),
@@ -204,19 +217,19 @@ export default function ProjectDetail() {
       </section>
       </div>
       {(signedAg || sentAg || draftAg) && <div className={'fee-src' + (signedAg || sentAg ? ' locked' : '')} role="note">
-        {signedAg ? <><strong>🔒 Fees are locked.</strong> <span>The client signed <Link to={`/proposals/${signedAg.id}`}>{signedAg.title}</Link>. Phase fees, hourly not-to-exceed amounts and additional services change only through a fee change the client signs.</span></>
+        {signedAg ? <><strong>🔒 Signed: {signedCodes.join(', ')}.</strong> <span>The client signed <Link to={`/proposals/${signedAg.id}`}>{signedAg.title}</Link>{agreements.filter((g) => g.status === 'signed').length > 1 ? ' and earlier agreements' : ''}. Those phase fees, hourly not-to-exceed amounts and additional services change only through a fee change the client signs.{draftAg ? <> Next agreement in draft: <Link to={`/proposals/${draftAg.id}`}>{draftAg.title}</Link>{draftCodes.length ? ` sets ${draftCodes.join(', ')}` : ''}.</> : sentAg ? <> <Link to={`/proposals/${sentAg.id}`}>{sentAg.title}</Link> is out for signature.</> : ''}</span></>
           : sentAg ? <><strong>🔒 Out for signature.</strong> <span><Link to={`/proposals/${sentAg.id}`}>{sentAg.title}</Link> is with the client, so its fees are locked. To change them, unpublish it on the agreement page.</span></>
           : fromSchedule ? <><strong>Fees come from the agreement.</strong> <span>{hasFeeSplit(draftAg!) ? <>The <em>Fee by phase</em> split</> : <>The payment schedule (one payment per phase)</>} of <Link to={`/proposals/${draftAg!.id}`}>{draftAg!.title}</Link> sets each phase’s fee; its payments only group phases for billing. Change fees there.</span></>
           : <><strong>Fees follow the agreement total.</strong> <span>The payment schedule of <Link to={`/proposals/${draftAg!.id}`}>{draftAg!.title}</Link> combines phases, so split its {money(Number(draftAg!.total_fee ?? 0))} into phases here (percentages follow the total). The phases must add up to the fee before it can be published.</span></>}
       </div>}
       <FeeChanges projectId={p.id} signed={!!signedAg} onChanged={reload}
-        phases={phases.map((x) => ({ id: x.id, code: x.code, name: x.name ?? null, fee: Number(x.fee), billing: x.billing ?? 'fixed', parent_phase_id: x.parent_phase_id ?? null }))} />
+        phases={phases.filter((x) => signedCodes.includes(x.code) || !STD.includes(x.code)).map((x) => ({ id: x.id, code: x.code, name: x.name ?? null, fee: Number(x.fee), billing: x.billing ?? 'fixed', parent_phase_id: x.parent_phase_id ?? null }))} />
       <section className="card pad stack">
         <h2>Phases</h2>{reorderErr && <p className="err" role="alert" style={{ margin: 0 }}>{reorderErr}</p>}
         <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 1150 }}>
           <thead><tr><th>Phase</th><th>Status</th><th>Start</th><th>End</th><th className="r">Fee</th><th>Team</th><th className="r">Billed</th><th className="r">Hours</th><th>Fee used (labor at rates)</th><th></th></tr></thead>
           <tbody>{phases.map((ph) => <Fragment key={ph.id}>
-            <PhaseRow key={ph.id + ph.fee + (ph.fee_pct ?? '')} drag={dragFor(ph)} ph={ph} total={cf} feeLock={feeLock} team={teamOf(ph)} teamOpen={teamOpen === ph.id} onTeam={() => setTeamOpen(teamOpen === ph.id ? null : ph.id)} billed={billedBy[ph.id] ?? 0} ahead={aheadOf(ph)} used={used(ph.id)} onSaved={reload} />
+            <PhaseRow key={ph.id + ph.fee + (ph.fee_pct ?? '')} drag={dragFor(ph)} ph={ph} total={cf} feeLock={lockFor(ph.code)} team={teamOf(ph)} teamOpen={teamOpen === ph.id} onTeam={() => setTeamOpen(teamOpen === ph.id ? null : ph.id)} billed={billedBy[ph.id] ?? 0} ahead={aheadOf(ph)} used={used(ph.id)} onSaved={reload} />
             {teamOpen === ph.id && <tr className="ph-team-row"><td colSpan={10}>
               <div className="ph-team-edit">
                 <div className="row between"><strong>{ph.code} team</strong><button type="button" className="linkbtn" onClick={() => setTeamOpen(null)}>Done</button></div>

@@ -49,7 +49,7 @@ export default function ProjectLink({ projectId, clientId, agreementId, cover, o
 
   const save = async (pid: string | null, cid: string | null) => {
     const { error } = await supabase.from('agreements').update({ project_id: pid, client_id: cid, updated_at: new Date().toISOString() }).eq('id', agreementId)
-    if (error) throw new Error(/agreements_one_working_per_project/.test(error.message) ? 'That project already has an agreement. Each project has one: void the other one first, or update it instead.' : error.message)
+    if (error) throw new Error(/agreements_one_(working|open)_per_project/.test(error.message) ? 'That project already has an open agreement (draft or out for signature). Agreements go one at a time: finish, sign or void that one first.' : error.message)
     // the old and new projects' percentage phases follow their (changed) agreement totals
     for (const x of new Set([projectId, pid])) if (x) syncPctPhases(x).catch(() => {})
     onLinked(pid, cid)

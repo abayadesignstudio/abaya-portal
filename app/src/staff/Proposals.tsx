@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { projectEstimates, seedFromEstimate } from '../lib/feeSeed'
+import { agreementCodes } from '../lib/fees'
 import { supabase, money, SECTOR_COLOR, PHASES } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
@@ -60,8 +61,9 @@ export default function Proposals() {
     .select('id, number, name, address, category, categories, client_id, clients(name, phone, billing_email, address), phases(code, fee)')
     .neq('number', 'OH').in('status', ['active', 'paused', 'proposal']).order('number', { ascending: false })) as unknown as Proj[])
 
-  // the chosen project's working agreement, if it has one (each project has one): the button updates it instead of creating
-  const working = projectId && projectId !== 'new' ? (list.data ?? []).find((r) => r.project_id === projectId && r.status !== 'void') : undefined
+  // the chosen project's open agreement (draft or out for signature), if any: one at a time, so the button updates or opens it
+  const working = projectId && projectId !== 'new' ? (list.data ?? []).find((r) => r.project_id === projectId && (r.status === 'draft' || r.status === 'sent')) : undefined
+  const signedOnProject = projectId && projectId !== 'new' ? (list.data ?? []).filter((r) => r.project_id === projectId && r.status === 'signed') : []
   const create = async () => {
     if (working && working.status !== 'draft') { nav('/proposals/' + working.id); return }
     setErr('')
@@ -80,51 +82,61 @@ export default function Proposals() {
       } catch (e) { setBusy(false); return setErr(/duplicate|unique/i.test(String((e as Error).message)) ? `Project number ${np.number.trim()} is already used.` : (e as Error).message) }
     }
     if (!p) { setBusy(false); return setErr('That project wasn’t found. Reload the page and try again.') }
-    // one working agreement per project: update its draft instead of starting a second one
+    // agreements one at a time: update the open draft; phases already in a signed agreement are left out of the next one
+    let held: string[] = []
+    let sd = seed
     if (projectId !== 'new') {
-      const { data: cur } = await supabase.from('agreements').select('id, status, doc, title').eq('project_id', p.id).neq('status', 'void').maybeSingle()
-      const c = cur as { id: string; status: string; doc: ReturnType<typeof newDoc>; title: string } | null
-      if (c?.status === 'signed') { setBusy(false); return setErr(`${p.number}’s agreement is signed, so its fee is locked. To change it, open the project and use Change fee; the client signs the change.`) }
+      const all = must(await supabase.from('agreements').select('id, status, doc, title').eq('project_id', p.id).neq('status', 'void')) as { id: string; status: string; doc: ReturnType<typeof newDoc>; title: string }[]
+      held = [...new Set(all.filter((x) => x.status === 'signed').flatMap((x) => agreementCodes({ split: x.doc.split ?? null, ph: x.doc.ph })))]
+      if (sd && held.length) {
+        const keep = sd.split.filter(([k]) => !held.includes(k))
+        const amt = keep.map(([k, v]) => [k, sd!.fee * v / 100] as const), tot = Math.round(amt.reduce((a, [, x]) => a + x, 0) * 100) / 100
+        if (!keep.length) { setBusy(false); return setErr(`Every phase in this fee is already in a signed agreement on ${p.number}. Use Change fee on the project instead.`) }
+        sd = { ...sd, fee: tot, split: amt.map(([k, x]) => [k, Math.round(x / tot * 1e6) / 1e4] as [string, number]) }
+      }
+      const c = all.find((x) => x.status === 'draft' || x.status === 'sent') ?? null
       if (c?.status === 'sent') { setBusy(false); return setErr(`${p.number}’s agreement (“${c.title}”) is out for the client’s signature. Unpublish it on the agreement page first, then apply this fee.`) }
       if (c) {
-        if (seed) {
+        if (sd) {
           const d = c.doc
-          if (d.detached && !window.confirm(`“${c.title}” was disconnected from the calculator, so its fee (${money(Number(d.v.fee) || 0)}) was set on the agreement. Replace it with ${money(seed.fee)} from “${seed.name || 'this calculation'}” and reconnect?`)) { setBusy(false); return }
-          d.detached = false; d.source = { estimateId: seed.estimateId, name: seed.name, fee: seed.fee }
-          d.v.fee = String(seed.fee)
-          if (seed.sf > 0 && !d.v.projSize) d.v.projSize = `${seed.sf.toLocaleString()} SF`
-          Object.keys(d.ph).forEach((k) => { d.ph[k].on = seed.split.some(([u]) => u === k) })
+          if (d.detached && !window.confirm(`“${c.title}” was disconnected from the calculator, so its fee (${money(Number(d.v.fee) || 0)}) was set on the agreement. Replace it with ${money(sd.fee)} from “${sd.name || 'this calculation'}” and reconnect?`)) { setBusy(false); return }
+          d.detached = false; d.source = { estimateId: sd.estimateId, name: sd.name, fee: sd.fee }
+          d.v.fee = String(sd.fee)
+          if (sd.sf > 0 && !d.v.projSize) d.v.projSize = `${sd.sf.toLocaleString()} SF`
+          const S = sd
+          Object.keys(d.ph).forEach((k) => { d.ph[k].on = S.split.some(([u]) => u === k) })
           const nameOf = (k: string) => PHASES.find(([x]) => x === k)?.[1] ?? k
-          d.split = Object.fromEntries(seed.split.map(([k, v]) => [k, String(v)]))
+          d.split = Object.fromEntries(sd.split.map(([k, v]) => [k, String(v)]))
           // keep the draft's payment grouping when it already has one; otherwise one payment per phase
           if (!d.pay?.some((x) => (x.phases?.length ?? 0) > 1) || d.pay.reduce((a, x) => a + (+x.pct || 0), 0) !== 100)
-            d.pay = seed.split.map(([k, v], i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${nameOf(k)}`, phase: nameOf(k), pct: String(v), phases: [k] }))
-          else d.pay = d.pay.map((x) => ({ ...x, pct: String(Math.round((x.phases ?? []).reduce((a, k) => a + (seed.split.find(([c]) => c === k)?.[1] ?? 0), 0) * 100) / 100) }))
-          const { error } = await supabase.from('agreements').update({ doc: d, total_fee: seed.fee, updated_at: new Date().toISOString() }).eq('id', c.id)
+            d.pay = sd.split.map(([k, v], i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${nameOf(k)}`, phase: nameOf(k), pct: String(v), phases: [k] }))
+          else d.pay = d.pay.map((x) => ({ ...x, pct: String(Math.round((x.phases ?? []).reduce((a, k) => a + (S.split.find(([c]) => c === k)?.[1] ?? 0), 0) * 100) / 100) }))
+          const { error } = await supabase.from('agreements').update({ doc: d, total_fee: sd.fee, updated_at: new Date().toISOString() }).eq('id', c.id)
           setBusy(false)
           if (error) return setErr(error.message)
           setSeed(null)
         } else setBusy(false)
-        nav('/proposals/' + c.id, { state: { note: seed ? `Updated this draft with the new fee: phases on ${p.number} follow it.` : `${p.number} already has this agreement; each project has one.` } })
+        nav('/proposals/' + c.id, { state: { note: sd ? `Updated this draft with the new fee: phases on ${p.number} follow it.` : `${p.number} already has this open agreement; finish or sign it before starting the next.` } })
         return
       }
     }
-    const fees = p ? Object.fromEntries((p.phases ?? []).filter((ph) => Number(ph.fee) > 0).map((ph) => [ph.code, Number(ph.fee)])) : {}
+    const fees = p ? Object.fromEntries((p.phases ?? []).filter((ph) => Number(ph.fee) > 0 && !held.includes(ph.code)).map((ph) => [ph.code, Number(ph.fee)])) : {}
     const doc = newDoc(p ? {
       projName: p.name, projAddr: p.address ?? '', projType: (p.categories ?? []).join(',') || p.category || 'S',
       ownerName: p.clients?.name ?? '', ownerPhone: p.clients?.phone ?? '', ownerEmail: p.clients?.billing_email ?? '', ownerAddr: p.clients?.address ?? '',
     } : {}, fees)
-    if (seed) { // the triangulator's fee, phases and one payment per phase replace the project's phase fees
-      doc.v.fee = String(seed.fee)
-      if (seed.sf > 0 && !doc.v.projSize) doc.v.projSize = `${seed.sf.toLocaleString()} SF`
-      Object.keys(doc.ph).forEach((c) => { doc.ph[c].on = seed.split.some(([u]) => u === c) })
+    if (sd) { // the triangulator's fee, phases and one payment per phase replace the project's phase fees
+      doc.v.fee = String(sd.fee)
+      if (sd.sf > 0 && !doc.v.projSize) doc.v.projSize = `${sd.sf.toLocaleString()} SF`
+      const S2 = sd
+      Object.keys(doc.ph).forEach((c) => { doc.ph[c].on = S2.split.some(([u]) => u === c) })
       const nameOf = (c: string) => PHASES.find(([x]) => x === c)?.[1] ?? c
-      doc.split = Object.fromEntries(seed.split.map(([c, v]) => [c, String(v)]))
-      doc.source = { estimateId: seed.estimateId, name: seed.name, fee: seed.fee }
-      doc.pay = seed.split.map(([c, v], i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${nameOf(c)}`, phase: nameOf(c), pct: String(v), phases: [c] }))
+      doc.split = Object.fromEntries(sd.split.map(([c, v]) => [c, String(v)]))
+      doc.source = { estimateId: sd.estimateId, name: sd.name, fee: sd.fee }
+      doc.pay = sd.split.map(([c, v], i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${nameOf(c)}`, phase: nameOf(c), pct: String(v), phases: [c] }))
     }
     const { data, error } = await supabase.from('agreements').insert({
-      title: `${p.name} — Proposal`, project_id: p.id, client_id: p.client_id ?? null,
+      title: held.length ? `${p.name} — Proposal (${PHASES.map(([c]) => c).filter((c) => doc.ph[c]?.on).join(', ')})` : `${p.name} — Proposal`, project_id: p.id, client_id: p.client_id ?? null,
       doc, total_fee: +doc.v.fee || 0, created_by: profile?.id,
     }).select('id').single()
     setBusy(false)
@@ -193,6 +205,7 @@ export default function Proposals() {
           <span>{seed.auto ? 'This project’s saved fee' : 'Using the fee triangulator'}{seed.name ? <> (<strong>{seed.name}</strong>)</> : ''}: <strong className="num">{money(seed.fee)}</strong> across {seed.split.map(([c, v]) => `${c} ${v}%`).join(' · ')}. {seed.auto ? 'The proposal starts from it.' : 'Choose the project, then Create proposal.'}</span>
           <button type="button" className="linkbtn" onClick={() => setSeed(null)}>Don’t use</button>
         </div>}
+        {!working && signedOnProject.length > 0 && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Signed on this project: {signedOnProject.map((r) => r.title).join('; ')}. A new proposal leaves out the phases already signed{seed ? ' and carries only the rest of this fee' : ''}.</p>}
         {working && <p className="muted" style={{ margin: 0, fontSize: 13 }}>
           {working.status === 'draft' ? <>This project already has <Link to={`/proposals/${working.id}`}>{working.title}</Link> ({money(Number(working.total_fee ?? 0))}). {seed ? <>The button replaces its fee with <strong>{money(seed.fee)}</strong> and its fee by phase; its wording, scope and payment grouping stay.</> : 'The button opens it.'}</>
             : working.status === 'sent' ? <><Link to={`/proposals/${working.id}`}>{working.title}</Link> is out for signature. Unpublish it to change its fee.</>

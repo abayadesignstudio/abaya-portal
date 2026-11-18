@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { syncPctPhases } from '../lib/fees'
+import { syncPctPhases, agreementCodes } from '../lib/fees'
+
+/** Phases already in another published or signed agreement on the same project (agreements go one at a time). */
+const HeldCtx = createContext<{ codes: string[]; titles: string[] }>({ codes: [], titles: [] })
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { STANDARD, PHN, OPEN_CLAUSES, newDoc, type DocState, type Clause } from '../lib/agreementTemplate'
@@ -99,7 +102,16 @@ export default function AgreementEditor() {
   const nav = useNavigate()
   const { profile, session } = useAuth()
   const autoTitle = useRef(true)
+  const [held, setHeld] = useState<{ codes: string[]; titles: string[] }>({ codes: [], titles: [] })
   const [row, setRow] = useState<{ id: string; title: string; status: string; project_id: string | null; client_id: string | null; doc_hash?: string | null; sent_at?: string | null } | null>(null)
+  useEffect(() => {
+    const pid = row?.project_id, me = row?.id
+    if (!pid) { setHeld({ codes: [], titles: [] }); return }
+    supabase.from('agreements').select('id, title, status, doc').eq('project_id', pid).in('status', ['sent', 'signed']).then(({ data }) => {
+      const others = ((data ?? []) as { id: string; title: string; doc: DocState }[]).filter((x) => x.id !== me)
+      setHeld({ codes: [...new Set(others.flatMap((x) => agreementCodes({ split: x.doc.split ?? null, ph: x.doc.ph })))], titles: others.map((x) => x.title) })
+    })
+  }, [row?.project_id, row?.id])
   const [sig, setSig] = useState<SigRow | null>(null)
   const [doc, setDoc] = useState<DocState | null>(null)
   const [ui, setUi] = useState<UI>(UI0)
@@ -278,7 +290,7 @@ export default function AgreementEditor() {
         </div>
       </div>
       <div className="ag-wrap">
-        <Outline doc={doc} model={model} ui={ui} patchUi={patchUi} up={up} setV={setV} firmLogo={firmLogo} setFirmLogo={setFirmLogo} />
+        <HeldCtx.Provider value={held}><Outline doc={doc} model={model} ui={ui} patchUi={patchUi} up={up} setV={setV} firmLogo={firmLogo} setFirmLogo={setFirmLogo} /></HeldCtx.Provider>
         <main className="ag-main">
           <div className={ui.pages ? 'ag-src-offscreen' : undefined} aria-hidden={ui.pages || undefined}>
             <Document tocPages={tocPages} logo={doc.v.logo || firmLogo} doc={doc} model={model} draft={draft} showMarks={showMarks} changesIn={ui.changesIn} onOpen={openClause}
@@ -500,6 +512,7 @@ function ClausePanel({ c, doc, model, ui, patchUi, up, setV }: OutlineProps & { 
 }
 
 function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model'> & { c: CView }) {
+  const heldCtx = useContext(HeldCtx)
   const v = doc.v
   if (c.kind === 'program') return <>
     <Field id="ag-pgt" label="Program heading"><input id="ag-pgt" className="input" value={v.progTitle} onChange={setV('progTitle')} /></Field>
@@ -592,6 +605,7 @@ function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model
       if (!d.pay.length) d.pay = rest.map((c, i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${nameOf(c)}`, phase: nameOf(c), pct: d.split![c], phases: [c] }))
       d.detached = true
     })
+    const clash = onCodes.filter((k) => heldCtx.codes.includes(k))
     const covered = new Set(doc.pay.flatMap((p) => p.phases ?? []))
     const uncovered = split ? onCodes.filter((k) => (+split[k] || 0) > 0 && !covered.has(k)) : []
     return <>
@@ -603,6 +617,7 @@ function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model
           : <span>Fee from calculation <strong>“{doc.source!.name}”</strong> ({money(doc.source!.fee)}). Updating that calculation and choosing Update proposal replaces it.</span>}
         {!doc.detached && <button type="button" className="linkbtn" onClick={() => up((d) => { d.detached = true })}>Disconnect</button>}
       </div>}
+      {clash.length > 0 && <p className="err" role="alert" style={{ margin: 0, fontSize: 13 }}>{clash.join(', ')} {clash.length === 1 ? 'is' : 'are'} already in {heldCtx.titles.join('; ')} on this project. Leave {clash.length === 1 ? 'it' : 'them'} out of this agreement (× below){split ? '' : ' — split the fee by phase first'}; it can’t be published with {clash.length === 1 ? 'it' : 'them'}.</p>}
       <div className="ag-split">
         <strong style={{ fontSize: 14 }}>Fee by phase</strong>
         <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>What each phase is worth. This sets the project’s phase fees (Overview, Budget, client portal). The payments below only group phases for billing.</p>

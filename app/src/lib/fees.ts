@@ -35,3 +35,10 @@ const PHASE_BY_NAME: Record<string, string> = { 'conceptual / exploratory': 'CE'
 export const hasFeeSplit = (g: LinkedAgreement) => !!g.split && Object.entries(g.split).some(([k, v]) => g.ph?.[k]?.on && (parseFloat(v) || 0) > 0)
 /** The agreement sets the phase fees: by its fee-by-phase split, or a schedule of one payment per phase (database trigger 0061). */
 export const perPhaseSchedule = (g: LinkedAgreement) => hasFeeSplit(g) || (!!g.pay?.length && g.pay.every((x) => PHASE_BY_NAME[String(x.phase ?? '').trim().toLowerCase()]))
+
+const STD_CODES = ['CE', 'SD', 'DD', 'CD', 'BN', 'PM', 'CA']
+/** The phases an agreement covers: its fee-by-phase split (phases with a %), else the phases switched on in it (database: private.agreement_codes). */
+export const agreementCodes = (g: Pick<LinkedAgreement, 'split' | 'ph'>) => {
+  const fromSplit = Object.entries(g.split ?? {}).filter(([k, v]) => STD_CODES.includes(k) && g.ph?.[k]?.on && (parseFloat(v) || 0) > 0).map(([k]) => k)
+  return fromSplit.length ? fromSplit : Object.entries(g.ph ?? {}).filter(([, x]) => x?.on).map(([k]) => k)
+}
