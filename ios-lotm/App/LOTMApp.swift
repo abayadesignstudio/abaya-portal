@@ -59,6 +59,7 @@ final class WebModel: NSObject, ObservableObject {
         cfg.websiteDataStore = .default()
         cfg.applicationNameForUserAgent = "LifeOfTheMindApp/1.0"
         cfg.userContentController.add(HapticHandler(), name: "haptic")
+        WKWebView.allowKeyboardWithoutTap()
         cfg.userContentController.add(WidgetHandler(), name: "widget")
         view = WKWebView(frame: .zero, configuration: cfg)
         super.init()
@@ -208,5 +209,23 @@ final class WidgetHandler: NSObject, WKScriptMessageHandler {
         guard let s = m.body as? String, let d = s.data(using: .utf8) else { return }
         WidgetStore.save(d)
         WidgetCenter.shared.reloadAllTimelines()
+    }
+}
+
+/// Lets the web app raise the keyboard when a writing screen opens (iOS normally waits for a tap on the field).
+/// Same approach Capacitor uses: WebKit's focus handler is told the focus came from the user.
+extension WKWebView {
+    private static var keyboardPatched = false
+    static func allowKeyboardWithoutTap() {
+        guard !keyboardPatched, let cls = NSClassFromString("WKContentView") else { return }
+        keyboardPatched = true
+        let sel = sel_getUid("_elementDidFocus:userIsInteracting:blurPreviousNode:activityStateChanges:userObject:")
+        guard let method = class_getInstanceMethod(cls, sel) else { return }
+        let original = method_getImplementation(method)
+        typealias Focus = @convention(c) (Any, Selector, UnsafeRawPointer, Bool, Bool, Bool, Any?) -> Void
+        let block: @convention(block) (Any, UnsafeRawPointer, Bool, Bool, Bool, Any?) -> Void = { me, info, _, blur, changes, obj in
+            unsafeBitCast(original, to: Focus.self)(me, sel, info, true, blur, changes, obj)
+        }
+        method_setImplementation(method, imp_implementationWithBlock(block))
     }
 }
