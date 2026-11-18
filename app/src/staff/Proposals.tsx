@@ -9,7 +9,7 @@ import RowMenu, { type RowMenuItem } from '../components/RowMenu'
 import { useRemembered } from '../lib/useRemembered'
 import FeeTriangulator, { type FeeSeed } from './FeeTriangulator'
 
-type Row = { id: string; title: string; status: string; total_fee: number | null; updated_at: string
+type Row = { id: string; title: string; status: string; total_fee: number | null; updated_at: string; project_id: string | null
   clients: { name: string } | null; projects: { number: string; name: string; sector: string | null } | null }
 type Proj = { id: string; number: string; name: string; address: string | null; category: string | null; categories: string[] | null; client_id: string | null
   clients: { name: string; phone: string | null; billing_email: string | null; address: string | null } | null; phases: { code: string; fee: number }[] }
@@ -55,12 +55,15 @@ export default function Proposals() {
     return () => { live = false }
   }, [projectId]) // eslint-disable-line react-hooks/exhaustive-deps
   const list = useLoad(async () => must(await supabase.from('agreements')
-    .select('id, title, status, total_fee, updated_at, clients(name), projects(number, name, sector)').order('updated_at', { ascending: false })) as unknown as Row[])
+    .select('id, title, status, total_fee, updated_at, project_id, clients(name), projects(number, name, sector)').order('updated_at', { ascending: false })) as unknown as Row[])
   const projects = useLoad(async () => must(await supabase.from('projects')
     .select('id, number, name, address, category, categories, client_id, clients(name, phone, billing_email, address), phases(code, fee)')
     .neq('number', 'OH').in('status', ['active', 'paused', 'proposal']).order('number', { ascending: false })) as unknown as Proj[])
 
+  // the chosen project's working agreement, if it has one (each project has one): the button updates it instead of creating
+  const working = projectId && projectId !== 'new' ? (list.data ?? []).find((r) => r.project_id === projectId && r.status !== 'void') : undefined
   const create = async () => {
+    if (working && working.status !== 'draft') { nav('/proposals/' + working.id); return }
     setErr('')
     if (!projectId) return setErr('Choose the project this proposal is for, or pick “+ New project…”.')
     setBusy(true)
@@ -187,6 +190,10 @@ export default function Proposals() {
           <span>{seed.auto ? 'This project’s saved fee' : 'Using the fee triangulator'}{seed.name ? <> (<strong>{seed.name}</strong>)</> : ''}: <strong className="num">{money(seed.fee)}</strong> across {seed.split.map(([c, v]) => `${c} ${v}%`).join(' · ')}. {seed.auto ? 'The proposal starts from it.' : 'Choose the project, then Create proposal.'}</span>
           <button type="button" className="linkbtn" onClick={() => setSeed(null)}>Don’t use</button>
         </div>}
+        {working && <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+          {working.status === 'draft' ? <>This project already has <Link to={`/proposals/${working.id}`}>{working.title}</Link> ({money(Number(working.total_fee ?? 0))}). {seed ? <>The button replaces its fee with <strong>{money(seed.fee)}</strong> and its fee by phase; its wording, scope and payment grouping stay.</> : 'The button opens it.'}</>
+            : working.status === 'sent' ? <><Link to={`/proposals/${working.id}`}>{working.title}</Link> is out for signature. Unpublish it to change its fee.</>
+            : <><Link to={`/proposals/${working.id}`}>{working.title}</Link> is signed. Change the fee on the project with Change fee.</>}</p>}
         <div className="row" style={{ alignItems: 'flex-end' }}>
           <div style={{ minWidth: 320, flex: 1, maxWidth: 520 }}>
             <label className="l" htmlFor="np-proj">Project</label>
@@ -196,7 +203,7 @@ export default function Proposals() {
               {projects.data?.map((p) => <option key={p.id} value={p.id}>{p.number} · {p.name}{p.clients ? ` — ${p.clients.name}` : ''}</option>)}
             </select>
           </div>
-          <button type="button" className="btn" onClick={create} disabled={busy || !projectId}>{busy ? 'Creating…' : 'Create proposal'}</button>
+          <button type="button" className="btn" onClick={create} disabled={busy || !projectId}>{busy ? 'Working…' : !working ? 'Create proposal' : working.status === 'draft' ? (seed ? 'Update proposal with this fee' : 'Open proposal') : 'Open proposal'}</button>
         </div>
         {projectId === 'new' && <div className="np-grid">
           <div><label className="l" htmlFor="npn">Number</label><input id="npn" className="input" value={np.number} onChange={(e) => setNp({ ...np, number: e.target.value })} /></div>
