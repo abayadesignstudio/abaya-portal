@@ -100,3 +100,8 @@
 .ag-chips{display:flex;flex-wrap:wrap;gap:4px;margin:2px 0 4px}
 .ag-chips button{min-width:40px;min-height:30px;border:1px solid #c9c3b4;border-radius:999px;background:#fff;font:700 12px Arial;color:#5b5b5b;cursor:pointer}
 .ag-chips button[aria-pressed="true"]{background:#02253d;border-color:#02253d;color:#fff}
+.ag-split-row{grid-template-columns:minmax(0,1fr) 76px 100px 22px}
+.ag-x{border:0;background:none;color:#8a8a8a;font-size:18px;line-height:1;cursor:pointer;padding:0;width:22px;height:28px}
+.ag-x:hover{color:#c4161c}
+.ag-source{display:flex;gap:8px;align-items:baseline;justify-content:space-between;font-size:12.5px;background:#eef3f8;border:1px solid #c9d6e3;border-radius:8px;padding:6px 10px}
+.ag-source.off{background:#f4f4f2;border-color:#ddd}

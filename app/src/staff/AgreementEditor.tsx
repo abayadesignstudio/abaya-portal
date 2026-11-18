@@ -577,11 +577,32 @@ function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model
       d.pay[i].phases = codes; d.pay[i].phase = codes.map(nameOf).join(', ')
       if (d.split && codes.length) d.pay[i].pct = String(pctOf(codes))
     })
+    // leave a phase out of this agreement: the total drops by that phase's dollars; the other phases keep theirs
+    const leaveOut = (k: string) => up((d) => {
+      const T = +d.v.fee || 0
+      const amts = Object.fromEntries(onCodes.map((c) => [c, T * (+(d.split?.[c] ?? 0) || 0) / 100]))
+      const rest = onCodes.filter((c) => c !== k)
+      const nt = Math.round(rest.reduce((a, c) => a + amts[c], 0) * 100) / 100
+      d.v.fee = String(nt)
+      d.split = Object.fromEntries(rest.map((c) => [c, String(nt ? Math.round(amts[c] / nt * 1e6) / 1e4 : 0)]))
+      d.ph[k].on = false
+      d.pay = d.pay.map((p) => { const ps = (p.phases ?? []).filter((c) => c !== k); return { ...p, phases: ps, phase: ps.length ? ps.map(nameOf).join(', ') : p.phase,
+        pct: ps.length ? String(Math.round(ps.reduce((a, c) => a + (+(d.split?.[c] ?? 0) || 0), 0) * 100) / 100) : p.pct } })
+        .filter((p) => !(p.phases && p.phases.length === 0 && (p.phase === nameOf(k) || !p.phase)))
+      if (!d.pay.length) d.pay = rest.map((c, i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${nameOf(c)}`, phase: nameOf(c), pct: d.split![c], phases: [c] }))
+      d.detached = true
+    })
     const covered = new Set(doc.pay.flatMap((p) => p.phases ?? []))
     const uncovered = split ? onCodes.filter((k) => (+split[k] || 0) > 0 && !covered.has(k)) : []
     return <>
       <Field id="ag-fee" label="Total fee ($)"><input id="ag-fee" type="number" min={0} step={50} className="input" value={v.fee} onChange={setV('fee')} /></Field>
 
+      {(doc.source || doc.detached) && <div className={'ag-source' + (doc.detached ? ' off' : '')}>
+        {doc.detached
+          ? <span>Set here, not linked to a calculation.{doc.source && <> (Started from “{doc.source.name}”, {money(doc.source.fee)}.)</>} The calculator won’t change it without asking.</span>
+          : <span>Fee from calculation <strong>“{doc.source!.name}”</strong> ({money(doc.source!.fee)}). Updating that calculation and choosing Update proposal replaces it.</span>}
+        {!doc.detached && <button type="button" className="linkbtn" onClick={() => up((d) => { d.detached = true })}>Disconnect</button>}
+      </div>}
       <div className="ag-split">
         <strong style={{ fontSize: 14 }}>Fee by phase</strong>
         <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>What each phase is worth. This sets the project’s phase fees (Overview, Budget, client portal). The payments below only group phases for billing.</p>
@@ -590,9 +611,11 @@ function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model
             <label htmlFor={'sp-' + k}><strong>{k}</strong> <span className="muted">{nameOf(k)}</span></label>
             <input id={'sp-' + k} type="number" min={0} max={100} step={0.5} className="input num" value={split[k] ?? '0'} onChange={(e) => { const val = e.target.value; up((d) => { d.split = { ...(d.split ?? {}), [k]: val }
               d.pay.forEach((p) => { if ((p.phases?.length ?? 0) > 0) p.pct = String(Math.round((p.phases ?? []).reduce((a, c) => a + (+(d.split?.[c] ?? 0) || 0), 0) * 100) / 100) }) }) }} />
-            <span className="num">{money(fee * (+split[k] || 0) / 100)}</span></div>)}
+            <span className="num">{money(fee * (+split[k] || 0) / 100)}</span>
+            {onCodes.length > 1 && <button type="button" className="ag-x" onClick={() => leaveOut(k)} aria-label={`Leave ${nameOf(k)} out of this agreement`} title={`Leave ${k} out of this agreement (the total drops by its fee)`}>×</button>}</div>)}
           <div className="ag-split-row" style={{ fontWeight: 700 }}><span>Total</span><span className="num" style={{ color: Math.abs(splitSum - 100) < 0.01 ? undefined : RED }}>{splitSum}%</span><span className="num">{money(fee * splitSum / 100)}</span></div>
           {Math.abs(splitSum - 100) >= 0.01 && <p className="err" style={{ margin: 0, fontSize: 12.5 }}>The phases add up to {splitSum}%, not 100%.</p>}
+          {PHN.some(([k]) => !doc.ph[k]?.on) && <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>Not in this agreement: {PHN.filter(([k]) => !doc.ph[k]?.on).map(([k]) => k).join(', ')}. Turn a phase on in Section 2 to add it back. After this agreement is signed, add phases with Change fee on the project (the client signs it).</p>}
         </>}
       </div>
 

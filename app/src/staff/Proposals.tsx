@@ -89,6 +89,8 @@ export default function Proposals() {
       if (c) {
         if (seed) {
           const d = c.doc
+          if (d.detached && !window.confirm(`“${c.title}” was disconnected from the calculator, so its fee (${money(Number(d.v.fee) || 0)}) was set on the agreement. Replace it with ${money(seed.fee)} from “${seed.name || 'this calculation'}” and reconnect?`)) { setBusy(false); return }
+          d.detached = false; d.source = { estimateId: seed.estimateId, name: seed.name, fee: seed.fee }
           d.v.fee = String(seed.fee)
           if (seed.sf > 0 && !d.v.projSize) d.v.projSize = `${seed.sf.toLocaleString()} SF`
           Object.keys(d.ph).forEach((k) => { d.ph[k].on = seed.split.some(([u]) => u === k) })
@@ -118,6 +120,7 @@ export default function Proposals() {
       Object.keys(doc.ph).forEach((c) => { doc.ph[c].on = seed.split.some(([u]) => u === c) })
       const nameOf = (c: string) => PHASES.find(([x]) => x === c)?.[1] ?? c
       doc.split = Object.fromEntries(seed.split.map(([c, v]) => [c, String(v)]))
+      doc.source = { estimateId: seed.estimateId, name: seed.name, fee: seed.fee }
       doc.pay = seed.split.map(([c, v], i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${nameOf(c)}`, phase: nameOf(c), pct: String(v), phases: [c] }))
     }
     const { data, error } = await supabase.from('agreements').insert({

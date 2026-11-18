@@ -1,7 +1,7 @@
 // A saved fee calculation (fee triangulator) → what a proposal starts from: the average fee, the area and the phase split.
 import { supabase, PHASES } from './supabase'
 
-export type FeeSeed = { name: string; fee: number; sf: number; split: [string, number][]; projectId?: string; auto?: boolean }
+export type FeeSeed = { name: string; fee: number; sf: number; split: [string, number][]; projectId?: string; auto?: boolean; estimateId?: string }
 export type Estimate = { id: string; name: string; project_id: string | null; updated_at: string; hourly_fee: number | null; sf_fee: number | null; pct_fee: number | null
   inputs: { sf?: string; split?: Record<string, string>; projectId?: string } }
 
@@ -16,7 +16,7 @@ export function seedFromEstimate(x: Estimate): FeeSeed | null {
   if (!fee) return null
   let split = PHASES.map(([c]) => [c, num(x.inputs?.split?.[c] ?? DEFAULT_SPLIT[c])] as [string, number])
   if (Math.abs(split.reduce((a, [, v]) => a + v, 0) - 100) > 0.01) split = PHASES.map(([c]) => [c, DEFAULT_SPLIT[c]] as [string, number])
-  return { name: x.name, fee, sf: num(x.inputs?.sf), split: split.filter(([, v]) => v > 0), projectId: x.project_id ?? undefined }
+  return { name: x.name, fee, sf: num(x.inputs?.sf), split: split.filter(([, v]) => v > 0), projectId: x.project_id ?? undefined, estimateId: x.id }
 }
 /** The project's most recently edited saved fee, if any. */
 export async function projectEstimates(projectId: string) {

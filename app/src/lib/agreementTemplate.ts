@@ -15,6 +15,9 @@ export type DocState = {
   pay: Payment[]
   /** fee by phase (% of the total fee per phase code). Sets the project's phase fees; the payment schedule only groups them for billing. */
   split?: Record<string, string>
+  /** where the fee came from: a saved calculation (fee triangulator). detached = the user disconnected it; the calculator won't overwrite the fee without asking. */
+  source?: { estimateId?: string; name: string; fee: number } | null
+  detached?: boolean
   ex: { t: string; on: boolean }[]
   off: Record<string, boolean>
   edits: Record<string, string>

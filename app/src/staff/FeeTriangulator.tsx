@@ -85,7 +85,7 @@ export default function FeeTriangulator({ onCreateAgreement }: { onCreateAgreeme
     if (!avg) return setErr('Fill in at least one fee method first.')
     if (!splitOk) return setErr('The phase percentages need to add up to 100% before creating an agreement.')
     setErr('')
-    onCreateAgreement({ name: name.trim(), fee: Math.round(avg), sf: num(s.sf), split: splitPct.filter(([, v]) => v > 0).map(([c, v]) => [c, v]), projectId: s.projectId || undefined })
+    onCreateAgreement({ name: name.trim(), fee: Math.round(avg), sf: num(s.sf), split: splitPct.filter(([, v]) => v > 0).map(([c, v]) => [c, v]), projectId: s.projectId || undefined, estimateId: cur?.id })
   }
   const payload = () => ({ name: name.trim(), inputs: s, project_id: s.projectId || null, hourly_fee: hourly || null, sf_fee: bySf || null, pct_fee: byPct || null, median_fee: med || null, updated_at: new Date().toISOString() })
   // ── Autosave: every calculation is kept in Saved fees as you type (unnamed ones get "Untitled — date, time").
