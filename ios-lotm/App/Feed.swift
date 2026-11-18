@@ -52,7 +52,7 @@ private struct TabBar: View {
             item(.feed, "house.fill", "Feed")
             item(.library, "book", "Library")
             Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                Haptic.tap()
                 web.composer.present(name: feed.myName, avatar: feed.myAvatar)
             } label: {
                 Image(systemName: "pencil").font(.system(size: 20, weight: .semibold)).foregroundStyle(F.paper)
@@ -75,8 +75,8 @@ private struct TabBar: View {
     private func item(_ t: Tab, _ icon: String, _ label: String) -> some View {
         let on = web.tab == t
         return Button {
+            Haptic.tap()
             if on && t == .feed { feed.scrollTop += 1; return }
-            UISelectionFeedbackGenerator().selectionChanged()
             web.select(t)
         } label: {
             Image(systemName: icon).font(.system(size: 23, weight: on ? .semibold : .regular))
@@ -331,7 +331,8 @@ struct FeedScreen: View {
         }
         .background(F.paper.ignoresSafeArea())
         .task { await m.load() }
-        .sheet(item: $m.detail) { PinSheet(it: $0, m: m, web: web).presentationDetents([.medium, .large]).presentationDragIndicator(.visible) }
+        .sheet(item: $m.detail) { PinSheet(it: $0, m: m, web: web).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+            .presentationContentInteraction(.resizes).presentationCornerRadius(24).presentationBackground(F.card) }
         .alert("Report this post", isPresented: Binding(get: { reporting != nil }, set: { if !$0 { reporting = nil } })) {
             TextField("What is wrong with it?", text: $reason)
             Button("Cancel", role: .cancel) {}
@@ -346,7 +347,7 @@ struct FeedScreen: View {
 
     private var header: some View {
         HStack {
-            circleButton("magnifyingglass") { web.go("/search") }
+            circleButton("magnifyingglass") { Haptic.tap(); presentSlide(SearchScreen(feed: m, web: web)) }
             Spacer()
             HStack(alignment: .center, spacing: 6) {
                 Text("Life")
@@ -357,7 +358,7 @@ struct FeedScreen: View {
             .foregroundStyle(F.cream)
             .onTapGesture { m.scrollTop += 1 }
             Spacer()
-            circleButton("bell") { web.go("/notifications") }
+            circleButton("bell") { Haptic.tap(); presentSlide(NotificationsScreen(feed: m, web: web)) }
                 .overlay(alignment: .topTrailing) {
                     if m.unread > 0 {
                         Text(m.unread > 9 ? "9+" : "\(m.unread)").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
@@ -458,6 +459,7 @@ private struct PinSheet: View {
             }
             .padding(24)
         }
+        .scrollBounceBehavior(.basedOnSize)
         .background(F.card.ignoresSafeArea())
         .task { await loadRsvps() }
         .preferredColorScheme(.dark)
@@ -645,4 +647,10 @@ private struct PollBox: View {
 
 extension Supa {
     func rowsIf(_ c: Bool, _ path: String) async throws -> [[String: Any]] { c ? try await rows(path) : [] }
+}
+
+/// A light tap, ready before it is needed (an unprepared generator is often too slow to be felt).
+enum Haptic {
+    private static let light: UIImpactFeedbackGenerator = { let g = UIImpactFeedbackGenerator(style: .light); g.prepare(); return g }()
+    static func tap() { light.impactOccurred(); light.prepare() }
 }
