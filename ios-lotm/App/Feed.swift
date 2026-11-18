@@ -16,21 +16,22 @@ private enum F {
 // MARK: - Shell
 
 enum Tab: String { case feed, library, people, settings
-    var route: String { switch self { case .feed: "/native"; case .library: "/reading"; case .people: "/people"; case .settings: "/settings" } }
+    var route: String { switch self { case .feed, .settings: "/native"; case .library: "/reading"; case .people: "/people" } }
 }
 
 struct Shell: View {
     @ObservedObject var web: WebModel
     @StateObject private var feed = FeedModel()
     /// The web's own tab screens; anything else it shows (a profile, the devotion, a web form) is a page over the app.
-    private static let webTabs: Set<String> = ["/native", "/reading", "/people", "/settings", "/notebook/index", "/chat", ""]
+    private static let webTabs: Set<String> = ["/native", "/reading", "/people", "/settings", "/notebook/index", "/chat", "/loading", ""]
     private var path: String { String(web.route.split(separator: "?", maxSplits: 1).first ?? "") }
     private var overlay: Bool { !Self.webTabs.contains(path) && !path.hasPrefix("/post/") }
-    private var showWeb: Bool { web.tab != .feed || overlay }
+    private var showWeb: Bool { web.tab == .library || web.tab == .people || overlay }
 
     var body: some View {
         ZStack(alignment: .bottom) {
             FeedScreen(m: feed, web: web).opacity(web.tab == .feed ? 1 : 0).allowsHitTesting(web.tab == .feed && !overlay)
+            if web.tab == .settings { SettingsScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
             WebView(model: web).ignoresSafeArea()
                 .opacity(showWeb ? 1 : 0).allowsHitTesting(showWeb)
             if !overlay { TabBar(web: web, feed: feed).transition(.opacity) }

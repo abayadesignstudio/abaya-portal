@@ -42,14 +42,14 @@ struct Supa {
     }
     func err(_ m: String) -> NSError { NSError(domain: "LOTM", code: 1, userInfo: [NSLocalizedDescriptionKey: m]) }
     /// A photo into the club's post-media storage; returns its public address.
-    func upload(_ img: UIImage) async throws -> String {
+    func upload(_ img: UIImage, bucket: String = "post-media") async throws -> String {
         let longSide = max(img.size.width, img.size.height), s = min(1, 2048 / max(longSide, 1))
         let size = CGSize(width: (img.size.width * s).rounded(), height: (img.size.height * s).rounded())
         let f = UIGraphicsImageRendererFormat(); f.scale = 1
         let data = UIGraphicsImageRenderer(size: size, format: f).image { _ in img.draw(in: CGRect(origin: .zero, size: size)) }.jpegData(compressionQuality: 0.82) ?? Data()
         let path = "\(a.me)/\(Int(Date().timeIntervalSince1970 * 1000))-\(UUID().uuidString.prefix(6).lowercased()).jpg"
-        try await req("POST", "/storage/v1/object/post-media/\(path)", raw: data, type: "image/jpeg")
-        return "\(a.url)/storage/v1/object/public/post-media/\(path)"
+        try await req("POST", "/storage/v1/object/\(bucket)/\(path)", raw: data, type: "image/jpeg")
+        return "\(a.url)/storage/v1/object/public/\(bucket)/\(path)"
     }
 }
 
