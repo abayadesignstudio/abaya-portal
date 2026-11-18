@@ -102,13 +102,26 @@ struct Clock: View {
         if let p = state.pausedSeconds {
             Text(format(p))
         } else {
-            Text(timerInterval: state.start...state.start.addingTimeInterval(60 * 60 * 24 * 7), countsDown: false)
+            RunningClock(start: state.start)
                 .multilineTextAlignment(.trailing)
         }
     }
     private func format(_ t: Double) -> String {
         let s = Int(t)
-        return String(format: "%d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60)
+        return String(format: "%d:%02d", s / 3600, (s / 60) % 60)
+    }
+}
+
+/// Running timer as hours:minutes (no seconds). iOS 18 can tick it by itself at minute precision;
+/// older iOS falls back to the system timer, which includes seconds.
+struct RunningClock: View {
+    let start: Date
+    var body: some View {
+        if #available(iOS 18.0, *) {
+            Text(.currentDate, format: .timer(countingUpIn: start..<start.addingTimeInterval(60 * 60 * 24 * 7), showsHours: true, maxFieldCount: 2, maxPrecision: .seconds(60)))
+        } else {
+            Text(timerInterval: start...start.addingTimeInterval(60 * 60 * 24 * 7), countsDown: false)
+        }
     }
 }
 
@@ -350,7 +363,7 @@ private struct TimerPanel: View {
                 Text(t.title).font(.caption.weight(.semibold)).lineLimit(large ? 2 : 1)
                 Group {
                     if t.paused { Text(fmt(t.elapsed)) }
-                    else { Text(timerInterval: entry.date.addingTimeInterval(-t.elapsed)...entry.date.addingTimeInterval(86400 * 7), countsDown: false) }
+                    else { RunningClock(start: entry.date.addingTimeInterval(-t.elapsed)) }
                 }
                 .font(.title3.monospacedDigit().weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
                 HStack(spacing: 6) {
@@ -381,7 +394,7 @@ private struct TimerPanel: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 14).fill(full ? navy : Color.white.opacity(0.1)))
     }
-    private func fmt(_ t: Double) -> String { let s = Int(t); return String(format: "%d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60) }
+    private func fmt(_ t: Double) -> String { let s = Int(t); return String(format: "%d:%02d", s / 3600, (s / 60) % 60) }
 }
 
 /// One recent task (project · phase · activity) as a Start button.
@@ -503,7 +516,7 @@ private struct TimerStrip: View {
                         Text(t.title).font(.caption.weight(.semibold)).lineLimit(1)
                         Group {
                             if t.paused { Text(fmt(t.elapsed)) }
-                            else { Text(timerInterval: entry.date.addingTimeInterval(-t.elapsed)...entry.date.addingTimeInterval(86400 * 7), countsDown: false) }
+                            else { RunningClock(start: entry.date.addingTimeInterval(-t.elapsed)) }
                         }
                         .font(.title3.monospacedDigit().weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
                         HStack(spacing: 6) {
@@ -540,5 +553,5 @@ private struct TimerStrip: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 14).fill(full ? navy : Color.white.opacity(0.1)))
     }
-    private func fmt(_ t: Double) -> String { let s = Int(t); return String(format: "%d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60) }
+    private func fmt(_ t: Double) -> String { let s = Int(t); return String(format: "%d:%02d", s / 3600, (s / 60) % 60) }
 }
