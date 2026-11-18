@@ -94,14 +94,21 @@
 
 /* Fees panel: fee by phase (sets the project's phase fees) vs payment grouping */
 .ag-split{display:flex;flex-direction:column;gap:6px;border:1px solid #d8cfb4;background:#fbf8ef;border-radius:8px;padding:8px 10px}
-.ag-split-row{display:grid;grid-template-columns:minmax(0,1fr) 76px 100px;gap:8px;align-items:center;font-size:13.5px}
 .ag-split-row .input{padding:4px 6px;text-align:right}
-.ag-split-row > .num:last-child{text-align:right}
+
 .ag-chips{display:flex;flex-wrap:wrap;gap:4px;margin:2px 0 4px}
 .ag-chips button{min-width:40px;min-height:30px;border:1px solid #c9c3b4;border-radius:999px;background:#fff;font:700 12px Arial;color:#5b5b5b;cursor:pointer}
 .ag-chips button[aria-pressed="true"]{background:#02253d;border-color:#02253d;color:#fff}
-.ag-split-row{grid-template-columns:minmax(0,1fr) 76px 100px 22px}
 .ag-x{border:0;background:none;color:#8a8a8a;font-size:18px;line-height:1;cursor:pointer;padding:0;width:22px;height:28px}
 .ag-x:hover{color:#c4161c}
 .ag-source{display:flex;gap:8px;align-items:baseline;justify-content:space-between;font-size:12.5px;background:#eef3f8;border:1px solid #c9d6e3;border-radius:8px;padding:6px 10px}
 .ag-source.off{background:#f4f4f2;border-color:#ddd}
+
+/* Fee by phase rows: phase name on its own line, then % · $ · × (the outline column is narrow) */
+.ag-split-row{display:grid;grid-template-columns:84px minmax(0,1fr) 24px;grid-template-areas:"lbl lbl lbl" "pct amt x";column-gap:8px;row-gap:3px;align-items:center;font-size:13.5px;padding:6px 0;border-top:1px solid #ece4cf}
+.ag-split-row > label{grid-area:lbl;line-height:1.3}
+.ag-split-row > .input{grid-area:pct;width:100%;min-width:0;box-sizing:border-box;padding:4px 6px;text-align:right}
+.ag-split-row > span.num{grid-area:amt;text-align:right}
+.ag-split-row > .ag-x{grid-area:x}
+.ag-split-total{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:baseline;font-weight:700;font-size:13.5px;padding-top:6px;border-top:1px solid #d8cfb4}
+.ag-split-total > :nth-child(2),.ag-split-total > :nth-child(3){text-align:right}

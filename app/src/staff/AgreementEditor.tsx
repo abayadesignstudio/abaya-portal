@@ -30,6 +30,12 @@ const RULE = '2px solid #000'
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const MON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const longDateOf = (v: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v || ''); if (!m) return ''; const d = new Date(+m[1], +m[2] - 1, +m[3]); return `${DAYS[d.getDay()]}, ${MON[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}` }
+/** Outline → document: scroll the agreement to a section (0 = cover) or clause, using the copy that's on screen. */
+const scrollDoc = (sec: number, cl?: string) => window.requestAnimationFrame(() => {
+  const pick = (sel: string) => [...document.querySelectorAll<HTMLElement>(sel)].find((el) => el.offsetParent !== null && !el.closest('.ag-out'))
+  const el = (cl && pick(`[data-cl="${cl}"]`)) || (sec > 0 ? pick(`[data-sec="${sec}"]`) : pick('.ag-doc'))
+  el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+})
 const lines = (t: string) => (t || '').split('\n').map((x) => x.trim()).filter(Boolean)
 const RED = '#c4161c', BLUE = '#0b4f8a'
 
@@ -399,7 +405,7 @@ function Outline({ doc, model, ui, patchUi, up, setV, firmLogo, setFirmLogo }: O
         <span className="muted" style={{ fontSize: 12, flexBasis: '100%' }}>{doc.terms === 'custom' ? 'Every clause can be edited for this agreement.' : 'General clauses (🔒) use the firm standard; project, scope, consultants, phases, exclusions and fees stay editable.'}</span>
       </div>
       <div style={{ borderBottom: '1px solid #ece9e3' }}>
-        <button type="button" className="ag-row" style={{ padding: '13px 16px', fontWeight: 700 }} aria-expanded={ui.openSec === 0} onClick={() => patchUi({ openSec: ui.openSec === 0 ? -1 : 0 })}>{ui.openSec === 0 ? '▾' : '▸'} Cover · Parties &amp; Project</button>
+        <button type="button" className="ag-row" style={{ padding: '13px 16px', fontWeight: 700 }} aria-expanded={ui.openSec === 0} onClick={() => { patchUi({ openSec: ui.openSec === 0 ? -1 : 0 }); scrollDoc(0) }}>{ui.openSec === 0 ? '▾' : '▸'} Cover · Parties &amp; Project</button>
         {ui.openSec === 0 && <div className="ag-f" style={{ padding: '4px 16px 16px', background: '#fbfaf8' }}>
           <LogoField value={v.logo ?? ''} firmLogo={firmLogo ?? ''} onFirmLogo={setFirmLogo ?? (() => {})} onChange={(u) => up((d) => { if (u) d.v.logo = u; else delete d.v.logo })} />
           {inp('date', 'Agreement date', 'date')}
@@ -425,7 +431,7 @@ function Outline({ doc, model, ui, patchUi, up, setV, firmLogo, setFirmLogo }: O
         const nextNum = `${s.n}.${s.clauses.filter((c) => !c.sub).length + 1}`
         return (
           <div key={s.n} style={{ borderBottom: '1px solid #ece9e3' }}>
-            <button type="button" className="ag-row" style={{ padding: '12px 16px' }} aria-expanded={open} onClick={() => patchUi({ openSec: open ? -1 : s.n })}>
+            <button type="button" className="ag-row" style={{ padding: '12px 16px' }} aria-expanded={open} onClick={() => { patchUi({ openSec: open ? -1 : s.n }); if (!open) scrollDoc(s.n) }}>
               <span style={{ fontWeight: 700 }}>{open ? '▾' : '▸'} {s.n}. {s.title.charAt(0) + s.title.slice(1).toLowerCase()}</span>
               <span className="muted" style={{ display: 'block', fontSize: 12, marginTop: 2, paddingLeft: 16 }}>{[nMiss ? `${nMiss} need info` : '', nMod ? `${nMod} changed` : '', nOff ? `${nOff} omitted` : ''].filter(Boolean).join(' · ')}</span>
             </button>
@@ -434,7 +440,7 @@ function Outline({ doc, model, ui, patchUi, up, setV, firmLogo, setFirmLogo }: O
                 {s.clauses.map((c) => (
                   <li key={c.id}>
                     <button type="button" className="ag-row" style={{ padding: '8px 16px 8px 36px', fontSize: 14, background: ui.openCl === c.id ? '#eef2f6' : undefined }} aria-expanded={ui.openCl === c.id}
-                      onClick={() => patchUi({ openCl: ui.openCl === c.id ? '' : c.id, editing: '' })}>
+                      onClick={() => { patchUi({ openCl: ui.openCl === c.id ? '' : c.id, editing: '' }); if (ui.openCl !== c.id) scrollDoc(s.n, c.id) }}>
                       <span style={{ display: 'block' }}>{label(c)}</span>
                       <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 3 }}>{chipsOf(c).map(([t, fg, bg]) => <span key={t} className="ag-chip" style={{ color: fg, background: bg }}>{t}</span>)}</span>
                     </button>
@@ -628,7 +634,7 @@ function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model
               d.pay.forEach((p) => { if ((p.phases?.length ?? 0) > 0) p.pct = String(Math.round((p.phases ?? []).reduce((a, c) => a + (+(d.split?.[c] ?? 0) || 0), 0) * 100) / 100) }) }) }} />
             <span className="num">{money(fee * (+split[k] || 0) / 100)}</span>
             {onCodes.length > 1 && <button type="button" className="ag-x" onClick={() => leaveOut(k)} aria-label={`Leave ${nameOf(k)} out of this agreement`} title={`Leave ${k} out of this agreement (the total drops by its fee)`}>×</button>}</div>)}
-          <div className="ag-split-row" style={{ fontWeight: 700 }}><span>Total</span><span className="num" style={{ color: Math.abs(splitSum - 100) < 0.01 ? undefined : RED }}>{splitSum}%</span><span className="num">{money(fee * splitSum / 100)}</span></div>
+          <div className="ag-split-total"><span>Total</span><span className="num" style={{ color: Math.abs(splitSum - 100) < 0.01 ? undefined : RED }}>{splitSum}%</span><span className="num">{money(fee * splitSum / 100)}</span></div>
           {Math.abs(splitSum - 100) >= 0.01 && <p className="err" style={{ margin: 0, fontSize: 12.5 }}>The phases add up to {splitSum}%, not 100%.</p>}
           {PHN.some(([k]) => !doc.ph[k]?.on) && <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>Not in this agreement: {PHN.filter(([k]) => !doc.ph[k]?.on).map(([k]) => k).join(', ')}. Turn a phase on in Section 2 to add it back. After this agreement is signed, add phases with Change fee on the project (the client signs it).</p>}
         </>}
@@ -839,7 +845,7 @@ export function Document({ tocPages, logo, doc, model, draft, showMarks, changes
               const open = () => onOpen(s.n, c.id)
               const titleSegs = toParas(tok(c.title).map((t) => ({ t, k: c.added ? 'add' as const : 'same' as const })))[0] || []
               return (
-                <div key={c.id} className={'ag-clause' + (hasBreak('c' + c.id) ? ' ag-pagebreak' : '')} style={{ marginLeft: c.sub ? 9 : -13, borderLeftColor: bar, ...(c.off && draft ? struck(false) : {}) }}>
+                <div key={c.id} data-cl={c.id} className={'ag-clause' + (hasBreak('c' + c.id) ? ' ag-pagebreak' : '')} style={{ marginLeft: c.sub ? 9 : -13, borderLeftColor: bar, ...(c.off && draft ? struck(false) : {}) }}>
                   <BreakUI id={'c' + c.id} what={`clause ${c.num}`} />
                   <p className="ag-ct" style={{ margin: '0 0 2px', fontWeight: 700 }}><span onClick={open} style={{ cursor: 'pointer' }}>{c.num}</span> <Segs segs={titleSegs} onClick={open} />{omittedFinal && <span className="ag-nb" style={{ fontWeight: 400 }}> Intentionally omitted.</span>}</p>
                   {!omittedFinal && <>
