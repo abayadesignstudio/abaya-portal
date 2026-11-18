@@ -46,7 +46,7 @@ struct LOTMApp: App {
                 .onOpenURL { web.handle($0) }
                 .onAppear { AppDelegate.web = web }
         }
-        .onChange(of: phase) { _, p in if p == .active { web.drainInbox() } }
+        .onChange(of: phase) { _, p in if p == .active { web.drainInbox(); web.reviveIfBlank() } }
     }
 }
 
@@ -115,6 +115,13 @@ final class WebModel: NSObject, ObservableObject {
         let js = "location.hash = '#\(route.replacingOccurrences(of: "'", with: "%27"))'"
         view.evaluateJavaScript(js)
     }
+    /// Coming back to the app: if the page is missing (iOS dropped it), load it again.
+    func reviveIfBlank() {
+        if view.url == nil { view.load(URLRequest(url: home, cachePolicy: .reloadIgnoringLocalCacheData)); return }
+        view.evaluateJavaScript("document.getElementById('root')?.childElementCount ?? 0") { r, err in
+            if err != nil || (r as? Int ?? 1) == 0 { self.view.reload() }
+        }
+    }
     /// Passages saved from Safari's share sheet open as new Commonplace entries.
     func drainInbox() {
         guard let item = Inbox.popAll().last else { return }
@@ -130,7 +137,21 @@ struct WebView: UIViewRepresentable {
     func updateUIView(_ v: WKWebView, context: Context) {}
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
-        func webView(_ w: WKWebView, didFinish n: WKNavigation!) { AppDelegate.web?.shareDeviceToken() }
+        private var tries = 0
+        func webView(_ w: WKWebView, didFinish n: WKNavigation!) { tries = 0; AppDelegate.web?.shareDeviceToken() }
+        // Never leave a blank screen: if iOS stops the page's process (memory, or the app was in the background a long
+        // time) reload it; if the page can't be fetched, try again, skipping anything cached.
+        func webViewWebContentProcessDidTerminate(_ w: WKWebView) {
+            if w.url == nil { w.load(URLRequest(url: home, cachePolicy: .reloadIgnoringLocalCacheData)) } else { w.reload() }
+        }
+        func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: Error) { retry(w, e) }
+        func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { retry(w, e) }
+        private func retry(_ w: WKWebView, _ e: Error) {
+            if (e as NSError).code == NSURLErrorCancelled { return }
+            tries += 1
+            let wait = min(8.0, Double(tries) * 1.5)
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { w.load(URLRequest(url: home, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)) }
+        }
         // Our site stays in the app; everything else (articles, maps, books) opens in the in-app browser.
         func webView(_ w: WKWebView, decidePolicyFor a: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             guard let url = a.request.url else { return decisionHandler(.allow) }
