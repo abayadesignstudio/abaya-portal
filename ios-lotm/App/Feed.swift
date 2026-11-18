@@ -614,7 +614,7 @@ private struct Lightbox: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            Color.black.opacity(1 - min(0.6, abs(drop) / 600)).ignoresSafeArea()
+            Color.black.opacity(Double(1 - min(CGFloat(0.6), abs(drop) / CGFloat(600)))).ignoresSafeArea()
             TabView(selection: $i) {
                 ForEach(Array(urls.enumerated()), id: \.offset) { k, u in
                     AsyncImage(url: u) { $0.resizable().scaledToFit() } placeholder: { ProgressView().tint(.white) }.tag(k)
