@@ -62,6 +62,7 @@ final class WebModel: NSObject, ObservableObject {
         WKWebView.allowKeyboardWithoutTap()
         cfg.userContentController.add(WidgetHandler(), name: "widget")
         let outer = OuterScrollHandler(); cfg.userContentController.add(outer, name: "outerScroll")
+        cfg.userContentController.add(StatusBarHandler(), name: "statusBar")
         view = WKWebView(frame: .zero, configuration: cfg)
         super.init()
         view.scrollView.contentInsetAdjustmentBehavior = .never
@@ -248,6 +249,17 @@ final class OuterScrollHandler: NSObject, WKScriptMessageHandler {
                 if let r = sv.refreshControl { self.refresh = r; sv.refreshControl = nil }
                 sv.bounces = false; sv.alwaysBounceVertical = false; sv.isScrollEnabled = false
             }
+        }
+    }
+}
+
+/// The devotion hides the time and battery while you read, and brings them back when you tap (as in Apple Books).
+/// The app manages the status bar itself (UIViewControllerBasedStatusBarAppearance is off), so this is the app-level switch.
+final class StatusBarHandler: NSObject, WKScriptMessageHandler {
+    func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
+        let hide = (m.body as? String) == "hide"
+        DispatchQueue.main.async {
+            UIView.animate(withDuration: 0.25) { UIApplication.shared.setStatusBarHidden(hide, with: .fade) }
         }
     }
 }
