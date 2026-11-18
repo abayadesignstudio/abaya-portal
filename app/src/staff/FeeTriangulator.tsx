@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import RowMenu from '../components/RowMenu'
 import { supabase, money, PHASES } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
@@ -19,6 +19,10 @@ const newRow = (): HourRow => ({ key: Math.random().toString(36).slice(2), profi
 const DEFAULT_SPLIT: Record<string, string> = { CE: '0', SD: '15', DD: '20', CD: '40', BN: '5', PM: '0', CA: '20' }
 const EMPTY: State = { rows: [newRow()], sf: '', perSf: '', costPerSf: '', pct: '', split: DEFAULT_SPLIT }
 const load = (): State => { try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); return s && Array.isArray(s.rows) ? { ...EMPTY, ...s, split: { ...DEFAULT_SPLIT, ...(s.split ?? {}) } } : EMPTY } catch { return EMPTY } }
+/** Anything typed in yet? (an untouched blank calculator isn't saved) */
+const hasInput = (st: State) => st.rows.some((r) => r.profile_id || r.hours.trim() || r.rate.trim()) || !!(st.sf.trim() || st.perSf.trim() || st.costPerSf.trim() || st.pct.trim())
+const untitledName = () => { const d = new Date(); return `Untitled — ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` }
+const snap = (st: State, nm: string) => JSON.stringify([st.rows.map(({ key: _k, ...r }) => { void _k; return r }), st.sf, st.perSf, st.costPerSf, st.pct, st.split, nm.trim()])
 const num = (s: string) => { const n = parseFloat(String(s).replace(/[$,%\s]/g, '')); return Number.isFinite(n) ? n : 0 }
 const median = (xs: number[]) => { const a = [...xs].sort((x, y) => x - y); const m = Math.floor(a.length / 2); return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2 }
 const mean = (xs: number[]) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0
@@ -82,25 +86,66 @@ export default function FeeTriangulator({ onCreateAgreement }: { onCreateAgreeme
     onCreateAgreement({ name: name.trim(), fee: Math.round(avg), sf: num(s.sf), split: splitPct.filter(([, v]) => v > 0).map(([c, v]) => [c, v]) })
   }
   const payload = () => ({ name: name.trim(), inputs: s, hourly_fee: hourly || null, sf_fee: bySf || null, pct_fee: byPct || null, median_fee: med || null, updated_at: new Date().toISOString() })
+  // ── Autosave: every calculation is kept in Saved fees as you type (unnamed ones get "Untitled — date, time").
+  const [saveState, setSaveState] = useState<'' | 'saving' | 'saved'>('')
+  const baseline = useRef<string | null>(null) // inputs as last loaded/saved; changes from opening or clearing aren't typing
+  if (baseline.current === null) baseline.current = snap(s, name)
+  const creating = useRef(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const latest = useRef({ s, name, cur, fees: { hourly, bySf, byPct, med } })
+  latest.current = { s, name, cur, fees: { hourly, bySf, byPct, med } }
+  const persist = async () => {
+    timer.current = null
+    const { s: st, name: nm, cur: c, fees: fz } = latest.current
+    if (!c && !hasInput(st) && !nm.trim()) return
+    const row = { name: nm.trim() || c?.name || untitledName(), inputs: st, hourly_fee: fz.hourly || null, sf_fee: fz.bySf || null, pct_fee: fz.byPct || null, median_fee: fz.med || null, updated_at: new Date().toISOString() }
+    setSaveState('saving'); setErr('')
+    if (!c) {
+      if (creating.current) return
+      creating.current = true
+      const { data, error } = await supabase.from('fee_estimates').insert(row).select('id, name, created_at').single()
+      creating.current = false
+      if (error) { setSaveState(''); return setErr(`Couldn't save: ${error.message}`) }
+      const nn = nm.trim() ? nm : data.name
+      baseline.current = snap(latest.current.s, nn)
+      setCur({ id: data.id, name: data.name }); if (!nm.trim()) setName(data.name); setYear(new Date(data.created_at).getFullYear())
+      // typed more while it was being created? save that too, once the new id is in place
+      if (snap(latest.current.s, latest.current.name) !== snap(st, nm)) timer.current = setTimeout(() => { void persist() }, 700)
+    } else {
+      const { error } = await supabase.from('fee_estimates').update(row).eq('id', c.id)
+      if (error) { setSaveState(''); return setErr(`Couldn't save: ${error.message}`) }
+      if (row.name !== c.name) setCur({ id: c.id, name: row.name })
+    }
+    setSaveState('saved'); saved.reload()
+  }
+  useEffect(() => {
+    if (snap(s, name) === baseline.current) return
+    if (!cur && !hasInput(s) && !name.trim()) return
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => { void persist() }, 700)
+  }, [s, name]) // eslint-disable-line react-hooks/exhaustive-deps
+  // save anything pending before switching away (opening another fee, + New, leaving the page)
+  const flush = async () => { if (timer.current) { clearTimeout(timer.current); await persist() } }
+  useEffect(() => () => { if (timer.current) { clearTimeout(timer.current); void persist() } }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const saveNew = async () => {
-    if (!name.trim()) return setErr('Give this fee a name first.')
+    await flush()
+    const base = name.trim() || untitledName()
+    const nm = cur && base === cur.name ? `${base} (copy)` : base
     setBusy(true); setErr('')
-    const { data, error } = await supabase.from('fee_estimates').insert(payload()).select('id, name, created_at').single()
+    const { data, error } = await supabase.from('fee_estimates').insert({ ...payload(), name: nm }).select('id, name, created_at').single()
     setBusy(false)
     if (error) return setErr(error.message)
-    setCur({ id: data.id, name: data.name }); setYear(new Date(data.created_at).getFullYear()); setMsg('Saved.'); saved.reload()
+    baseline.current = snap(s, data.name)
+    setCur({ id: data.id, name: data.name }); setName(data.name); setYear(new Date(data.created_at).getFullYear()); setMsg('Copied. You’re now editing the copy.'); saved.reload()
   }
-  const update = async () => {
-    if (!cur) return saveNew()
-    if (!name.trim()) return setErr('Give this fee a name first.')
-    setBusy(true); setErr('')
-    const { error } = await supabase.from('fee_estimates').update(payload()).eq('id', cur.id)
-    setBusy(false)
-    if (error) return setErr(error.message)
-    setCur({ id: cur.id, name: name.trim() }); setMsg('Saved.'); saved.reload()
+  const open = async (x: Saved) => {
+    await flush()
+    const next: State = { ...EMPTY, ...x.inputs, split: { ...DEFAULT_SPLIT, ...(x.inputs.split ?? {}) }, rows: (x.inputs.rows?.length ? x.inputs.rows : [newRow()]).map((r) => ({ ...r, key: r.key || newRow().key })) }
+    baseline.current = snap(next, x.name)
+    setS(next)
+    setCur({ id: x.id, name: x.name }); setName(x.name); setErr(''); setMsg(''); setSaveState('')
   }
-  const open = (x: Saved) => { setS({ ...EMPTY, ...x.inputs, split: { ...DEFAULT_SPLIT, ...(x.inputs.split ?? {}) }, rows: (x.inputs.rows?.length ? x.inputs.rows : [newRow()]).map((r) => ({ ...r, key: r.key || newRow().key })) }); setCur({ id: x.id, name: x.name }); setName(x.name); setErr(''); setMsg('') }
-  const startNew = () => { setS({ ...EMPTY, rows: [newRow()], split: { ...DEFAULT_SPLIT } }); setCur(null); setName(''); setErr(''); setMsg('') } // blank slate: no name, inputs, or custom phase split
+  const startNew = async () => { await flush(); const blank: State = { ...EMPTY, rows: [newRow()], split: { ...DEFAULT_SPLIT } }; baseline.current = snap(blank, ''); setS(blank); setCur(null); setName(''); setErr(''); setMsg(''); setSaveState('') } // blank slate
   const rename = async (x: Saved) => {
     const n = window.prompt('Rename this fee', x.name)?.trim(); if (!n || n === x.name) return
     const { error } = await supabase.from('fee_estimates').update({ name: n }).eq('id', x.id)
@@ -129,13 +174,11 @@ export default function FeeTriangulator({ onCreateAgreement }: { onCreateAgreeme
       <div className="ft-save">
         <label className="sr" htmlFor="ft-name">Fee name</label>
         <input id="ft-name" className="input" placeholder="Name this fee, e.g. Diamond Block — Phase 1" value={name} onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') (cur ? update : saveNew)() }} />
-        {cur ? <>
-          <button type="button" className="btn" disabled={busy} onClick={update}>Save</button>
-          <button type="button" className="btn secondary" disabled={busy} onClick={saveNew} title="Keep the original and save these inputs under the name above">Save as new</button>
-        </> : <button type="button" className="btn" disabled={busy} onClick={saveNew}>Save fee</button>}
+          onKeyDown={(e) => { if (e.key === 'Enter') void flush() }} />
+        {cur && <button type="button" className="btn secondary" disabled={busy} onClick={saveNew} title="Save a separate copy of these inputs; the original stays as it was">Save as copy</button>}
+        <span className="muted" role="status" style={{ fontSize: 13, alignSelf: 'center' }}>{saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? '✓ Saved' : ''}</span>
       </div>
-      {cur && <p className="muted" style={{ margin: '6px 0 0', fontSize: 13 }}>Editing saved fee <strong>{cur.name}</strong>. Save updates it; Save as new keeps both.</p>}
+      <p className="muted" style={{ margin: '6px 0 0', fontSize: 13 }}>{cur ? <>Editing <strong>{cur.name}</strong>. Changes save automatically.</> : 'Start typing and this calculation saves itself to Saved fees. Name it any time.'}</p>
       {msg && <p className="ok" role="status" style={{ margin: '8px 0 0' }}>{msg}</p>}
       {err && <p className="err" role="alert" style={{ margin: '8px 0 0' }}>{err}</p>}
 
