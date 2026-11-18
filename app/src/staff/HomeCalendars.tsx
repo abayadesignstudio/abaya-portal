@@ -618,7 +618,10 @@ type Open = { kind: 'new'; day: string } | { kind: 'task'; task: Task } | { kind
 export function MonthCalendar({ me, admin, people, projects, phone }: { me: string; admin: boolean; people: Person[]; projects: Proj[]; phone?: boolean }) {
   // Google Calendar-style views; the choice is remembered on this device
   const [savedView, setViewRaw] = useState<View>(() => { try { const v = localStorage.getItem('abaya:cal-view'); return (VIEWS.some(([k]) => k === v) ? v : 'month') as View } catch { return 'month' } })
-  const view: View = phone ? 'schedule' : savedView // phone: day cards stacked
+  // phone: List (grouped days) / Day (timeline) / Month (compact grid + that day), remembered on this device
+  const [phoneView, setPhoneViewRaw] = useState<PhoneView>(() => { try { const v = localStorage.getItem('abaya:cal-phone-view'); return (v === 'day' || v === 'month' ? v : 'list') } catch { return 'list' } })
+  const setPhoneView = (v: PhoneView) => { setPhoneViewRaw(v); try { localStorage.setItem('abaya:cal-phone-view', v) } catch { /* private mode */ } }
+  const view: View = phone ? (phoneView === 'day' ? 'day' : phoneView === 'month' ? 'month' : 'schedule') : savedView
   const setView = (v: View) => { setViewRaw(v); try { localStorage.setItem('abaya:cal-view', v) } catch { /* private mode */ } }
   const expanded = view === 'month'
   // Week shows 1, 2 or 3 weeks (remembered); 1 = hourly timeline, 2–3 = tall day boxes
@@ -638,8 +641,8 @@ export function MonthCalendar({ me, admin, people, projects, phone }: { me: stri
   const [msg, setMsg] = useState('')
   const pop = (o: Open, el: HTMLElement) => { setOpen({ ...o, anchor: el.getBoundingClientRect() }); setMsg('') }
   const day0 = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate())
-  const start = view === 'month' ? addDays(month, -month.getDay()) : view === 'week' ? addDays(day0, -day0.getDay()) : day0 // Sunday-first weeks
-  const span = view === 'month' ? 42 : view === 'week' ? 7 * weeks : view === 'day' ? 1 : SCHEDULE_DAYS
+  const start = view === 'month' ? addDays(month, -month.getDay()) : view === 'week' || phone ? addDays(day0, -day0.getDay()) : day0 // Sunday-first weeks (phone: from the week strip's Sunday)
+  const span = view === 'month' ? 42 : view === 'week' ? 7 * weeks : phone ? 35 : view === 'day' ? 1 : SCHEDULE_DAYS
   const cells = useMemo(() => Array.from({ length: span }, (_, i) => addDays(start, i)), [start.getTime(), span]) // eslint-disable-line react-hooks/exhaustive-deps
   const from = isoDate(cells[0]), to = isoDate(cells[span - 1])
   const tasks = useTasks(from, to)
@@ -690,7 +693,7 @@ export function MonthCalendar({ me, admin, people, projects, phone }: { me: stri
   useCalendarChanges((kind) => { if (kind === 'tasks') { tasks.reload(); evs.reload(); marks.reload() } else { feed.reload(); links.reload() } })
   const reload = () => calendarChanged('tasks')
   const today = isoDate(new Date())
-  const shift = (n: number) => setCursor(view === 'month' ? new Date(month.getFullYear(), month.getMonth() + n, 1) : addDays(day0, n * (view === 'week' ? 7 * weeks : view === 'day' ? 1 : SCHEDULE_DAYS)))
+  const shift = (n: number) => setCursor(phone && view !== 'month' ? addDays(day0, 7 * n) : view === 'month' ? new Date(month.getFullYear(), month.getMonth() + n, 1) : addDays(day0, n * (view === 'week' ? 7 * weeks : view === 'day' ? 1 : SCHEDULE_DAYS)))
   const last = new Date(month.getFullYear(), month.getMonth() + 1, 0)
   const rows = expanded ? Math.ceil((Math.round((last.getTime() - start.getTime()) / 86400000) + 1) / 7) : multiWeek ? weeks : 1 // weeks on screen
   const weekEnd = addDays(start, span - 1)
@@ -745,6 +748,9 @@ export function MonthCalendar({ me, admin, people, projects, phone }: { me: stri
       tAll: t.filter((x) => !x.due_time), tTimed: t.filter((x) => x.due_time),
     }
   }
+  const busyOn = (k: string) => { const x = itemsFor(k); return x.bills.length + x.marks.length + x.evs.length + x.gAll.length + x.gTimed.length + x.tAll.length + x.tTimed.length > 0 }
+  const day0k = isoDate(day0)
+  const swipe = useRef<number | null>(null)
   const gItem = (e: GM) => <GEventItem key={e.key} e={e} me={me} people={people} project={projOf(e)} onOpen={(x, el) => pop({ kind: 'event', ev: x }, el)} />
   const tItem = (t: Task) => <TaskItem key={t.id} t={t} me={me} admin={admin} people={people} prefixName onChange={reload} onEdit={(x, el) => pop({ kind: 'task', task: x }, el)} />
   /** the untimed things on a day (all = also the timed ones, in time order, for the schedule list) */
@@ -766,21 +772,51 @@ export function MonthCalendar({ me, admin, people, projects, phone }: { me: stri
     <CanDrag.Provider value={true}>
     <section className={'card pad stack' + (phone ? ' cv-phone' : '')} aria-labelledby="mc-h">
       {phone && <>
-        <div className="cvp-bar">
-          <button className="btn secondary cvp-ic" aria-label="Previous period" onClick={() => shift(-1)}>‹</button>
-          <h2 id="mc-h">{heading}</h2>
-          <button className="btn secondary cvp-ic" aria-label="Next period" onClick={() => shift(1)}>›</button>
+        <div className="cvp-top">
+          <label className="cvp-who">
+            <span className="sr">Show calendar for</span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2" /><path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6s4.9 1.6 5.5 4.6" /><circle cx="17" cy="9" r="2.6" /><path d="M16 14.6c2.3.1 4 1.5 4.5 4.4" /></svg>
+            <select value={who} onChange={(e) => setWho(e.target.value)}>
+              <option value="all">Everyone</option>
+              {order.map((p) => <option key={p.id} value={p.id}>{p.id === me ? 'Me' : firstName(p)}</option>)}
+            </select>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+          </label>
+          <span className="cvp-acts">
+            <button type="button" className="cvp-ib" aria-label="Calendars to show" aria-haspopup="dialog" onClick={(e) => setCalsOpen(e.currentTarget.getBoundingClientRect())}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4" /></svg></button>
+            <button type="button" className="cvp-ib" aria-label="Create an event or task" onClick={(e) => pop({ kind: 'new', day: view === 'month' ? day0k : today }, e.currentTarget)}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg></button>
+          </span>
         </div>
-        <div className="cvp-row">
-          <button className="btn small secondary" style={{ minHeight: 40 }} onClick={() => setCursor(new Date())}>Today</button>
-          <label className="sr" htmlFor="cvp-who">Show calendar for</label>
-          <select id="cvp-who" className="input" value={who} onChange={(e) => setWho(e.target.value)}>
-            <option value="all">Everyone</option>
-            {order.map((p) => <option key={p.id} value={p.id}>{p.id === me ? 'Me' : firstName(p)}</option>)}
-          </select>
-          <button type="button" className="btn secondary cvp-ic" aria-label="Calendars to show" aria-haspopup="dialog" onClick={(e) => setCalsOpen(e.currentTarget.getBoundingClientRect())}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4" /></svg></button>
-          <button className="btn cvp-ic" aria-label="Create an event or task" onClick={(e) => pop({ kind: 'new', day: today }, e.currentTarget)}>+</button>
+        <div className="cvp-title">
+          <div>
+            <h2 id="mc-h">{view === 'month' ? <>{month.toLocaleDateString('en-US', { month: 'long' })} <span>{month.getFullYear()}</span></>
+              : day0k === today ? 'Today' : day0.toLocaleDateString('en-US', { weekday: 'long' })}</h2>
+            {view !== 'month' && <p>{day0.toLocaleDateString('en-US', day0k === today ? { weekday: 'long', month: 'long', day: 'numeric' } : { month: 'long', day: 'numeric', year: 'numeric' })}</p>}
+          </div>
+          <span className="cvp-nav">
+            <button type="button" className="cvp-ib" aria-label={view === 'month' ? 'Previous month' : 'Previous week'} onClick={() => shift(-1)}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></button>
+            {(view === 'month' ? month.getMonth() !== new Date().getMonth() || month.getFullYear() !== new Date().getFullYear() : day0k !== today) &&
+              <button type="button" className="cvp-today" onClick={() => setCursor(new Date())}>Today</button>}
+            <button type="button" className="cvp-ib" aria-label={view === 'month' ? 'Next month' : 'Next week'} onClick={() => shift(1)}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg></button>
+          </span>
+        </div>
+        {view !== 'month' && <div className="cvp-week" role="group" aria-label="Pick a day this week"
+          onTouchStart={(e) => { swipe.current = e.touches[0].clientX }}
+          onTouchEnd={(e) => { const x0 = swipe.current; swipe.current = null; if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 50) shift(dx < 0 ? 1 : -1) }}>
+          {cells.slice(0, 7).map((d) => { const k = isoDate(d); return (
+            <button key={k} type="button" className={'cvp-wd' + (k === day0k ? ' sel' : '') + (k === today ? ' today' : '') + (d.getDay() % 6 === 0 ? ' wknd' : '')}
+              aria-pressed={k === day0k} aria-label={d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} onClick={() => setCursor(d)}>
+              <span className="cvp-wl" aria-hidden="true">{d.toLocaleDateString('en-US', { weekday: 'narrow' })}</span>
+              <span className="cvp-wn" aria-hidden="true">{d.getDate()}</span>
+              <span className={'cvp-dot' + (busyOn(k) ? ' on' : '')} aria-hidden="true" />
+            </button>) })}
+        </div>}
+        <div className="cvp-seg" role="group" aria-label="Calendar view">
+          {(['list', 'day', 'month'] as const).map((v) => <button key={v} type="button" aria-pressed={phoneView === v} onClick={() => setPhoneView(v)}>{v === 'list' ? 'List' : v === 'day' ? 'Day' : 'Month'}</button>)}
         </div>
         {calsOpen && <Pop anchor={calsOpen} label="Calendars" onClose={() => setCalsOpen(null)}><CalendarsPanel me={me} admin={admin} people={people} events={feed.data?.events ?? []} /></Pop>}
       </>}
@@ -812,9 +848,23 @@ export function MonthCalendar({ me, admin, people, projects, phone }: { me: stri
       {feed.data && !connected && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Your Google Calendar meetings can show here, and events you add go to your Google Calendar: <a href="#/account">connect Google on My account</a>.</p>}
       {msg && <p className="ok" role="status" style={{ margin: 0 }}>{msg}</p>}
       {(tasks.error || evs.error) && <p className="err">{tasks.error || evs.error}</p>}
-      {((view === 'week' && weeks === 1) || view === 'day') && <TimeGrid days={cells} today={today} items={itemsFor} renderAllDay={renderAllDay} renderTimed={renderTimed} onEmpty={(k, el) => pop({ kind: 'new', day: k }, el)} drop={drop} over={over} />}
-      {view === 'schedule' && <ScheduleList days={cells} today={today} items={itemsFor} renderAll={(k) => renderAllDay(k, true)} onAdd={(k, el) => pop({ kind: 'new', day: k }, el)} drop={drop} over={over} />}
-      {(view === 'month' || multiWeek) && <div style={{ overflowX: 'auto' }}><div className={'mc' + (multiWeek ? ` mc-w${weeks}` : '')} id="mc-grid" style={{ minWidth: 760 }}>
+      {((view === 'week' && weeks === 1) || view === 'day') && <TimeGrid days={phone ? [day0] : cells} today={today} items={itemsFor} renderAllDay={renderAllDay} renderTimed={renderTimed} onEmpty={(k, el) => pop({ kind: 'new', day: k }, el)} drop={drop} over={over} />}
+      {phone && view === 'schedule' && <PhoneList days={cells.filter((d) => isoDate(d) >= day0k)} today={today} busy={busyOn} renderAll={(k) => renderAllDay(k, true)} onAdd={(k, el) => pop({ kind: 'new', day: k }, el)} drop={drop} over={over} />}
+      {phone && view === 'month' && <>
+        <div className="cvp-month">
+          <div className="cvp-mh" aria-hidden="true">{['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((l, i) => <span key={i}>{l}</span>)}</div>
+          <div className="cvp-mg">{cells.slice(0, rows * 7).map((d) => { const k = isoDate(d); return (
+            <button key={k} type="button" className={'cvp-md' + (d.getMonth() !== month.getMonth() ? ' out' : '') + (k === day0k ? ' sel' : '') + (k === today ? ' today' : '')}
+              aria-pressed={k === day0k} aria-label={d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} onClick={() => setCursor(d)}>
+              <span className="cvp-wn" aria-hidden="true">{d.getDate()}</span>
+              <span className={'cvp-dot' + (busyOn(k) ? ' on' : '')} aria-hidden="true" />
+            </button>) })}</div>
+        </div>
+        <PhoneList days={[day0]} today={today} busy={() => true} renderAll={(k) => busyOn(k) ? renderAllDay(k, true) : <p className="cvp-empty">Nothing scheduled.</p>}
+          onAdd={(k, el) => pop({ kind: 'new', day: k }, el)} drop={drop} over={over} />
+      </>}
+      {!phone && view === 'schedule' && <ScheduleList days={cells} today={today} items={itemsFor} renderAll={(k) => renderAllDay(k, true)} onAdd={(k, el) => pop({ kind: 'new', day: k }, el)} drop={drop} over={over} />}
+      {!phone && (view === 'month' || multiWeek) && <div style={{ overflowX: 'auto' }}><div className={'mc' + (multiWeek ? ` mc-w${weeks}` : '')} id="mc-grid" style={{ minWidth: 760 }}>
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => <div key={d} className="mc-h">{d}</div>)}
         {cells.slice(0, rows * 7).map((d) => {
           const k = isoDate(d); const out = expanded && d.getMonth() !== month.getMonth()
@@ -853,6 +903,23 @@ export function MonthCalendar({ me, admin, people, projects, phone }: { me: stri
 }
 
 type View = 'schedule' | 'day' | 'week' | 'month'
+type PhoneView = 'list' | 'day' | 'month'
+
+/** Phone list: one grouped section per day that has something on it (Today, Tomorrow, then weekday dates), iOS-style. */
+function PhoneList({ days, today, busy, renderAll, onAdd, drop, over }: { days: Date[]; today: string; busy: (k: string) => boolean; renderAll: (k: string) => React.ReactNode; onAdd: (k: string, el: HTMLElement) => void; drop: DropFn; over: string | null }) {
+  const list = days.filter((d) => busy(isoDate(d)))
+  if (!list.length) return <p className="cvp-empty">Nothing scheduled in the next few weeks.</p>
+  const tomorrow = isoDate(addDays(parseDate(today), 1))
+  const label = (d: Date, k: string) => k === today ? 'Today'
+    : k === tomorrow ? `Tomorrow · ${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`
+    : d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+  return <div className="cvp-days">{list.map((d) => { const k = isoDate(d); return (
+    <section key={k} className={'cvp-day' + (over === k ? ' drop' : '')} {...drop(k)} aria-label={d.toDateString()}>
+      <div className="cvp-sh"><h3>{label(d, k)}</h3>
+        <button type="button" className="cvp-add" onClick={(e) => onAdd(k, e.currentTarget.closest('section') as HTMLElement)} aria-label={`Add an event or task on ${d.toDateString()}`}>+</button></div>
+      <div className="cvp-group">{renderAll(k)}</div>
+    </section>) })}</div>
+}
 const VIEWS: [View, string][] = [['schedule', 'Schedule'], ['day', 'Day'], ['week', 'Week'], ['month', 'Month']]
 const SCHEDULE_DAYS = 30
 const HOUR = 48 // px per hour in the day / week timeline
