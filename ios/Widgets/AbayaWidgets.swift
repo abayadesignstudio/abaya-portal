@@ -112,13 +112,15 @@ struct Clock: View {
     }
 }
 
-/// Running timer as hours:minutes (no seconds). iOS 18 can tick it by itself at minute precision;
+/// Running timer as h:mm (no seconds). iOS 18 ticks it by itself at minute precision;
 /// older iOS falls back to the system timer, which includes seconds.
 struct RunningClock: View {
     let start: Date
     var body: some View {
         if #available(iOS 18.0, *) {
-            Text(.currentDate, format: .timer(countingUpIn: start..<start.addingTimeInterval(60 * 60 * 24 * 7), showsHours: true, maxFieldCount: 2, maxPrecision: .seconds(60)))
+            // stopwatch style counts in digits (0:25, 1:07); minute precision drops the seconds
+            Text(.currentDate, format: .stopwatch(startingAt: start, showsHours: true, maxFieldCount: 2, maxPrecision: .seconds(60)))
+                .monospacedDigit()
         } else {
             Text(timerInterval: start...start.addingTimeInterval(60 * 60 * 24 * 7), countsDown: false)
         }
