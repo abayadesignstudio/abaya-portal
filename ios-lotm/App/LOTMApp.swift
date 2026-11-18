@@ -40,9 +40,7 @@ struct LOTMApp: App {
     @StateObject private var web = WebModel()
     var body: some Scene {
         WindowGroup {
-            WebView(model: web)
-                .ignoresSafeArea()
-                .background(Color(red: 0.176, green: 0.188, blue: 0.122))
+            Shell(web: web)
                 .onOpenURL { web.handle($0) }
                 .onAppear { AppDelegate.web = web }
         }
@@ -52,6 +50,11 @@ struct LOTMApp: App {
 
 final class WebModel: NSObject, ObservableObject {
     let view: WKWebView
+    /// The screen the web app is on (it reports each change), and the tab chosen in the app's own tab bar.
+    @Published var route = ""
+    @Published var tab: Tab = .feed
+    let composer: ComposeHandler
+    let poster: PostHandler
     private var sideways: NSKeyValueObservation?
     override init() {
         let cfg = WKWebViewConfiguration()
@@ -63,10 +66,16 @@ final class WebModel: NSObject, ObservableObject {
         cfg.userContentController.add(WidgetHandler(), name: "widget")
         let outer = OuterScrollHandler(); cfg.userContentController.add(outer, name: "outerScroll")
         cfg.userContentController.add(StatusBarHandler(), name: "statusBar")
-        let composer = ComposeHandler(); cfg.userContentController.add(composer, name: "compose")
-        let poster = PostHandler(); cfg.userContentController.add(poster, name: "post")
+        let composer = ComposeHandler(), poster = PostHandler()
+        self.composer = composer; self.poster = poster
+        cfg.userContentController.add(composer, name: "compose")
+        cfg.userContentController.add(poster, name: "post")
+        let routes = RouteHandler(); cfg.userContentController.add(routes, name: "route")
+        // The web app knows it is inside the app's native shell (it hides its own tab bar and Feed).
+        cfg.userContentController.addUserScript(WKUserScript(source: "document.documentElement.classList.add('native-shell')", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         view = WKWebView(frame: .zero, configuration: cfg)
         super.init()
+        routes.model = self
         view.scrollView.contentInsetAdjustmentBehavior = .never
         view.scrollView.bounces = true
         view.scrollView.alwaysBounceVertical = true
@@ -115,6 +124,8 @@ final class WebModel: NSObject, ObservableObject {
         guard let t = UserDefaults.standard.string(forKey: "apnsToken") else { return }
         view.evaluateJavaScript("window.lotmDeviceToken='\(t)';window.dispatchEvent(new Event('lotm:device'))")
     }
+    func select(_ t: Tab) { tab = t; go(t.route) }
+    func openPost(_ id: String, people: [String: Person], reply: Bool) { poster.open(id: id, people: people, reply: reply) }
     func go(_ route: String) {
         let js = "location.hash = '#\(route.replacingOccurrences(of: "'", with: "%27"))'"
         view.evaluateJavaScript(js)
@@ -285,6 +296,21 @@ final class StatusBarHandler: NSObject, WKScriptMessageHandler {
         let hide = (m.body as? String) == "hide"
         DispatchQueue.main.async {
             UIView.animate(withDuration: 0.25) { UIApplication.shared.setStatusBarHidden(hide, with: .fade) }
+        }
+    }
+}
+
+/// The web app reports the screen it is showing: window.webkit.messageHandlers.route.postMessage("/reading").
+final class RouteHandler: NSObject, WKScriptMessageHandler {
+    weak var model: WebModel?
+    func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
+        guard let path = m.body as? String else { return }
+        DispatchQueue.main.async {
+            guard let model = self.model else { return }
+            model.route = path
+            // Arriving at a web tab some other way (a link, a notification) moves the tab bar with it.
+            let p = path.split(separator: "?").first.map(String.init) ?? path
+            if p == "/reading" || p == "/notebook/index" { model.tab = .library } else if p == "/people" { model.tab = .people } else if p == "/settings" { model.tab = .settings } else if p == "/native" { model.tab = .feed }
         }
     }
 }

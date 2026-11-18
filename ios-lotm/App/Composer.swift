@@ -78,7 +78,7 @@ final class ComposeModel: ObservableObject {
             DispatchQueue.main.async {
                 self.send(json) { result in
                     self.busy = false
-                    if result == "ok" { UINotificationFeedbackGenerator().notificationOccurred(.success); self.clearDraft(); self.close() }
+                    if result == "ok" { UINotificationFeedbackGenerator().notificationOccurred(.success); self.clearDraft(); self.close(); NotificationCenter.default.post(name: .lotmFeedChanged, object: nil) }
                     else { self.error = result }
                 }
             }
@@ -278,7 +278,7 @@ final class ComposeHandler: NSObject, WKScriptMessageHandler {
         let name = info["name"] as? String ?? "", avatar = (info["avatar"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }
         DispatchQueue.main.async { self.present(name: name, avatar: avatar) }
     }
-    private func present(name: String, avatar: URL?) {
+    func present(name: String, avatar: URL?) {
         let root = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first
         var top = root; while let p = top?.presentedViewController { top = p }
         guard let top, !(top is UIHostingController<ComposeView>) else { return }

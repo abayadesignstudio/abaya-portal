@@ -53,7 +53,7 @@ struct Supa {
     }
 }
 
-private func date(_ v: Any?) -> Date {
+func parseDate(_ v: Any?) -> Date {
     guard let s = v as? String, s.count >= 19 else { return Date() }
     let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = TimeZone(secondsFromGMT: 0); f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
     var d = f.date(from: String(s.prefix(19))) ?? Date()
@@ -65,11 +65,25 @@ private func date(_ v: Any?) -> Date {
     }
     return d
 }
-private func ago(_ d: Date) -> String {
+func ago(_ d: Date) -> String {
     let s = Date().timeIntervalSince(d)
     if s < 60 { return "now" }; if s < 3600 { return "\(Int(s / 60))m" }; if s < 86400 { return "\(Int(s / 3600))h" }; if s < 604800 { return "\(Int(s / 86400))d" }
     return d.formatted(.dateTime.month(.abbreviated).day())
 }
+
+/// The signed-in member's session, from the web app (which keeps it fresh).
+@MainActor func webAuth(_ web: WKWebView?) async -> SupaAuth? {
+    guard let web else { return nil }
+    return await withCheckedContinuation { (k: CheckedContinuation<SupaAuth?, Never>) in
+        web.callAsyncJavaScript("return window.lotmNativeAuth ? await window.lotmNativeAuth() : ''", arguments: [:], in: nil, in: .page) { r in
+            guard case .success(let v) = r, let s = v as? String, let d = s.data(using: .utf8),
+                  let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: String],
+                  let t = o["token"], let me = o["me"], let u = o["url"], let key = o["key"] else { return k.resume(returning: nil) }
+            k.resume(returning: SupaAuth(token: t, me: me, url: u, key: key))
+        }
+    }
+}
+extension Notification.Name { static let lotmFeedChanged = Notification.Name("lotmFeedChanged") }
 
 // MARK: - Model
 
@@ -118,7 +132,7 @@ final class PostModel: ObservableObject {
         let body = r["body"] as? String ?? ""
         let link = (r["link_url"] as? String).flatMap(URL.init(string:)) ?? firstLink(body)
         return NPost(id: r["id"] as? String ?? "", userId: r["user_id"] as? String ?? "", title: r["title"] as? String ?? "", body: body,
-                     photos: photos, link: photos.isEmpty ? link : nil, created: date(r["created_at"]), edited: r["edited_at"] as? String != nil,
+                     photos: photos, link: photos.isEmpty ? link : nil, created: parseDate(r["created_at"]), edited: r["edited_at"] as? String != nil,
                      views: r["view_count"] as? Int ?? 0, allowReplies: (r["allow_comments"] as? Bool ?? true) && (r["reply_policy"] as? String) != "none",
                      quoteId: r["quote_of_id"] as? String)
     }
@@ -155,7 +169,7 @@ final class PostModel: ObservableObject {
             if !cids.isEmpty { CL = try await db.rows("/rest/v1/comment_likes?comment_id=in.(\(cids.joined(separator: ",")))&select=comment_id,user_id") }
             replies = C.map { c in
                 let cid = c["id"] as? String ?? ""
-                return NReply(id: cid, userId: c["user_id"] as? String ?? "", body: c["body"] as? String ?? "", created: date(c["created_at"]),
+                return NReply(id: cid, userId: c["user_id"] as? String ?? "", body: c["body"] as? String ?? "", created: parseDate(c["created_at"]),
                               parent: c["parent_comment_id"] as? String, hidden: c["hidden_by_author"] as? Bool ?? false,
                               attachment: (c["attachment_url"] as? String).flatMap(URL.init(string:)),
                               likes: CL.filter { $0["comment_id"] as? String == cid }.count,
@@ -351,7 +365,7 @@ private struct PostBody: View {
         VStack(alignment: .leading, spacing: 10) {
             if first {
                 HStack(spacing: 10) {
-                    Button { m.close(); m.webGo("/member/\(p.userId)") } label: { Face(p: m.person(p.userId), size: 44) }
+                    Button { m.close(); m.webGo("/member/\(p.userId)") } label: { PersonFace(p: m.person(p.userId), size: 44) }
                     VStack(alignment: .leading, spacing: 1) {
                         Text(m.person(p.userId).name).font(.system(size: 15, weight: .semibold)).foregroundStyle(P.ink)
                         Text((["Reflection"] + p.tags).joined(separator: " · ")).font(.system(size: 13)).foregroundStyle(P.muted)
@@ -365,7 +379,7 @@ private struct PostBody: View {
                 Text(linked(p.body)).font(.system(size: 18, design: .serif)).foregroundStyle(P.ink).lineSpacing(4)
                     .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             }
-            Photos(urls: p.photos)
+            PhotoStrip(urls: p.photos)
             if let link = p.link {
                 Button { openInApp(link) } label: {
                     VStack(alignment: .leading, spacing: 2) {
@@ -379,7 +393,7 @@ private struct PostBody: View {
             if let q = p.quoted {
                 Button { m.id = q.id; m.post = nil; m.parts = []; m.replies = []; Task { _ = await m.load() } } label: {
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 6) { Face(p: m.person(q.userId), size: 20); Text(m.person(q.userId).name).font(.system(size: 14, weight: .semibold)).foregroundStyle(P.ink) }
+                        HStack(spacing: 6) { PersonFace(p: m.person(q.userId), size: 20); Text(m.person(q.userId).name).font(.system(size: 14, weight: .semibold)).foregroundStyle(P.ink) }
                         Text(q.text).font(.system(size: 16, design: .serif)).foregroundStyle(P.ink).lineLimit(5).multilineTextAlignment(.leading)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading).padding(12)
@@ -416,7 +430,7 @@ private struct ReplyCard: View {
     @State private var confirmDelete = false
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Button { m.close(); m.webGo("/member/\(r.userId)") } label: { Face(p: m.person(r.userId), size: 36) }
+            Button { m.close(); m.webGo("/member/\(r.userId)") } label: { PersonFace(p: m.person(r.userId), size: 36) }
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(m.person(r.userId).name).font(.system(size: 15, weight: .semibold)).foregroundStyle(P.ink)
@@ -431,7 +445,7 @@ private struct ReplyCard: View {
                 }
                 if let parent { Text("Replying to \(m.person(parent.userId).name.split(separator: " ").first.map(String.init) ?? "")").font(.system(size: 13)).foregroundStyle(P.muted) }
                 if !r.body.isEmpty { Text(linked(r.body)).font(.system(size: 17, design: .serif)).foregroundStyle(P.ink).lineSpacing(2).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
-                if let u = r.attachment { Photos(urls: [u]) }
+                if let u = r.attachment { PhotoStrip(urls: [u]) }
                 HStack(spacing: 22) {
                     Button { Task { await m.likeReply(r) } } label: {
                         HStack(spacing: 5) { Image(systemName: r.liked ? "heart.fill" : "heart").foregroundStyle(r.liked ? P.like : P.muted).symbolEffect(.bounce, value: r.liked); if r.likes > 0 { Text("\(r.likes)") } }
@@ -451,7 +465,7 @@ private struct ReplyCard: View {
     }
 }
 
-private struct Photos: View {
+struct PhotoStrip: View {
     let urls: [URL]
     var body: some View {
         if urls.count == 1 {
@@ -471,7 +485,7 @@ private struct Photos: View {
     }
 }
 
-private struct Face: View {
+struct PersonFace: View {
     let p: Person, size: CGFloat
     var body: some View {
         ZStack {
@@ -484,7 +498,7 @@ private struct Face: View {
 }
 
 /// Text with its web addresses tappable.
-private func linked(_ s: String) -> AttributedString {
+func linked(_ s: String) -> AttributedString {
     var out = AttributedString(s)
     guard let d = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return out }
     for match in d.matches(in: s, range: NSRange(s.startIndex..., in: s)) {
@@ -496,7 +510,7 @@ private func linked(_ s: String) -> AttributedString {
 }
 
 /// Web pages and photos open in the in-app browser, as elsewhere in the app.
-private func openInApp(_ url: URL) {
+func openInApp(_ url: URL) {
     guard url.scheme == "http" || url.scheme == "https" else { UIApplication.shared.open(url); return }
     let vc = SFSafariViewController(url: url); vc.dismissButtonStyle = .done
     vc.preferredControlTintColor = UIColor(red: 0.231, green: 0.243, blue: 0.165, alpha: 1)
@@ -559,25 +573,13 @@ final class PostHandler: NSObject, WKScriptMessageHandler {
         DispatchQueue.main.async { self.open(id: id, people: people, reply: reply) }
     }
     private func js(_ code: String) { web?.evaluateJavaScript(code) }
-    private func open(id: String, people: [String: Person], reply: Bool) {
+    func open(id: String, people: [String: Person], reply: Bool) {
         let root = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first
         var top = root; while let p = top?.presentedViewController { top = p }
         guard let top else { return }
         let m = PostModel(id: id, people: people, focusReply: reply)
-        m.auth = { [weak self] in
-            await withCheckedContinuation { (k: CheckedContinuation<SupaAuth?, Never>) in
-                DispatchQueue.main.async {
-                    guard let web = self?.web else { return k.resume(returning: nil) }
-                    web.callAsyncJavaScript("return window.lotmNativeAuth ? await window.lotmNativeAuth() : ''", arguments: [:], in: nil, in: .page) { r in
-                        guard case .success(let v) = r, let s = v as? String, let d = s.data(using: .utf8),
-                              let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: String],
-                              let t = o["token"], let me = o["me"], let u = o["url"], let key = o["key"] else { return k.resume(returning: nil) }
-                        k.resume(returning: SupaAuth(token: t, me: me, url: u, key: key))
-                    }
-                }
-            }
-        }
-        m.notifyWeb = { [weak self] in self?.js("window.dispatchEvent(new Event('lotm:replied'));window.lotmRefresh&&window.lotmRefresh()") }
+        m.auth = { [weak self] in await webAuth(self?.web) }
+        m.notifyWeb = { [weak self] in self?.js("window.dispatchEvent(new Event('lotm:replied'))"); NotificationCenter.default.post(name: .lotmFeedChanged, object: nil) }
         let vc = PostHost(rootView: PostScreen(m: m))
         vc.overrideUserInterfaceStyle = .dark
         vc.view.backgroundColor = UIColor(red: 0.231, green: 0.243, blue: 0.165, alpha: 1)
