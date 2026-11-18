@@ -64,6 +64,7 @@ final class WebModel: NSObject, ObservableObject {
         let outer = OuterScrollHandler(); cfg.userContentController.add(outer, name: "outerScroll")
         cfg.userContentController.add(StatusBarHandler(), name: "statusBar")
         let composer = ComposeHandler(); cfg.userContentController.add(composer, name: "compose")
+        let poster = PostHandler(); cfg.userContentController.add(poster, name: "post")
         view = WKWebView(frame: .zero, configuration: cfg)
         super.init()
         view.scrollView.contentInsetAdjustmentBehavior = .never
@@ -92,6 +93,7 @@ final class WebModel: NSObject, ObservableObject {
         view.hideKeyboardAccessoryBar()
         outer.web = view
         composer.web = view
+        poster.web = view
         view.load(URLRequest(url: home))
     }
     /// Pull to refresh: the visible tab reloads its data (falls back to a full reload).
