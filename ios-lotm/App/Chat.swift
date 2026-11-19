@@ -647,6 +647,7 @@ struct ChatScreen: View {
     @State private var polling = false
     @State private var gifs = false
     @State private var deleting: CMsg?
+    @State private var reacting: CMsg?
     @State private var preview: URL?
     @State private var opening: String?
     @State private var replyTo: CMsg?
@@ -670,6 +671,7 @@ struct ChatScreen: View {
         .task { await m.start() }
         .onDisappear { m.stop(); Task { await m.s.loadConvos() } }
         .sheet(isPresented: $info) { ChatInfo(m: m) { close() } }
+        .sheet(item: $reacting) { msg in EmojiPicker { e in reacting = nil; Task { await m.react(msg, e) } }.presentationDetents([.medium, .large]) }
         .sheet(isPresented: $gifs) { GifPicker(db: m.s.db) { d in attach = Outgoing(data: d, name: "Animation.gif", mime: "image/gif", thumb: UIImage(data: d)) } }
         .confirmationDialog("Delete this message for everyone?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
             Button("Delete", role: .destructive) { if let d = deleting { Task { await m.delete(d) } } }
@@ -811,6 +813,12 @@ struct ChatScreen: View {
                             .buttonStyle(.plain)
                             .accessibilityLabel("\(e), \(who.compactMap { m.s.people[$0]?.name }.joined(separator: ", "))")
                         }
+                        Button { typing = false; reacting = msg } label: {
+                            Image(systemName: "face.smiling").font(.system(size: 13, weight: .semibold)).foregroundStyle(T.muted)
+                                .overlay(alignment: .bottomTrailing) { Image(systemName: "plus").font(.system(size: 7, weight: .black)).foregroundStyle(T.muted).offset(x: 5, y: 3) }
+                                .padding(.horizontal, 10).frame(height: 24).background(Capsule().fill(T.card)).overlay(Capsule().stroke(T.rule))
+                        }
+                        .buttonStyle(.plain).accessibilityLabel("Add a reaction")
                     }
                     .padding(.horizontal, 4)
                 }
@@ -896,7 +904,10 @@ struct ChatScreen: View {
     }
 
     @ViewBuilder private func menu(_ msg: CMsg, _ mine: Bool) -> some View {
-        ForEach(["❤️", "👍", "😂", "😮", "🙏"], id: \.self) { e in Button(e) { Task { await m.react(msg, e) } } }
+        ControlGroup {
+            ForEach(["❤️", "👍", "😂", "🙏"], id: \.self) { e in Button(e) { Task { await m.react(msg, e) } } }
+        }
+        Button { typing = false; reacting = msg } label: { Label("More emoji…", systemImage: "face.smiling") }
         Divider()
         Button { replyTo = msg; typing = true } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
         if !msg.text.isEmpty { Button { UIPasteboard.general.string = msg.text } label: { Label("Copy", systemImage: "doc.on.doc") } }
@@ -1201,5 +1212,54 @@ private struct GifThumb: View {
     var body: some View {
         ZStack { T.card; if let img { GIFView(img: img) } }
             .task(id: url) { if let (d, _) = try? await URLSession.shared.data(from: url) { img = animatedGIF(d) } }
+    }
+}
+
+// MARK: - Any emoji as a reaction
+
+/// A text field that opens the iPhone's own emoji keyboard, so any emoji can be a reaction.
+private struct EmojiKeyboardField: UIViewRepresentable {
+    let pick: (String) -> Void
+    final class Field: UITextField {
+        override var textInputMode: UITextInputMode? { UITextInputMode.activeInputModes.first { $0.primaryLanguage == "emoji" } ?? super.textInputMode }
+        override var textInputContextIdentifier: String? { "" }
+    }
+    final class Coord: NSObject, UITextFieldDelegate {
+        let pick: (String) -> Void
+        init(_ p: @escaping (String) -> Void) { pick = p }
+        func textField(_ f: UITextField, shouldChangeCharactersIn range: NSRange, replacementString s: String) -> Bool {
+            if let c = s.first, c.unicodeScalars.contains(where: { $0.properties.isEmojiPresentation || ($0.properties.isEmoji && $0.value > 0x238C) }) { pick(String(c)) }
+            return false
+        }
+    }
+    func makeCoordinator() -> Coord { Coord(pick) }
+    func makeUIView(context: Context) -> Field {
+        let f = Field(); f.delegate = context.coordinator; f.tintColor = .clear; f.autocorrectionType = .no
+        f.attributedPlaceholder = NSAttributedString(string: "Tap for the emoji keyboard", attributes: [.foregroundColor: UIColor(white: 0.75, alpha: 0.8)])
+        f.font = UIFont(name: "Inter-Regular", size: 15)
+        return f
+    }
+    func updateUIView(_ v: Field, context: Context) {}
+}
+
+private struct EmojiPicker: View {
+    let pick: (String) -> Void
+    private let common = ["❤️", "👍", "😂", "😮", "😢", "🙏", "🔥", "👏", "🎉", "💯", "🤔", "😍", "😊", "😅", "🙌", "👀", "✅", "❌", "😎", "🥳", "😭", "🤣", "💪", "🤝", "👎", "😬", "🤯", "🫡", "✝️", "📖", "☕️", "🍻"]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("React").font(.serif(22, .semibold)).foregroundStyle(T.ink).padding(.top, 22)
+            EmojiKeyboardField(pick: pick).frame(height: 44).padding(.horizontal, 14)
+                .background(RoundedRectangle(cornerRadius: 12).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 12).stroke(T.border))
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 8), spacing: 8) {
+                ForEach(common, id: \.self) { e in
+                    Button { pick(e) } label: { Text(e).font(.system(size: 28)).frame(maxWidth: .infinity, minHeight: 40) }.buttonStyle(.plain)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(T.paper.ignoresSafeArea())
+        .preferredColorScheme(.dark)
     }
 }
