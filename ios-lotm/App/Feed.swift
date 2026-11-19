@@ -251,6 +251,9 @@ private struct StoryRow: View {
     }
 }
 
+/// The devotion's cover. A loose .jpg in the bundle is found only by its full name (Image("…") looks in asset catalogs).
+private let adventCover: UIImage = Bundle.main.path(forResource: "advent-story", ofType: "jpg").flatMap(UIImage.init(contentsOfFile:)) ?? UIImage()
+
 private struct StoryPill: View {
     let it: FPin
     @ObservedObject var m: FeedModel
@@ -303,7 +306,7 @@ private struct StoryPill: View {
     @ViewBuilder private var face: some View {
         switch it.kind {
         case .pin: Face(m.people[it.by ?? ""], s: 48)
-        case .read: Image("advent-story").resizable().scaledToFill().frame(width: 48, height: 48).clipShape(Circle())
+        case .read: Image(uiImage: adventCover).resizable().scaledToFill().frame(width: 48, height: 48).clipShape(Circle())
         case .event where it.link != nil: LinkFace(url: it.link!, when: it.when)
         case .study where it.cover != nil:
             AsyncImage(url: it.cover) { $0.resizable().scaledToFill() } placeholder: { T.card }.frame(width: 48, height: 48).clipShape(Circle())
