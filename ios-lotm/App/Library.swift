@@ -373,11 +373,34 @@ struct ShelfItem: Identifiable {
     var open: () -> Void = {}
 }
 
-private struct FlowX: PreferenceKey { static var defaultValue: CGFloat = 0; static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() } }
+/// The covers, set where the web's `place()` put them for their distance from the middle. `pos` animates, so a
+/// flick coasts and settles through every position in between.
+private struct Flow: View, Animatable {
+    var pos: Double
+    let items: [ShelfItem]
+    let w: CGFloat, h: CGFloat
+    let cover: (ShelfItem, Int, Double) -> AnyView
+    var animatableData: Double { get { pos } set { pos = newValue } }
+    var body: some View {
+        ZStack(alignment: .top) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { i, it in
+                let d = Double(i) - pos, a = abs(d), near = min(a, 1), far = max(0, a - 1)
+                let scale = 700 / (700 + 130 * near + 26 * far)
+                let x = (d < 0 ? -1.0 : 1.0) * (near * Double(w) * 0.74 + far * Double(w) * 0.3) * scale
+                if a < 7 {
+                    cover(it, i, min(a, 2.6) * 0.17)
+                        .scaleEffect(scale)
+                        .offset(x: x)
+                        .zIndex(1000 - a * 10)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity).padding(.top, 6).frame(height: (h * 1.14).rounded(), alignment: .top)
+    }
+}
 
 /// Cover Flow as the web drew it: the middle book forward, the others stepped back behind it and darker, overlapping
-/// like a Rolodex. A plain horizontal scroll view supplies the touch and the coming-to-rest; each cover is then set
-/// where the web's `place()` put it for its distance from the middle.
+/// like a Rolodex. Drag to move, flick to coast; it always comes to rest on a cover. Tap the middle book to turn it over.
 struct Shelf: View {
     let items: [ShelfItem]
     var w: CGFloat = 124
@@ -385,48 +408,37 @@ struct Shelf: View {
     var flipNow = 0
     var onCenter: (String) -> Void = { _ in }
     @State private var pos: Double = 0
-    @State private var target: String?
+    @State private var from: Double?
+    @State private var axis = 0                     // 0 undecided, 1 sideways (ours), 2 up and down (the page's)
     @State private var flipped: String?
-    @State private var space = UUID()
     @State private var placed = false
-    @State private var ready = false
     private var h: CGFloat { (w * 1.5).rounded() }
-    private var unit: CGFloat { w * 0.95 }
-    private var active: Int { max(0, min(items.count - 1, Int(pos.rounded()))) }
+    private var unit: Double { Double(w) * 0.95 }
+    private var last: Int { max(0, items.count - 1) }
+    private var active: Int { max(0, min(last, Int(pos.rounded()))) }
     private var mid: ShelfItem? { items.isEmpty ? nil : items[active] }
-    private func place(_ d: Double) -> (x: CGFloat, scale: CGFloat, shade: Double, z: Double) {
-        let a = abs(d), near = min(a, 1), far = max(0, a - 1)
-        let scale = 700 / (700 + 130 * near + 26 * far)
-        return (CGFloat((d < 0 ? -1 : 1) * (near * Double(w) * 0.74 + far * Double(w) * 0.3) * scale), CGFloat(scale), min(a, 2.6) * 0.17, 1000 - a * 10)
-    }
+    private let settle = Animation.spring(response: 0.5, dampingFraction: 0.82)
+    private func go(_ i: Int) { withAnimation(settle) { pos = Double(max(0, min(last, i))) } }
 
     var body: some View {
         VStack(spacing: 0) {
-            GeometryReader { g in
-                let margin = max(0, (g.size.width - unit) / 2)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 0) {
-                        ForEach(Array(items.enumerated()), id: \.element.id) { i, it in
-                            let d = Double(i) - pos, q = place(d)
-                            Color.clear.frame(width: unit, height: h)
-                                .overlay(card(it, i, shade: q.shade).frame(width: w, height: h))
-                                .scaleEffect(q.scale)
-                                .offset(x: q.x - CGFloat(d) * unit)
-                                .zIndex(q.z)
-                                .id(it.id)
-                        }
+            Flow(pos: pos, items: items, w: w, h: h) { it, i, shade in AnyView(card(it, i, shade: shade)) }
+                .clipped()
+                .contentShape(Rectangle())
+                .simultaneousGesture(DragGesture(minimumDistance: 8)
+                    .onChanged { g in
+                        if axis == 0 { axis = abs(g.translation.width) > abs(g.translation.height) ? 1 : 2; if axis == 1 { from = pos; flipped = nil } }
+                        guard axis == 1, let f = from else { return }
+                        var p = f - Double(g.translation.width) / unit
+                        if p < 0 { p *= 0.35 }; if p > Double(last) { p = Double(last) + (p - Double(last)) * 0.35 }      // rubber band at the ends
+                        pos = p
                     }
-                    .scrollTargetLayout()
-                    .background(GeometryReader { p in Color.clear.preference(key: FlowX.self, value: p.frame(in: .named(space)).minX) })
-                    .padding(.top, 6).frame(height: (h * 1.14).rounded(), alignment: .top)
-                }
-                .contentMargins(.horizontal, margin, for: .scrollContent)
-                .scrollTargetBehavior(.viewAligned)
-                .scrollPosition(id: $target, anchor: .center)
-                .coordinateSpace(name: space)
-                .onPreferenceChange(FlowX.self) { x in let p = Double((margin - x) / unit); if abs(p - pos) > 0.001 { pos = p } }
-            }
-            .frame(height: (h * 1.14).rounded())
+                    .onEnded { g in
+                        defer { axis = 0; from = nil }
+                        guard axis == 1, let f = from else { return }
+                        let coast = max(-2.5, min(2.5, -Double(g.predictedEndTranslation.width - g.translation.width) / unit * 0.6))
+                        go(Int((max(0, min(Double(last), f - Double(g.translation.width) / unit)) + coast).rounded()))
+                    })
             VStack(spacing: 1) {
                 Text(mid?.title ?? " ").font(.serif(16, .semibold)).foregroundStyle(T.ink).lineLimit(2).multilineTextAlignment(.center)
                 if let by = mid?.by, !by.isEmpty { Text("by \(by)").font(.serif(14, italic: true)).foregroundStyle(T.muted).lineLimit(1) }
@@ -434,10 +446,10 @@ struct Shelf: View {
             }
             .padding(.horizontal, 24).frame(maxWidth: .infinity, minHeight: 64, alignment: .top)
         }
-        .onAppear { open(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { ready = true } }
-        .onChange(of: items.map(\.id)) { _, _ in open() }
+        .onAppear { open() }
+        .onChange(of: items.map(\.id)) { _, _ in if pos > Double(last) { pos = Double(last) }; open() }
         .onChange(of: active) { _, _ in
-            guard ready, let m = mid else { return }
+            guard placed, let m = mid else { return }
             Haptic.tap(); flipped = nil; onCenter(m.id)
         }
         .onChange(of: flipNow) { _, _ in
@@ -446,15 +458,15 @@ struct Shelf: View {
             if items[i].back == nil { guard let k = items.firstIndex(where: { $0.back != nil }) else { return }; i = k }
             let id = items[i].id
             let turn = { withAnimation(.spring(response: 0.55, dampingFraction: 0.75)) { flipped = id }; Haptic.tap() }
-            if i == active { turn() } else { withAnimation(.snappy) { target = id }; DispatchQueue.main.asyncAfter(deadline: .now() + 0.52, execute: turn) }
+            if i == active { turn() } else { go(i); DispatchQueue.main.asyncAfter(deadline: .now() + 0.52, execute: turn) }
         }
     }
     /// Until its books have arrived, the shelf stays opened on its starting book.
     private func open() {
         guard !items.isEmpty, !placed else { return }
-        let it = items[min(start, items.count - 1)]
-        target = it.id; onCenter(it.id)
-        if items.count > start { placed = items.count > 1 }
+        let i = min(start, last)
+        pos = Double(i); onCenter(items[i].id)
+        if items.count > max(1, start) { DispatchQueue.main.async { placed = true } }
     }
 
     @ViewBuilder private func card(_ it: ShelfItem, _ i: Int, shade: Double) -> some View {
@@ -475,7 +487,7 @@ struct Shelf: View {
         .contentShape(Rectangle())
         .onTapGesture {
             guard !on else { return }
-            if i != active { withAnimation(.snappy) { target = it.id }; return }
+            if i != active { go(i); return }
             Haptic.tap()
             if it.back != nil { withAnimation(.spring(response: 0.55, dampingFraction: 0.75)) { flipped = it.id } } else { it.open() }
         }
