@@ -23,7 +23,6 @@ struct Shell: View {
     private var showWeb: Bool { web.tab == .library || overlay }
     /// On the Library tab the web page is the middle pane (Notes), under the app's tabs.
     private var asPane: Bool { web.tab == .library && !overlay }
-    private var W: CGFloat { UIScreen.main.bounds.width }
     /// Leaving, a page is gone at once; arriving, it fades up after a beat. Two pages never show through each other.
     private var page: AnyTransition { .asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.18).delay(0.08)), removal: .opacity.animation(.easeIn(duration: 0.07))) }
 
@@ -47,9 +46,8 @@ struct Shell: View {
                     if web.tab == .settings { SettingsScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(page) }
                     WebView(model: web).ignoresSafeArea()
                         .padding(.top, asPane ? LibraryScreen.tabsHeight : 0)
-                        .offset(x: asPane ? (1 - LibraryScreen.paneIndex(web.libPane)) * W : 0)
-                        .animation(asPane ? LibraryScreen.slide : nil, value: web.libPane)
-                        .opacity(showWeb ? 1 : 0).allowsHitTesting(overlay || (asPane && web.libPane == "notes"))
+                        .opacity(overlay || (asPane && web.libPane == "notes") ? 1 : 0).allowsHitTesting(overlay || (asPane && web.libPane == "notes"))
+                        .animation(web.libPane == "notes" ? .easeOut(duration: 0.2).delay(0.1) : .easeIn(duration: 0.1), value: web.libPane)
                 }
             }
             if !overlay {

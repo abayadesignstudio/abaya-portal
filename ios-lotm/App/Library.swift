@@ -518,6 +518,15 @@ struct Shelf: View {
     }
 }
 
+/// A pane of the Library: leaving, it fades out quickly; arriving, it fades in once the other has gone.
+struct Pane: ViewModifier {
+    let on: Bool, pane: String
+    func body(content: Content) -> some View {
+        content.opacity(on ? 1 : 0).allowsHitTesting(on)
+            .animation(on ? .easeOut(duration: 0.2).delay(0.1) : .easeIn(duration: 0.1), value: pane)
+    }
+}
+
 /// The back of your own book: a page wheel (the page is logged a moment after the wheel comes to rest), or a button
 /// to start it; the book's menu sits at the foot. Tap the card, or move to another book, to turn it back.
 private struct CoverBack: View {
@@ -590,11 +599,10 @@ struct LibraryScreen: View {
     /// The room the tabs take at the top of the Library (the Notes page sits under them).
     static let tabsHeight: CGFloat = 54
     static func paneIndex(_ v: String) -> CGFloat { v == "mine" ? 0 : v == "club" ? 2 : 1 }
-    static let slide = Animation.smooth(duration: 0.36)
 
     var body: some View {
         VStack(spacing: 0) {
-            // The tabs stay; the three panes slide beneath them like pages.
+            // The tabs stay; beneath them one pane fades out and the next fades in.
             HStack(spacing: 0) {
                 ForEach([("mine", "My Library"), ("notes", "Notes"), ("club", "LOTM")], id: \.0) { v, t in
                     let on = web.libPane == v
@@ -608,16 +616,12 @@ struct LibraryScreen: View {
             }
             .padding(3).background(RoundedRectangle(cornerRadius: 20).fill(Color(rgb: 0x0c0e08, 0.08)))
             .padding(.horizontal, 20).padding(.top, 8).frame(height: Self.tabsHeight, alignment: .top)
-            GeometryReader { g in
-                let i = Self.paneIndex(web.libPane)
-                ZStack {
-                    page { mine }.offset(x: (0 - i) * g.size.width)
-                    page { club }.offset(x: (2 - i) * g.size.width)
-                }
+            ZStack {
+                page { mine }.modifier(Pane(on: web.libPane == "mine", pane: web.libPane))
+                page { club }.modifier(Pane(on: web.libPane == "club", pane: web.libPane))
             }
-            .clipped()
         }
-        .animation(Self.slide, value: web.libPane)
+        .animation(.snappy(duration: 0.26), value: web.libPane)      // the highlight on the tabs
         .background(T.paper.ignoresSafeArea())
         .preferredColorScheme(.dark).tint(T.ink)
         .overlay(alignment: .bottom) {
