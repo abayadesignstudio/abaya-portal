@@ -55,6 +55,8 @@ struct LOTMApp: App {
 final class WebModel: NSObject, ObservableObject {
     let view: WKWebView
     weak var feed: FeedModel?
+    /// Which Library pane is showing: mine, notes (the Commonplace, still the web's) or club.
+    @Published var libPane = UserDefaults.standard.string(forKey: "lotm.libPane") ?? "mine"
     /// The screen the web app is on (it reports each change), and the tab chosen in the app's own tab bar.
     @Published var route = ""
     @Published var tab: Tab = .feed
@@ -77,12 +79,13 @@ final class WebModel: NSObject, ObservableObject {
         cfg.userContentController.add(poster, name: "post")
         let routes = RouteHandler(); cfg.userContentController.add(routes, name: "route")
         let chat = ChatHandler(); cfg.userContentController.add(chat, name: "chat")
+        let lib = LibHandler(); cfg.userContentController.add(lib, name: "lib")
         // The web app knows it is inside the app's native shell (it hides its own tab bar and Feed).
         cfg.userContentController.addUserScript(WKUserScript(source: "document.documentElement.classList.add('native-shell')", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         // The web app knows it is inside the app's native shell (it hides its own tab bar and Feed).
         view = WKWebView(frame: .zero, configuration: cfg)
         super.init()
-        routes.model = self; chat.model = self
+        routes.model = self; chat.model = self; lib.model = self
         view.scrollView.contentInsetAdjustmentBehavior = .never
         view.scrollView.bounces = true
         view.scrollView.alwaysBounceVertical = true
@@ -131,7 +134,7 @@ final class WebModel: NSObject, ObservableObject {
         guard let t = UserDefaults.standard.string(forKey: "apnsToken") else { return }
         view.evaluateJavaScript("window.lotmDeviceToken='\(t)';window.dispatchEvent(new Event('lotm:device'))")
     }
-    func select(_ t: Tab) { tab = t; go(t.route) }
+    func select(_ t: Tab) { tab = t; go(t.route); if t == .library { setLibPane(libPane) } }
     func openPost(_ id: String, people: [String: Person], reply: Bool) { poster.open(id: id, people: people, reply: reply) }
     func go(_ route: String) {
         let js = "location.hash = '#\(route.replacingOccurrences(of: "'", with: "%27"))'"
