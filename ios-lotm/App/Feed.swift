@@ -523,10 +523,10 @@ private struct PostCard: View {
                 if p.article { article } else { note }
             }
             .padding(.top, 12)
-            actions.padding(.top, 10)
+            actions.padding(.top, 12)
         }
         // Each post on its own card, with room inside it.
-        .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
+        .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 14)
         .clipShape(RoundedRectangle(cornerRadius: 20))
         .background(RoundedRectangle(cornerRadius: 20).fill(T.card))
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(T.rule))
@@ -576,29 +576,17 @@ private struct PostCard: View {
         .padding(.top, 8)
     }
 
-    /// X's row: four plain icons with their counts, spread across the column.
     private var actions: some View {
-        HStack(spacing: 0) {
-            Button { m.open(p.id, true) } label: { act("reply", p.replies) }
-                .disabled(!p.canReply).opacity(p.canReply ? 1 : 0.45)
-            Spacer(minLength: 0)
+        HStack(spacing: 6) {
+            Button { m.open(p.id, true) } label: { HStack(spacing: 5) { GlyphView(n: "reply", s: 20); if p.replies > 0 { Text("\(p.replies)") } } }
+                .buttonStyle(PillStyle()).disabled(!p.canReply).opacity(p.canReply ? 1 : 0.45)
             Button { Task { await m.like(p) } } label: {
-                HStack(spacing: 5) { GlyphView(n: "heart", s: 18, w: 1.8, fill: p.liked).symbolPop(p.liked); Text(p.likes > 0 ? "\(p.likes)" : " ").font(.sans(13)).monospacedDigit() }
-                    .foregroundStyle(p.liked ? T.like : T.muted).frame(minWidth: 44, minHeight: 32, alignment: .leading).contentShape(Rectangle())
+                HStack(spacing: 5) { GlyphView(n: "heart", s: 20, fill: p.liked).symbolPop(p.liked); if p.likes > 0 { Text("\(p.likes)") } }
             }
-            Spacer(minLength: 0)
-            Button { Task { await m.save(p) } } label: {
-                GlyphView(n: "bookmark", s: 18, w: 1.8, fill: p.saved).symbolPop(p.saved).foregroundStyle(p.saved ? T.ink : T.muted).frame(minWidth: 44, minHeight: 32, alignment: .leading).contentShape(Rectangle())
-            }
-            Spacer(minLength: 0)
-            Button(action: more) { GlyphView(n: "share", s: 18, w: 1.8).foregroundStyle(T.muted).frame(minWidth: 32, minHeight: 32, alignment: .trailing).contentShape(Rectangle()) }
+            .buttonStyle(PillStyle(liked: p.liked))
+            Button { Task { await m.save(p) } } label: { GlyphView(n: "bookmark", s: 20, fill: p.saved).symbolPop(p.saved) }.buttonStyle(PillStyle())
+            Button(action: more) { GlyphView(n: "share", s: 20) }.buttonStyle(PillStyle())
         }
-        .buttonStyle(.plain)
-        .padding(.trailing, 4)
-    }
-    private func act(_ g: String, _ n: Int) -> some View {
-        HStack(spacing: 5) { GlyphView(n: g, s: 18, w: 1.8); Text(n > 0 ? "\(n)" : " ").font(.sans(13)).monospacedDigit() }
-            .foregroundStyle(T.muted).frame(minWidth: 44, minHeight: 32, alignment: .leading).contentShape(Rectangle())
     }
 }
 
