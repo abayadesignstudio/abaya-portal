@@ -13,7 +13,7 @@ private enum C {
     static let card = Color(hex: 0x414530), paper = Color(hex: 0x3b3e2a), ink = Color(hex: 0xf1eedd)
     static let muted = Color(hex: 0xc3c3a6), rule = Color(hex: 0x4d4f37), red = Color(hex: 0xe7907f), faint = Color(hex: 0x626546)
 }
-private let LIMIT = 250
+private let LIMIT = 100
 
 struct DraftPost: Identifiable, Equatable {
     let id = UUID()

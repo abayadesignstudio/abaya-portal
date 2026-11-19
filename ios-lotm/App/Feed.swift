@@ -523,7 +523,8 @@ private struct PostCard: View {
         .shadow(color: Color(rgb: 0x0c0e08, open ? 0.28 : 0.14), radius: open ? 11 : 5, y: open ? 6 : 2)
         .padding(.horizontal, 10).padding(.bottom, 10)
         .contentShape(Rectangle())
-        .onTapGesture { withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) { open.toggle() } }
+        // tapping a note opens it with its replies; an article opens on its own page
+        .onTapGesture { if p.article { web.go("/post/\(p.id)?web=1") } else { m.open(p.id, false) } }
     }
 
     @ViewBuilder private var note: some View {
@@ -532,8 +533,9 @@ private struct PostCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 9).overlay(alignment: .bottom) { T.rule.frame(height: 1) }.padding(.vertical, 8)
         }
         if !p.body.isEmpty && !(p.audio && p.body.trimmingCharacters(in: .whitespaces) == "Voice note") {
+            // a note shows in full (posts are short); only articles are cut to a card
             Text(linked(p.body)).font(.serif(18 * z)).foregroundStyle(T.ink).lineSpacing(18 * z * 0.4 - 6)
-                .lineLimit(open ? nil : 6).fixedSize(horizontal: false, vertical: true)
+                .fixedSize(horizontal: false, vertical: true)
         }
         if p.audio { Button { m.open(p.id, false) } label: { Label("Voice note", systemImage: "play.fill") }.buttonStyle(PillStyle()).padding(.top, 10) }
         PhotoRow(urls: p.photos).padding(.top, p.photos.isEmpty ? 0 : 10)
@@ -544,11 +546,8 @@ private struct PostCard: View {
         if !p.tags.isEmpty {
             HStack(spacing: 8) { ForEach(p.tags, id: \.self) { t in Button("#\(t)") { presentSlide(SearchScreen(feed: m, web: web, start: "#" + t)) }.font(.sans(13)).foregroundStyle(T.ticker) } }.padding(.top, 6)
         }
-        if p.continuations > 0 && !open {
+        if p.continuations > 0 {
             Button { m.open(p.id, false) } label: { Text("Show this thread").font(.sans(14)).foregroundStyle(T.muted) }.buttonStyle(.plain).padding(.top, 6)
-        }
-        if open && (p.replies > 0 || p.continuations > 0) {
-            Button { m.open(p.id, false) } label: { Text(p.continuations > 0 ? "Open the thread" : "Read \(p.replies) \(p.replies == 1 ? "reply" : "replies")").font(.sans(14, .semibold)).foregroundStyle(T.sub) }.buttonStyle(.plain).padding(.top, 8)
         }
     }
 
@@ -566,7 +565,6 @@ private struct PostCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(T.paper).clipShape(RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).stroke(T.rule))
         .padding(.top, 8)
-        .onTapGesture { m.open(p.id, false) }
     }
 
     private var actions: some View {
