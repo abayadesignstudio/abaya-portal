@@ -1,0 +1,28 @@
+# Checks (or submits) the Life of the Mind TestFlight external review through the App Store Connect API.
+name: Life of the Mind TestFlight review
+on:
+  workflow_dispatch:
+    inputs:
+      action: { description: 'inspect or submit', default: 'inspect' }
+      build: { description: 'build number to submit', default: '' }
+      group: { description: 'external group name', default: 'LOTM Test' }
+      what: { description: 'What to Test text', default: '' }
+permissions: { contents: read }
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: ios-lotm } }
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install --quiet pyjwt cryptography
+      - env:
+          P8: '${{ secrets.ASC_KEY_P8 }}'
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ACTION: ${{ inputs.action }}
+          BUILD: ${{ inputs.build }}
+          GROUP: ${{ inputs.group }}
+          WHAT: ${{ inputs.what }}
+        run: |
+          printf '%s\n' "$P8" > "$RUNNER_TEMP/AuthKey.p8"; chmod 600 "$RUNNER_TEMP/AuthKey.p8"
+          ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8" python3 ci/review.py
