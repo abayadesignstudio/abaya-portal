@@ -64,6 +64,7 @@ final class ComposeModel: ObservableObject {
     var auth: () async -> SupaAuth? = { nil }
     var send: (String, @escaping (String) -> Void) -> Void = { _, done in done("Not connected") }
     var close: () -> Void = {}
+    var article: () -> Void = {}
     private static let key = "lotm.nativeDraft"
 
     init(name: String, avatar: URL?) {
@@ -118,6 +119,12 @@ struct ComposeView: View {
                     Button("Cancel") { if m.hasContent { confirmCancel = true } else { m.close() } }
                         .font(.sans(17)).foregroundStyle(C.ink)
                     Spacer()
+                    // Longer writing — title, headings, cover — goes to the article editor.
+                    Button { m.saveDraft(); m.article() } label: {
+                        HStack(spacing: 6) { GlyphView(n: "pencil", s: 15, w: 2); Text("Article").font(.sans(15, .semibold)) }
+                            .foregroundStyle(C.ink).padding(.horizontal, 12).frame(height: 32)
+                            .overlay(Capsule().stroke(Color(hex: 0x50533a), lineWidth: 1))
+                    }
                 }
             }
             .padding(.horizontal, 16).frame(height: 54)
@@ -160,13 +167,18 @@ struct ComposeView: View {
         // The bottom bar sits on the keyboard and moves with it, as in X and Threads.
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack(spacing: 12) {
-                Menu {
-                    Button { m.policy = "everyone" } label: { Label("Anyone in the club", systemImage: m.policy == "everyone" ? "checkmark" : "person.2") }
-                    Button { m.policy = "none" } label: { Label("No one (replies off)", systemImage: m.policy == "none" ? "checkmark" : "nosign") }
-                } label: {
-                    Text(m.policy == "none" ? "Replies are off" : "Anyone in the club can reply")
-                        .font(.sans(15)).foregroundStyle(C.muted).lineLimit(1)
+                // Who can reply: one tap switches between Anyone and No one.
+                Button { UISelectionFeedbackGenerator().selectionChanged(); withAnimation(.snappy(duration: 0.2)) { m.policy = m.policy == "none" ? "everyone" : "none" } } label: {
+                    let off = m.policy == "none"
+                    HStack(spacing: 6) {
+                        GlyphView(n: off ? "mute" : "reply", s: 15, w: 2)
+                        Text(off ? "No one can reply" : "Anyone can reply").font(.sans(14, .semibold)).contentTransition(.opacity)
+                    }
+                    .foregroundStyle(off ? C.muted : C.ink).padding(.horizontal, 12).frame(height: 32)
+                    .background(Capsule().fill(off ? .clear : Color(hex: 0x50533a)))
+                    .overlay(Capsule().stroke(Color(hex: 0x50533a), lineWidth: 1))
                 }
+                .accessibilityLabel(m.policy == "none" ? "Replies off. Tap to let anyone reply." : "Anyone can reply. Tap to turn replies off.")
                 Spacer(minLength: 8)
                 let n = words(current.text)
                 Text("\(n)/\(LIMIT)").font(.sans(14).monospacedDigit())
@@ -550,6 +562,9 @@ final class ComposeHandler: NSObject, WKScriptMessageHandler {
         vc.modalPresentationStyle = .pageSheet
         vc.sheetPresentationController?.prefersGrabberVisible = false
         model.close = { [weak vc] in vc?.dismiss(animated: true) }
+        model.article = { [weak vc, weak self] in
+            vc?.dismiss(animated: true) { self?.web?.evaluateJavaScript("window.lotmNativeGo && window.lotmNativeGo('/write?mode=article')") }
+        }
         model.send = { [weak self] json, done in
             guard let web = self?.web else { return done("The app isn’t ready. Try again.") }
             web.callAsyncJavaScript("if (!window.lotmNativePost) return 'Update the app, then try again.'; return await window.lotmNativePost(p)",

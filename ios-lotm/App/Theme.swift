@@ -87,13 +87,16 @@ struct PageBar<Right: View>: View {
     let onBack: () -> Void
     @ViewBuilder var right: () -> Right
     var body: some View {
-        HStack(spacing: 4) {
-            Button(action: onBack) {
-                HStack(spacing: 2) { GlyphView(n: "back", s: 24); Text(back).font(.sans(16)) }.foregroundStyle(T.ink).padding(.vertical, 8)
+        // The title sits in the true centre of the bar, whatever is on either side.
+        ZStack {
+            Text(title).font(.sans(16, .semibold)).foregroundStyle(T.ink).lineLimit(1).padding(.horizontal, 96)
+            HStack(spacing: 4) {
+                Button(action: onBack) {
+                    HStack(spacing: 2) { GlyphView(n: "back", s: 24); Text(back).font(.sans(16)) }.foregroundStyle(T.ink).padding(.vertical, 8)
+                }
+                Spacer(minLength: 0)
+                right()
             }
-            .frame(minWidth: 70, alignment: .leading)
-            Text(title).font(.sans(16, .semibold)).foregroundStyle(T.ink).frame(maxWidth: .infinity)
-            right().frame(minWidth: 70, alignment: .trailing)
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
         .background(Color(rgb: 0x3a3d2b, 0.96))
