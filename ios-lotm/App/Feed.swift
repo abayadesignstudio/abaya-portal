@@ -152,6 +152,53 @@ struct Splash: View {
     }
 }
 
+/// Autumn: a few leaves drift down behind the title, now and then, and fall out of the bottom of the header.
+/// Each of a handful of slots drops one leaf per cycle and then waits, so there are never many at once.
+struct Leaves: View {
+    @Environment(\.accessibilityReduceMotion) private var still
+    /// Through the end of November.
+    static var inSeason: Bool { let c = Calendar.current.dateComponents([.year, .month], from: Date()); return c.year == 2026 && c.month == 11 }
+    private static let colors: [Color] = ([0xc8782a, 0xa8521e, 0xd9a441, 0x8f3b1b, 0xb8862d] as [UInt32]).map { Color(rgb: $0) }
+    private static func rnd(_ a: Int, _ b: Int, _ c: Int) -> Double {
+        var x = UInt64(truncatingIfNeeded: a &* 73856093 ^ b &* 19349663 ^ c &* 83492791) &+ 0x9E3779B97F4A7C15
+        x = (x ^ (x >> 30)) &* 0xBF58476D1CE4E5B9; x = (x ^ (x >> 27)) &* 0x94D049BB133111EB; x ^= x >> 31
+        return Double(x % 10_000) / 10_000
+    }
+    private static let leaf: Path = {
+        var p = Path()
+        p.move(to: CGPoint(x: 0, y: -1))
+        p.addCurve(to: CGPoint(x: 0, y: 0.8), control1: CGPoint(x: 0.85, y: -0.55), control2: CGPoint(x: 0.7, y: 0.45))
+        p.addCurve(to: CGPoint(x: 0, y: -1), control1: CGPoint(x: -0.7, y: 0.45), control2: CGPoint(x: -0.85, y: -0.55))
+        p.move(to: CGPoint(x: -0.04, y: 0.75)); p.addLine(to: CGPoint(x: 0.04, y: 0.75)); p.addLine(to: CGPoint(x: 0.02, y: 1.15)); p.addLine(to: CGPoint(x: -0.02, y: 1.15)); p.closeSubpath()
+        return p
+    }()
+    var body: some View {
+        if still { EmptyView() } else {
+            TimelineView(.animation(minimumInterval: 1 / 30)) { tl in
+                Canvas { g, size in
+                    let t = tl.date.timeIntervalSinceReferenceDate
+                    for slot in 0..<6 {
+                        let period = 11 + Self.rnd(slot, 1, 0) * 9, shifted = t + Self.rnd(slot, 2, 0) * period
+                        let cycle = Int(shifted / period), at = shifted - Double(cycle) * period
+                        let fall = 6.5 + Self.rnd(slot, cycle, 3) * 3
+                        guard at < fall else { continue }                      // the rest of the cycle this slot is empty
+                        let k = at / fall, r = 5 + Self.rnd(slot, cycle, 4) * 3.5
+                        let x = (0.06 + Self.rnd(slot, cycle, 5) * 0.88) * size.width + sin(at * (0.9 + Self.rnd(slot, cycle, 6)) + Double(slot)) * 16 + k * (Self.rnd(slot, cycle, 7) - 0.5) * 50
+                        let y = -r * 2 + k * (size.height + r * 4)
+                        var c = g
+                        c.translateBy(x: x, y: y)
+                        c.rotate(by: .radians(sin(at * 1.3 + Double(slot) * 2) * 0.9 + Self.rnd(slot, cycle, 8) * 6.28))
+                        c.scaleBy(x: r * (0.45 + 0.55 * abs(cos(at * 1.1 + Double(slot)))), y: r)      // turning over as it falls
+                        c.opacity = 0.8
+                        c.fill(Self.leaf, with: .color(Self.colors[Int(Self.rnd(slot, cycle, 9) * 5) % 5]))
+                    }
+                }
+            }
+            .allowsHitTesting(false).clipped()
+        }
+    }
+}
+
 /// .mast — search, the title, and the bell with its count, on the tan-to-olive gradient.
 struct Mast: View {
     let unread: Int
@@ -164,7 +211,13 @@ struct Mast: View {
                 .offset(x: -4)
         }
         .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 12)
-        .background(LinearGradient(stops: [.init(color: T.tan, location: 0), .init(color: T.tan, location: 0.3), .init(color: T.paper, location: 1)], startPoint: .top, endPoint: .bottom).ignoresSafeArea(edges: .top))
+        .background {
+            ZStack {
+                LinearGradient(stops: [.init(color: T.tan, location: 0), .init(color: T.tan, location: 0.3), .init(color: T.paper, location: 1)], startPoint: .top, endPoint: .bottom)
+                if Leaves.inSeason { Leaves() }
+            }
+            .ignoresSafeArea(edges: .top)
+        }
     }
     @ViewBuilder private func badge(_ n: Int) -> some View {
         if n > 0 {
