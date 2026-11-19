@@ -189,6 +189,7 @@ struct FeedScreen: View {
                         } else if m.posts.isEmpty {
                             Text("Nothing here yet.").font(.serif(17)).foregroundStyle(T.muted).padding(40)
                         }
+                        Color.clear.frame(height: 10)
                         ForEach(Array(m.posts.enumerated()), id: \.element.id) { _, p in
                             PostCard(p: p, m: m, web: web, more: { acting = p })
                         }
@@ -505,7 +506,7 @@ private struct PostCard: View {
         return "\(p.kind) · \(ago(p.created))\(p.edited ? " · Edited" : "")"
     }
     var body: some View {
-        // Laid out as X: the face in its own column, everything else beside it; rows split by a hairline, no cards.
+        // Laid out as X: the face in its own column, everything else beside it.
         HStack(alignment: .top, spacing: 10) {
             Button { web.go("/member/\(p.userId)") } label: { Face(person, s: 40) }.buttonStyle(.plain)
             VStack(alignment: .leading, spacing: 0) {
@@ -521,9 +522,12 @@ private struct PostCard: View {
                 actions.padding(.top, 8)
             }
         }
-        .padding(.leading, 16).padding(.trailing, 16).padding(.top, 12).padding(.bottom, 8)
-        .background(open ? Color.white.opacity(0.03) : .clear)
-        .overlay(alignment: .bottom) { T.rule.frame(height: 0.5) }
+        // Each post on its own card, with room inside it.
+        .padding(.leading, 16).padding(.trailing, 18).padding(.top, 16).padding(.bottom, 10)
+        .background(RoundedRectangle(cornerRadius: 20).fill(T.card))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(T.rule))
+        .shadow(color: Color(rgb: 0x0c0e08, 0.14), radius: 5, y: 2)
+        .padding(.horizontal, 10).padding(.bottom, 10)
         .contentShape(Rectangle())
         // tapping a note opens it with its replies; an article opens on its own page
         .onTapGesture { if p.article { web.go("/post/\(p.id)?web=1") } else { m.open(p.id, false) } }
