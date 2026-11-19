@@ -49,8 +49,9 @@ struct Shell: View {
             if let it = feed.detail { DropCard(it: it, m: feed, web: web).zIndex(5) }
             if splash { Splash { splash = false }.zIndex(10) }
         }
-        .animation(.easeInOut(duration: 0.22), value: web.tab)
-        .animation(.easeInOut(duration: 0.22), value: web.libPane)
+        // a breath, then a short fade
+        .animation(.easeInOut(duration: 0.16).delay(0.07), value: web.tab)
+        .animation(.easeInOut(duration: 0.16).delay(0.07), value: web.libPane)
         .animation(.easeOut(duration: 0.18), value: showWeb)
         .animation(.easeOut(duration: 0.18), value: overlay)
         .onAppear { web.feed = feed; feed.web = web.view; feed.open = { id, reply in web.openPost(id, people: feed.people, reply: reply) } }

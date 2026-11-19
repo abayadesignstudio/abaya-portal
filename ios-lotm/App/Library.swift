@@ -594,7 +594,7 @@ struct LibraryScreen: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 20).frame(height: 50)
+                    .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 4).frame(height: 50)   // where the web page sets it, so it holds still between panes
                     HStack(spacing: 0) {
                         ForEach([("mine", "My Library"), ("notes", "Notes"), ("club", "LOTM")], id: \.0) { v, t in
                             let on = web.libPane == v
