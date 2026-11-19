@@ -423,7 +423,6 @@ struct Shelf: View {
     var body: some View {
         VStack(spacing: 0) {
             Flow(pos: pos, items: items, w: w, h: h) { it, i, shade in AnyView(card(it, i, shade: shade)) }
-                .clipped()
                 .contentShape(Rectangle())
                 .simultaneousGesture(DragGesture(minimumDistance: 8)
                     .onChanged { g in
