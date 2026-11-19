@@ -5,8 +5,8 @@ import WebKit
 // story pills with their turning rings, the cards that drop from the top, the post cards and their pills, and the dock.
 // Screens not yet native are the web app, shown in place; the web tells the app which screen it is on.
 
-enum Tab: String { case feed, library, people, settings
-    var route: String { switch self { case .feed, .settings, .people: "/native"; case .library: "/reading" } }
+enum Tab: String { case feed, library, chat, people, settings
+    var route: String { switch self { case .feed, .settings, .people, .chat: "/native"; case .library: "/reading" } }
 }
 
 // MARK: - Shell
@@ -36,6 +36,7 @@ struct Shell: View {
                 ZStack(alignment: .bottom) {
                     FeedScreen(m: feed, web: web).opacity(web.tab == .feed ? 1 : 0).allowsHitTesting(web.tab == .feed && !overlay)
                     if web.tab == .library && web.libPane != "notes" { LibraryScreen(m: library, feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
+                    if web.tab == .chat { ChatListScreen(s: ChatSession.shared, embedded: true).allowsHitTesting(!overlay).transition(.opacity) }
                     if web.tab == .people { DirectoryScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
                     if web.tab == .settings { SettingsScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
                     WebView(model: web).ignoresSafeArea()
@@ -48,6 +49,8 @@ struct Shell: View {
             if let it = feed.detail { DropCard(it: it, m: feed, web: web).zIndex(5) }
             if splash { Splash { splash = false }.zIndex(10) }
         }
+        .animation(.easeInOut(duration: 0.22), value: web.tab)
+        .animation(.easeInOut(duration: 0.22), value: web.libPane)
         .animation(.easeOut(duration: 0.18), value: showWeb)
         .animation(.easeOut(duration: 0.18), value: overlay)
         .onAppear { web.feed = feed; feed.web = web.view; feed.open = { id, reply in web.openPost(id, people: feed.people, reply: reply) } }
@@ -72,7 +75,7 @@ private struct Dock: View {
             .buttonStyle(Press(scale: 0.92)).frame(maxWidth: .infinity).accessibilityLabel("Write a post")
             // the chat slides in over everything, like a post
             Button { Haptic.tap(); chatCount = 0; openChat(web) } label: {
-                GlyphView(n: "chat", s: 27).foregroundStyle(T.muted)
+                GlyphView(n: "chat", s: 27).foregroundStyle(web.tab == .chat ? T.ink : T.muted)
                     .overlay(alignment: .topTrailing) {
                         if chatCount > 0 {
                             Text(chatCount > 9 ? "9+" : "\(chatCount)").font(.sans(10, .bold)).foregroundStyle(.white)
@@ -80,6 +83,7 @@ private struct Dock: View {
                         }
                     }
                     .frame(maxWidth: .infinity).frame(height: 48)
+                    .background(Capsule().fill(web.tab == .chat ? Color(rgb: 0x0c0e08, 0.09) : .clear).padding(.horizontal, 2))
             }
             .buttonStyle(Press(scale: 0.92)).frame(maxWidth: .infinity)
             .accessibilityLabel(chatCount > 0 ? "Chat, \(chatCount) unread" : "Chat")
@@ -94,7 +98,7 @@ private struct Dock: View {
         .shadow(color: Color(rgb: 0x0c0e08, 0.18), radius: 15, y: 10)
         .padding(.bottom, 2)
         .environment(\.colorScheme, .dark)
-        .task { while !Task.isCancelled { if !ChatListScreen.showing { chatCount = await chatUnread(web: web.view) }; try? await Task.sleep(nanoseconds: 30_000_000_000) } }
+        .task { while !Task.isCancelled { if !ChatListScreen.showing && web.tab != .chat { chatCount = await chatUnread(web: web.view) }; try? await Task.sleep(nanoseconds: 30_000_000_000) } }
     }
     private func item(_ t: Tab, _ icon: String, _ label: String) -> some View {
         let on = web.tab == t

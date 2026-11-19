@@ -572,9 +572,11 @@ final class ChatModel: ObservableObject {
 
 /// The chat list slides in (the dock's chat button); a notification or a profile's Message button can go straight to a chat.
 @MainActor func openChat(_ web: WebModel, conv: String? = nil, with person: String? = nil) {
+    ChatSession.shared.web = web.view
+    // The list of chats is a page of the app, under its header; a particular chat slides in over it.
+    if conv == nil && person == nil { web.select(.chat); return }
     guard !ChatListScreen.showing else { return }
     ChatListScreen.showing = true
-    ChatSession.shared.web = web.view
     presentSlide(ChatListScreen(s: ChatSession.shared, goTo: conv, with: person))
 }
 
@@ -594,6 +596,7 @@ struct ChatListScreen: View {
     @ObservedObject var s: ChatSession
     var goTo: String? = nil
     var with: String? = nil
+    var embedded = false
     @Environment(\.closeScreen) private var close
     @State private var composing = false
     @State private var went = false
@@ -601,12 +604,14 @@ struct ChatListScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PageBar(title: "Chat", onBack: { close() }) {
-                if s.stage == .ready {
-                    Button { composing = true } label: { GlyphView(n: "pencil", s: 20).foregroundStyle(T.ink).frame(width: 40, height: 36) }
-                        .accessibilityLabel("New message")
+            if !embedded {
+                PageBar(title: "Chat", onBack: { close() }) {
+                    if s.stage == .ready {
+                        Button { composing = true } label: { GlyphView(n: "pencil", s: 20).foregroundStyle(T.ink).frame(width: 40, height: 36) }
+                            .accessibilityLabel("New message")
+                    }
                 }
-            }
+            } else if s.stage != .ready { heading }
             switch s.stage {
             case .loading: Spacer(); ProgressView().tint(T.muted); Spacer()
             case .setup: KeySetup(s: s, restoring: false)
@@ -619,12 +624,26 @@ struct ChatListScreen: View {
         .preferredColorScheme(.dark).tint(T.ink)
         .task { await s.start(nil); await jump() }
         .onChange(of: s.stage) { _, st in if st == .ready { Task { await jump() } } }
-        .onDisappear { ChatListScreen.showing = false }
+        .onDisappear { if !embedded { ChatListScreen.showing = false } }
         .sheet(isPresented: $composing) { NewChat(s: s) { c in composing = false; open(c) } }
+    }
+
+    /// As a page of the app, its title and the new-message button scroll with the list.
+    private var heading: some View {
+        HStack {
+            Text("Chat").font(.serif(20, .semibold)).foregroundStyle(T.ink)
+            Spacer()
+            if s.stage == .ready {
+                Button { composing = true } label: { GlyphView(n: "pencil", s: 20).foregroundStyle(T.ink).frame(width: 40, height: 36) }
+                    .buttonStyle(.plain).accessibilityLabel("New message")
+            }
+        }
+        .padding(.leading, 20).padding(.trailing, 10).frame(height: 50)
     }
 
     private var list: some View {
         List {
+            if embedded { heading.listRowInsets(EdgeInsets()).listRowBackground(T.paper).listRowSeparator(.hidden) }
             ForEach(s.convos) { c in
                 Button { open(c) } label: { row(c) }.buttonStyle(.plain)
                     .listRowInsets(EdgeInsets()).listRowBackground(T.paper).listRowSeparator(.hidden)

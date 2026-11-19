@@ -472,7 +472,12 @@ struct Shelf: View {
     @ViewBuilder private func card(_ it: ShelfItem, _ i: Int, shade: Double) -> some View {
         let on = flipped == it.id
         ZStack {
-            front(it).overlay(Color(rgb: 0x0d0f08).opacity(shade).clipShape(RoundedRectangle(cornerRadius: 4))).opacity(on ? 0 : 1)
+            let face = front(it).overlay(Color(rgb: 0x0d0f08).opacity(shade).clipShape(RoundedRectangle(cornerRadius: 4)))
+            // its reflection on the shelf, fading out below it
+            face.scaleEffect(x: 1, y: -1)
+                .mask(LinearGradient(stops: [.init(color: .white.opacity(0.22), location: 0), .init(color: .clear, location: 0.42)], startPoint: .top, endPoint: .bottom))
+                .offset(y: h + 3).opacity(on ? 0 : 1).allowsHitTesting(false)
+            face.opacity(on ? 0 : 1)
             if on, let back = it.back {
                 back { withAnimation(.spring(response: 0.55, dampingFraction: 0.75)) { flipped = nil } }
                     .frame(width: w, height: h)
@@ -578,32 +583,32 @@ struct LibraryScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("Library").font(.serif(20, .semibold)).foregroundStyle(T.ink)
-                Spacer()
-                if m.admin && web.libPane == "club" {
-                    Button { let c = m.current.first; editing = UpdateDraft(title: c.map { lshort($0.title) } ?? "", author: c?.author ?? "", cover: c?.cover?.absoluteString, bookURL: c?.bookURL, place: c?.place ?? "") } label: {
-                        Text("Post update").font(.sans(13, .bold)).foregroundStyle(T.ink).padding(.horizontal, 14).frame(height: 30).background(Capsule().fill(Color(rgb: 0x0c0e08, 0.08)))
-                    }
-                }
-            }
-            .padding(.horizontal, 20).frame(height: 50)
-            HStack(spacing: 0) {
-                ForEach([("mine", "My Library"), ("notes", "Commonplace"), ("club", "LOTM")], id: \.0) { v, t in
-                    let on = web.libPane == v
-                    Button { Haptic.tap(); web.setLibPane(v) } label: {
-                        Text(t).font(.sans(14, on ? .semibold : .regular)).foregroundStyle(T.ink).frame(maxWidth: .infinity).frame(height: 34)
-                            .background(Capsule().fill(on ? T.card : .clear).shadow(color: .black.opacity(on ? 0.12 : 0), radius: 1.5, y: 1))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(3).background(RoundedRectangle(cornerRadius: 20).fill(Color(rgb: 0x0c0e08, 0.08)))
-            .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 4)
-            .animation(.easeOut(duration: 0.2), value: web.libPane)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        Text("Library").font(.serif(20, .semibold)).foregroundStyle(T.ink)
+                        Spacer()
+                        if m.admin && web.libPane == "club" {
+                            Button { let c = m.current.first; editing = UpdateDraft(title: c.map { lshort($0.title) } ?? "", author: c?.author ?? "", cover: c?.cover?.absoluteString, bookURL: c?.bookURL, place: c?.place ?? "") } label: {
+                                Text("Post update").font(.sans(13, .bold)).foregroundStyle(T.ink).padding(.horizontal, 14).frame(height: 30).background(Capsule().fill(Color(rgb: 0x0c0e08, 0.08)))
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20).frame(height: 50)
+                    HStack(spacing: 0) {
+                        ForEach([("mine", "My Library"), ("notes", "Notes"), ("club", "LOTM")], id: \.0) { v, t in
+                            let on = web.libPane == v
+                            Button { Haptic.tap(); web.setLibPane(v) } label: {
+                                Text(t).font(.sans(14, on ? .semibold : .regular)).foregroundStyle(T.ink).frame(maxWidth: .infinity).frame(height: 34)
+                                    .background(Capsule().fill(on ? T.card : .clear).shadow(color: .black.opacity(on ? 0.12 : 0), radius: 1.5, y: 1))
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(3).background(RoundedRectangle(cornerRadius: 20).fill(Color(rgb: 0x0c0e08, 0.08)))
+                    .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 4)
+                    .animation(.easeOut(duration: 0.2), value: web.libPane)
                     if web.libPane == "club" { club } else { mine }
                     Color.clear.frame(height: 130)
                 }

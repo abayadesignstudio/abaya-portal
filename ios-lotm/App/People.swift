@@ -35,20 +35,20 @@ struct DirectoryScreen: View {
     }
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("Directory").font(.serif(20, .semibold)).foregroundStyle(T.ink)
-                Spacer()
-                Text("\(people.count) \(people.count == 1 ? "member" : "members")").font(.sans(14)).foregroundStyle(T.muted)
-            }
-            .padding(.horizontal, 20).frame(height: 50)
-            HStack(spacing: 8) {
-                GlyphView(n: "search", s: 18).foregroundStyle(T.muted)
-                TextField("", text: $q, prompt: Text("Search by name").foregroundColor(T.muted)).font(.sans(15)).foregroundStyle(T.ink).autocorrectionDisabled()
-            }
-            .padding(.horizontal, 12).frame(height: 40).background(RoundedRectangle(cornerRadius: 12).fill(Color(rgb: 0x0c0e08, 0.07)))
-            .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 4)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        Text("Directory").font(.serif(20, .semibold)).foregroundStyle(T.ink)
+                        Spacer()
+                        Text("\(people.count) \(people.count == 1 ? "member" : "members")").font(.sans(14)).foregroundStyle(T.muted)
+                    }
+                    .padding(.horizontal, 20).frame(height: 50)
+                    HStack(spacing: 8) {
+                        GlyphView(n: "search", s: 18).foregroundStyle(T.muted)
+                        TextField("", text: $q, prompt: Text("Search by name").foregroundColor(T.muted)).font(.sans(15)).foregroundStyle(T.ink).autocorrectionDisabled()
+                    }
+                    .padding(.horizontal, 12).frame(height: 40).background(RoundedRectangle(cornerRadius: 12).fill(Color(rgb: 0x0c0e08, 0.07)))
+                    .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 4)
                     let list = shown
                     ForEach(Array(list.enumerated()), id: \.element.id) { i, p in
                         if q.isEmpty && (i == 0 || list[i - 1].letter != p.letter) {
