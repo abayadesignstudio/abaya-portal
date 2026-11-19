@@ -71,6 +71,7 @@ final class ChatSession: ObservableObject {
     @Published var convos: [Convo] = []
     @Published var busy = false
     @Published var problem: String?
+    @Published var admin = false
     weak var web: WKWebView?
     private(set) var a: SupaAuth?
     var db: Supa? { a.map { Supa(a: $0) } }
@@ -118,13 +119,14 @@ final class ChatSession: ObservableObject {
     }
 
     func loadPeople() async throws {
-        async let P = db!.rows("/rest/v1/profiles?status=eq.approved&select=id,display_name,avatar_url")
+        async let P = db!.rows("/rest/v1/profiles?status=eq.approved&select=id,display_name,avatar_url,role")
         async let K = db!.rows("/rest/v1/chat_keys?select=user_id,agree_key,sign_key")
         let (ps, ks) = try await (P, K)
         var out: [String: CMember] = [:]
         for p in ps { guard let i = p["id"] as? String else { continue }; out[i] = CMember(id: i, name: p["display_name"] as? String ?? "Member", avatar: (p["avatar_url"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }) }
         for k in ks { if let i = k["user_id"] as? String, out[i] != nil { out[i]!.agree = k["agree_key"] as? String; out[i]!.sign = k["sign_key"] as? String } }
         people = out
+        admin = ps.first { $0["id"] as? String == me }?["role"] as? String == "administrator"
     }
 
     /// Your conversations, newest first, each with how many messages came since you last read it.
@@ -385,7 +387,7 @@ final class ChatModel: ObservableObject {
 
     func delete(_ m: CMsg) async {
         guard let db else { return }
-        _ = try? await db.req("PATCH", "/rest/v1/messages?id=eq.\(m.id)&user_id=eq.\(me)", json: ["deleted_at": ISO8601DateFormatter().string(from: Date()), "ciphertext": NSNull()], prefer: "return=minimal")
+        _ = try? await db.req("PATCH", "/rest/v1/messages?id=eq.\(m.id)" + (m.userId == me ? "&user_id=eq.\(me)" : ""), json: ["deleted_at": ISO8601DateFormatter().string(from: Date()), "ciphertext": NSNull()], prefer: "return=minimal")
         if let p = m.att?.path { _ = try? await db.req("DELETE", "/storage/v1/object/chat-sealed/\(p)") }
         cache[m.id]?.deleted = true; await refresh()
     }
@@ -643,6 +645,8 @@ struct ChatScreen: View {
     @State private var picking = false
     @State private var filing = false
     @State private var polling = false
+    @State private var gifs = false
+    @State private var deleting: CMsg?
     @State private var preview: URL?
     @State private var opening: String?
     @State private var replyTo: CMsg?
@@ -666,6 +670,10 @@ struct ChatScreen: View {
         .task { await m.start() }
         .onDisappear { m.stop(); Task { await m.s.loadConvos() } }
         .sheet(isPresented: $info) { ChatInfo(m: m) { close() } }
+        .sheet(isPresented: $gifs) { GifPicker(db: m.s.db) { d in attach = Outgoing(data: d, name: "Animation.gif", mime: "image/gif", thumb: UIImage(data: d)) } }
+        .confirmationDialog("Delete this message for everyone?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { if let d = deleting { Task { await m.delete(d) } } }
+        }
         .sheet(isPresented: $polling) { PollMaker { q, o in Task { await m.sendPoll(q, o) } } }
         .quickLookPreview($preview)
         .photosPicker(isPresented: $picking, selection: $pick, matching: .any(of: [.images, .videos]))
@@ -892,7 +900,7 @@ struct ChatScreen: View {
         Divider()
         Button { replyTo = msg; typing = true } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
         if !msg.text.isEmpty { Button { UIPasteboard.general.string = msg.text } label: { Label("Copy", systemImage: "doc.on.doc") } }
-        if mine { Button(role: .destructive) { Task { await m.delete(msg) } } label: { Label("Delete", systemImage: "trash") } }
+        if mine || m.s.admin { Button(role: .destructive) { deleting = msg } label: { Label(mine ? "Delete" : "Delete (administrator)", systemImage: "trash") } }
     }
 
     private func stamp(_ d: Date) -> String {
@@ -924,7 +932,8 @@ struct ChatScreen: View {
             }
             HStack(alignment: .bottom, spacing: 6) {
                 Menu {
-                    Button { picking = true } label: { Label("Photo, GIF or video", systemImage: "photo.on.rectangle") }
+                    Button { picking = true } label: { Label("Photo or video", systemImage: "photo.on.rectangle") }
+                    Button { typing = false; gifs = true } label: { Label("GIF", systemImage: "sparkles.rectangle.stack") }
                     Button { filing = true } label: { Label("File", systemImage: "doc") }
                     Button { typing = false; polling = true } label: { Label("Poll", systemImage: "chart.bar") }
                 } label: {
@@ -1099,5 +1108,98 @@ private struct ChatInfo: View {
         }
         .preferredColorScheme(.dark).tint(T.ink)
         .onChange(of: m.s.convos) { _, cs in if let c = cs.first(where: { $0.id == m.c.id }) { m.c.members = c.members } }
+    }
+}
+
+// MARK: - GIF search (GIPHY, asked through the club's server so the key stays off the phone)
+
+private struct GifHit: Identifiable { let id: String, preview: URL, url: URL, w: CGFloat, h: CGFloat }
+
+private struct GifPicker: View {
+    let db: Supa?
+    let pick: (Data) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var q = ""
+    @State private var hits: [GifHit] = []
+    @State private var note: String?
+    @State private var loading = false
+    @State private var fetching: String?
+    @State private var run = 0
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                TextField("", text: $q, prompt: Text("Search GIPHY").foregroundColor(T.muted))
+                    .font(.sans(16)).foregroundStyle(T.ink).autocorrectionDisabled().submitLabel(.search)
+                    .padding(.horizontal, 14).frame(height: 42)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 12).stroke(T.border))
+                    .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 8)
+                ScrollView {
+                    if let note { Text(note).font(.sans(14)).foregroundStyle(T.muted).multilineTextAlignment(.center).padding(32) }
+                    else if loading && hits.isEmpty { ProgressView().tint(T.muted).padding(40) }
+                    HStack(alignment: .top, spacing: 6) {
+                        ForEach(0..<2, id: \.self) { col in
+                            LazyVStack(spacing: 6) {
+                                ForEach(Array(hits.enumerated()).filter { $0.offset % 2 == col }.map(\.element)) { g in
+                                    Button { choose(g) } label: {
+                                        GifThumb(url: g.preview).aspectRatio(g.w / max(g.h, 1), contentMode: .fit)
+                                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                                            .overlay { if fetching == g.id { Color.black.opacity(0.4).clipShape(RoundedRectangle(cornerRadius: 10)); ProgressView().tint(.white) } }
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    Text("Powered by GIPHY").font(.sans(11, .semibold)).tracking(0.6).foregroundStyle(T.muted).padding(.vertical, 16)
+                }
+                .scrollDismissesKeyboard(.immediately)
+            }
+            .background(T.paper.ignoresSafeArea())
+            .navigationTitle("GIFs").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }
+        .preferredColorScheme(.dark).tint(T.ink)
+        .task(id: q) {
+            // wait for a pause in typing, then search (nothing typed: what's trending)
+            if !q.isEmpty { try? await Task.sleep(nanoseconds: 450_000_000) }
+            if Task.isCancelled { return }
+            await search()
+        }
+    }
+    private func search() async {
+        guard let db else { note = "You’re not signed in."; return }
+        loading = true; defer { loading = false }
+        let term = q.trimmingCharacters(in: .whitespaces).addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        do {
+            let d = try await db.req("GET", "/functions/v1/gif-search?q=\(term)")
+            let list = ((try? JSONSerialization.jsonObject(with: d)) as? [String: Any])?["gifs"] as? [[String: Any]] ?? []
+            hits = list.compactMap { g in
+                guard let i = g["id"] as? String, let p = (g["preview"] as? String).flatMap(URL.init(string:)), let u = (g["url"] as? String).flatMap(URL.init(string:)) else { return nil }
+                return GifHit(id: i, preview: p, url: u, w: CGFloat(g["w"] as? Double ?? 100), h: CGFloat(g["h"] as? Double ?? 100))
+            }
+            note = hits.isEmpty ? "Nothing found." : nil
+        } catch {
+            hits = []
+            note = error.localizedDescription.contains("503") ? "GIF search isn’t set up yet. An administrator needs to add the club’s GIPHY key." : "GIF search isn’t available right now."
+        }
+    }
+    private func choose(_ g: GifHit) {
+        guard fetching == nil else { return }
+        fetching = g.id; Haptic.tap()
+        Task {
+            if let (d, _) = try? await URLSession.shared.data(from: g.url), d.count > 0 { pick(d); dismiss() } else { note = "Couldn’t fetch that GIF." }
+            fetching = nil
+        }
+    }
+}
+
+/// A small moving preview in the picker.
+private struct GifThumb: View {
+    let url: URL
+    @State private var img: UIImage?
+    var body: some View {
+        ZStack { T.card; if let img { GIFView(img: img) } }
+            .task(id: url) { if let (d, _) = try? await URLSession.shared.data(from: url) { img = animatedGIF(d) } }
     }
 }
