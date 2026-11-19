@@ -46,9 +46,13 @@ struct Shell: View {
                     if web.tab == .people { DirectoryScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(page) }
                     if web.tab == .settings { SettingsScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(page) }
                     WebView(model: web).ignoresSafeArea()
-                        .padding(.top, asPane ? LibraryScreen.tabsHeight : 0)
-                        .offset(x: asPane ? (1 - LibraryScreen.paneIndex(web.libPane)) * W : 0)
-                        .animation(asPane ? LibraryScreen.slide : nil, value: web.libPane)
+                        // Under the Library's tabs as its middle pane. It keeps that place on every tab (unseen), so coming
+                        // to the Library never moves it sideways; only a web page over the app takes the whole screen.
+                        .padding(.top, overlay ? 0 : LibraryScreen.tabsHeight)
+                        .offset(x: overlay ? 0 : (1 - LibraryScreen.paneIndex(web.libPane)) * W)
+                        .animation(nil, value: overlay)
+                        .animation(nil, value: web.tab)
+                        .animation(LibraryScreen.slide, value: web.libPane)
                         .opacity(showWeb ? 1 : 0).allowsHitTesting(overlay || (asPane && web.libPane == "notes"))
                 }
             }
