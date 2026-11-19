@@ -518,44 +518,48 @@ struct Shelf: View {
     }
 }
 
-/// The back of your own book: a page wheel and a check to log it, or a button to start it.
+/// The back of your own book: a page wheel (the page is logged a moment after the wheel comes to rest), or a button
+/// to start it; the book's menu sits at the foot. Tap the card, or move to another book, to turn it back.
 private struct CoverBack: View {
     let r: LRead
     @ObservedObject var m: LibraryModel
     let close: () -> Void
     @State private var n: Int
     @State private var confirmRemove = false
+    @State private var pending: Task<Void, Never>?
     init(r: LRead, m: LibraryModel, close: @escaping () -> Void) { self.r = r; self.m = m; self.close = close; _n = State(initialValue: r.page) }
     private var maxPage: Int { r.total ?? max(1000, r.page + 500) }
     private let dark = Color(rgb: 0x20231a)
     var body: some View {
-        ZStack(alignment: .top) {
+        VStack(spacing: 0) {
             if r.status == "reading" || r.status == "paused" {
-                VStack(spacing: 2) {
-                    Picker("Page", selection: $n) { ForEach(0...maxPage, id: \.self) { Text("\($0)").font(.serif(21, .semibold)).foregroundStyle(dark) } }
-                        .pickerStyle(.wheel).frame(width: 100, height: 118).clipped().environment(\.colorScheme, .light)
-                    Text(r.total.map { "of \($0)" } ?? "page").font(.sans(12)).foregroundStyle(Color(rgb: 0x6b6e55))
-                    Button { let p = n; close(); Task { await m.log(r, p) } } label: {
-                        Image(systemName: "checkmark").font(.system(size: 15, weight: .bold)).foregroundStyle(T.cream).frame(width: 36, height: 36).background(Circle().fill(T.paper))
-                    }
-                    .disabled(n == r.page).opacity(n == r.page ? 0.35 : 1).padding(.top, 4).accessibilityLabel("Log page \(n)")
-                }
-                .padding(.top, 14)
+                Spacer(minLength: 0)
+                Picker("Page", selection: $n) { ForEach(0...maxPage, id: \.self) { Text("\($0)").font(.serif(21, .semibold)).foregroundStyle(dark) } }
+                    .pickerStyle(.wheel).frame(width: 100, height: 124).clipped().environment(\.colorScheme, .light)
+                Text(r.total.map { "of \($0)" } ?? "page").font(.sans(12)).foregroundStyle(Color(rgb: 0x6b6e55)).padding(.top, 2)
+                Spacer(minLength: 0)
             } else {
+                Spacer(minLength: 0)
                 Button { close(); Task { await m.setStatus(r, "reading") } } label: {
                     Text(r.status == "want" ? "Start reading" : "Read again").font(.sans(14, .bold)).foregroundStyle(T.cream).frame(maxWidth: .infinity).frame(height: 40).background(Capsule().fill(T.paper))
                 }
-                .padding(.horizontal, 14).frame(maxHeight: .infinity)
+                .padding(.horizontal, 14)
+                Spacer(minLength: 0)
             }
-            HStack {
-                Button(action: close) { Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(dark.opacity(0.6)).frame(width: 28, height: 28) }
-                Spacer()
-                Menu {
-                    if r.status != "finished" { Button { close(); Task { await m.setStatus(r, "finished") } } label: { Label("Mark complete", systemImage: "checkmark") } }
-                    Button { UIApplication.shared.open(amazon(r.title, r.author, r.bookURL)) } label: { Label("Amazon", systemImage: "arrow.up.right") }
-                    Button(role: .destructive) { confirmRemove = true } label: { Label("Remove", systemImage: "trash") }
-                } label: { Image(systemName: "ellipsis").font(.system(size: 14, weight: .bold)).foregroundStyle(dark.opacity(0.7)).frame(width: 28, height: 28) }
-            }
+            Menu {
+                if r.status != "finished" { Button { close(); Task { await m.setStatus(r, "finished") } } label: { Label("Mark complete", systemImage: "checkmark") } }
+                Button { UIApplication.shared.open(amazon(r.title, r.author, r.bookURL)) } label: { Label("Amazon", systemImage: "arrow.up.right") }
+                Button(role: .destructive) { confirmRemove = true } label: { Label("Remove", systemImage: "trash") }
+            } label: { Image(systemName: "ellipsis").font(.system(size: 16, weight: .bold)).foregroundStyle(dark.opacity(0.7)).frame(width: 56, height: 34).contentShape(Rectangle()) }
+            .padding(.bottom, 6).accessibilityLabel("More for this book")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture { close() }
+        .onChange(of: n) { _, page in
+            pending?.cancel()
+            guard page != r.page else { return }
+            pending = Task { try? await Task.sleep(nanoseconds: 900_000_000); if !Task.isCancelled { await m.log(r, page) } }
         }
         .confirmationDialog("Remove this book from your library?", isPresented: $confirmRemove, titleVisibility: .visible) {
             Button("Remove", role: .destructive) { close(); Task { await m.remove(r) } }
