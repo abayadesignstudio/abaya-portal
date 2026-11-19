@@ -2,14 +2,58 @@ import SwiftUI
 import PhotosUI
 import CryptoKit
 import WebKit
+import ImageIO
+import QuickLook
+import UniformTypeIdentifiers
 
 // Chat: the club's chat, one-to-one messages and small groups — all end-to-end encrypted (see ChatCrypto.swift).
 // Only in the iPhone app.
 
 struct CMsg: Identifiable, Equatable {
     let id: String, userId: String, created: Date
-    var epoch = 0, text = "", replyTo: String? = nil, image: String? = nil
+    var epoch = 0, text = "", replyTo: String? = nil
     var deleted = false, unreadable = false, unverified = false
+    var att: CAtt? = nil, poll: CPoll? = nil
+    /// emoji → who reacted; member → the poll option they chose
+    var reacts: [String: [String]] = [:], votes: [String: Int] = [:]
+    // reactions and votes are messages too (encrypted like the rest); they are folded into their target, not shown
+    var ctl: String? = nil, target: String? = nil, emoji: String? = nil, option: Int? = nil
+}
+struct CAtt: Equatable { let path: String, name: String, mime: String, size: Int
+    var isImage: Bool { mime.hasPrefix("image/") }
+    var isVideo: Bool { mime.hasPrefix("video/") }
+}
+struct CPoll: Equatable { let q: String, opts: [String] }
+/// Something about to be sent with a message: a photo, GIF, video or any file.
+struct Outgoing { let data: Data, name: String, mime: String; var thumb: UIImage? = nil }
+
+func shrinkJPEG(_ img: UIImage) -> Data? {
+    let longSide = max(img.size.width, img.size.height), sc = min(1, 2048 / max(longSide, 1))
+    let size = CGSize(width: (img.size.width * sc).rounded(), height: (img.size.height * sc).rounded())
+    let f = UIGraphicsImageRendererFormat(); f.scale = 1
+    return UIGraphicsImageRenderer(size: size, format: f).image { _ in img.draw(in: CGRect(origin: .zero, size: size)) }.jpegData(compressionQuality: 0.82)
+}
+/// A GIF's frames as one animated image.
+func animatedGIF(_ d: Data) -> UIImage? {
+    guard let src = CGImageSourceCreateWithData(d as CFData, nil) else { return nil }
+    let n = CGImageSourceGetCount(src); guard n > 1 else { return UIImage(data: d) }
+    var frames: [UIImage] = [], total = 0.0
+    for i in 0..<min(n, 150) {
+        guard let cg = CGImageSourceCreateImageAtIndex(src, i, nil) else { continue }
+        let g = (CGImageSourceCopyPropertiesAtIndex(src, i, nil) as? [CFString: Any])?[kCGImagePropertyGIFDictionary] as? [CFString: Any]
+        let t = (g?[kCGImagePropertyGIFUnclampedDelayTime] as? Double) ?? (g?[kCGImagePropertyGIFDelayTime] as? Double) ?? 0.1
+        total += t < 0.02 ? 0.1 : t; frames.append(UIImage(cgImage: cg))
+    }
+    return UIImage.animatedImage(with: frames, duration: total)
+}
+struct GIFView: UIViewRepresentable {
+    let img: UIImage
+    func makeUIView(context: Context) -> UIImageView {
+        let v = UIImageView(); v.contentMode = .scaleAspectFill; v.clipsToBounds = true
+        for ax in [NSLayoutConstraint.Axis.horizontal, .vertical] { v.setContentHuggingPriority(.defaultLow, for: ax); v.setContentCompressionResistancePriority(.defaultLow, for: ax) }
+        return v
+    }
+    func updateUIView(_ v: UIImageView, context: Context) { if v.image !== img { v.image = img; v.startAnimating() } }
 }
 struct CMember { let id: String, name: String, avatar: URL?; var agree: String? = nil, sign: String? = nil }
 struct Convo: Identifiable, Equatable {
@@ -255,59 +299,114 @@ final class ChatModel: ObservableObject {
             if keys[latest] != nil { try? await maintain(); if stage == .waiting { stage = .ready } }
         }
         guard let rows = try? await db.rows("/rest/v1/messages?conversation_id=eq.\(conv)&select=id,user_id,ciphertext,epoch,signature,created_at,deleted_at&order=created_at.desc&limit=300") else { return }
-        var out: [CMsg] = []
+        var all: [CMsg] = []
         for r in rows.reversed() {
             guard let mid = r["id"] as? String else { continue }
             let deleted = !(r["deleted_at"] is NSNull) && r["deleted_at"] != nil
-            if var x = cache[mid] { if deleted && !x.deleted { x.deleted = true; x.text = ""; cache[mid] = x }; out.append(cache[mid]!); continue }
+            if var x = cache[mid] { if deleted && !x.deleted { x.deleted = true; x.text = ""; x.att = nil; x.poll = nil; cache[mid] = x }; all.append(cache[mid]!); continue }
             var m = CMsg(id: mid, userId: r["user_id"] as? String ?? "", created: parseDate(r["created_at"]), epoch: r["epoch"] as? Int ?? 0, deleted: deleted)
             if !deleted {
                 if let e = r["epoch"] as? Int, let k = keys[e], let ct = r["ciphertext"] as? String, let d = Data(base64Encoded: ct),
                    let pd = try? ChatCrypto.decrypt(d, key: k, aad: "lotm-chat-msg|\(conv)|\(e)"),
                    let p = (try? JSONSerialization.jsonObject(with: pd)) as? [String: Any], (p["id"] as? String)?.lowercased() == mid.lowercased() {
-                    m.text = p["t"] as? String ?? ""; m.replyTo = p["r"] as? String; m.image = p["img"] as? String
+                    m.text = p["t"] as? String ?? ""; m.replyTo = p["r"] as? String
+                    if let a = p["att"] as? [String: Any], let path = a["p"] as? String {
+                        m.att = CAtt(path: path, name: a["n"] as? String ?? "File", mime: a["m"] as? String ?? "application/octet-stream", size: a["s"] as? Int ?? 0)
+                    } else if let path = p["img"] as? String { m.att = CAtt(path: path, name: "Photo.jpg", mime: "image/jpeg", size: 0) }
+                    if let q = p["poll"] as? [String: Any], let o = q["o"] as? [String] { m.poll = CPoll(q: q["q"] as? String ?? "", opts: o) }
+                    m.ctl = p["k"] as? String; m.target = (p["m"] as? String)?.lowercased(); m.emoji = p["e"] as? String; m.option = p["o"] as? Int
                     m.unverified = !ChatCrypto.verify(r["signature"] as? String ?? "", ChatCrypto.msgText(conv: conv, epoch: e, user: m.userId, id: mid, ct: ct), signer: s.people[m.userId]?.sign)
                 } else { m.unreadable = true }
             }
             if !m.unreadable { cache[mid] = m }
-            out.append(m)
+            all.append(m)
         }
+        // fold reactions (each one toggles) and votes (the latest wins) into the messages they point at
+        var reacts: [String: [String: [String]]] = [:], votes: [String: [String: Int]] = [:]
+        for x in all where !x.deleted && !x.unreadable && !x.unverified {
+            guard let t = x.target else { continue }
+            if x.ctl == "react", let e = x.emoji {
+                var l = reacts[t]?[e] ?? []
+                if let k = l.firstIndex(of: x.userId) { l.remove(at: k) } else { l.append(x.userId) }
+                reacts[t, default: [:]][e] = l.isEmpty ? nil : l
+            } else if x.ctl == "vote", let o = x.option { votes[t, default: [:]][x.userId] = o < 0 ? nil : o }
+        }
+        let out: [CMsg] = all.filter { $0.ctl == nil }.map { var y = $0; y.reacts = reacts[y.id.lowercased()] ?? [:]; y.votes = votes[y.id.lowercased()] ?? [:]; return y }
         if out != msgs { msgs = out; markRead() }
     }
 
-    func send(_ text: String, image: UIImage?, replyTo: String?) async -> Bool {
-        guard let db, let id = s.id, let k = keys[latest] else { return false }
+    /// Seal, sign and post one message. Quiet ones (reactions, votes) ask the server not to notify anyone.
+    private func post(_ p0: [String: Any], mid: String = UUID().uuidString.lowercased(), epoch: Int? = nil, quiet: Bool = false) async throws {
+        let e = epoch ?? latest
+        guard let db, let id = s.id, let k = keys[e] else { throw ChatError("This chat isn’t unlocked yet.") }
+        var p = p0; p["id"] = mid
+        let ct = try ChatCrypto.encrypt(try JSONSerialization.data(withJSONObject: p), key: k, aad: "lotm-chat-msg|\(conv)|\(e)").base64EncodedString()
+        let sig = try id.sign.signature(for: ChatCrypto.msgText(conv: conv, epoch: e, user: me, id: mid, ct: ct)).base64EncodedString()
+        var row: [String: Any] = ["id": mid, "conversation_id": conv, "user_id": me, "ciphertext": ct, "epoch": e, "signature": sig]
+        if quiet {
+            row["quiet"] = true
+            if (try? await db.req("POST", "/rest/v1/messages", json: row, prefer: "return=minimal")) != nil { return }
+            row["quiet"] = nil   // a server that doesn't know "quiet" yet
+        }
+        try await db.req("POST", "/rest/v1/messages", json: row, prefer: "return=minimal")
+    }
+
+    func send(_ text: String, attach: Outgoing?, replyTo: String?) async -> Bool {
+        guard let db, let k = keys[latest] else { return false }
         busy = true; defer { busy = false }
         let mid = UUID().uuidString.lowercased(), e = latest
         do {
-            var p: [String: Any] = ["id": mid, "t": text]
+            var p: [String: Any] = ["t": text]
             if let replyTo { p["r"] = replyTo }
-            if let image, let jpg = shrink(image) {
+            if let attach {
+                guard attach.data.count <= 45_000_000 else { throw ChatError("That’s too large to send (45 MB at most).") }
                 let path = "\(me)/\(mid).bin"
-                try await db.req("POST", "/storage/v1/object/chat-sealed/\(path)", raw: try ChatCrypto.encrypt(jpg, key: k, aad: "lotm-chat-img|\(conv)|\(e)|\(path)"), type: "application/octet-stream")
-                p["img"] = path; images[path] = UIImage(data: jpg)
+                try await db.req("POST", "/storage/v1/object/chat-sealed/\(path)", raw: try ChatCrypto.encrypt(attach.data, key: k, aad: "lotm-chat-img|\(conv)|\(e)|\(path)"), type: "application/octet-stream")
+                p["att"] = ["p": path, "n": attach.name, "m": attach.mime, "s": attach.data.count]
+                if attach.mime.hasPrefix("image/") { images[path] = attach.mime == "image/gif" ? animatedGIF(attach.data) : UIImage(data: attach.data) }
             }
-            let ct = try ChatCrypto.encrypt(try JSONSerialization.data(withJSONObject: p), key: k, aad: "lotm-chat-msg|\(conv)|\(e)").base64EncodedString()
-            let sig = try id.sign.signature(for: ChatCrypto.msgText(conv: conv, epoch: e, user: me, id: mid, ct: ct)).base64EncodedString()
-            try await db.req("POST", "/rest/v1/messages", json: ["id": mid, "conversation_id": conv, "user_id": me, "ciphertext": ct, "epoch": e, "signature": sig], prefer: "return=minimal")
+            try await post(p, mid: mid, epoch: e)
             Haptic.tap()
             await refresh(); return true
         } catch { problem = error.localizedDescription; return false }
     }
 
+    func sendPoll(_ q: String, _ opts: [String]) async {
+        do { try await post(["t": "", "poll": ["q": q, "o": opts]]); Haptic.tap(); await refresh() } catch { problem = error.localizedDescription }
+    }
+    func react(_ m: CMsg, _ e: String) async {
+        Haptic.tap()
+        do { try await post(["k": "react", "m": m.id.lowercased(), "e": e], quiet: true); await refresh() } catch { problem = error.localizedDescription }
+    }
+    func vote(_ m: CMsg, _ o: Int) async {
+        Haptic.tap()
+        do { try await post(["k": "vote", "m": m.id.lowercased(), "o": m.votes[me] == o ? -1 : o], quiet: true); await refresh() } catch { problem = error.localizedDescription }
+    }
+
     func delete(_ m: CMsg) async {
         guard let db else { return }
         _ = try? await db.req("PATCH", "/rest/v1/messages?id=eq.\(m.id)&user_id=eq.\(me)", json: ["deleted_at": ISO8601DateFormatter().string(from: Date()), "ciphertext": NSNull()], prefer: "return=minimal")
-        if let p = m.image { _ = try? await db.req("DELETE", "/storage/v1/object/chat-sealed/\(p)") }
+        if let p = m.att?.path { _ = try? await db.req("DELETE", "/storage/v1/object/chat-sealed/\(p)") }
         cache[m.id]?.deleted = true; await refresh()
     }
 
+    /// An attachment, fetched and opened with the key of the message it came with.
+    private func data(_ m: CMsg) async -> Data? {
+        guard let a = m.att, let db, let k = keys[m.epoch], let d = try? await db.req("GET", "/storage/v1/object/authenticated/chat-sealed/\(a.path)") else { return nil }
+        return try? ChatCrypto.decrypt(d, key: k, aad: "lotm-chat-img|\(conv)|\(m.epoch)|\(a.path)")
+    }
     func photo(_ m: CMsg) async {
-        // the photo is sealed under the same key as its message
-        guard let p = m.image, images[p] == nil, let db, let k = keys[m.epoch],
-              let d = try? await db.req("GET", "/storage/v1/object/authenticated/chat-sealed/\(p)"),
-              let jpg = try? ChatCrypto.decrypt(d, key: k, aad: "lotm-chat-img|\(conv)|\(m.epoch)|\(p)"), let img = UIImage(data: jpg) else { return }
-        images[p] = img
+        guard let a = m.att, a.isImage, images[a.path] == nil, let d = await data(m) else { return }
+        images[a.path] = a.mime == "image/gif" ? animatedGIF(d) : UIImage(data: d)
+    }
+    /// A video or file, opened into a temporary copy on this phone so it can be viewed.
+    func file(_ m: CMsg) async -> URL? {
+        guard let a = m.att, let d = await data(m) else { return nil }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lotm-chat/\(m.id)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let name = a.name.replacingOccurrences(of: "/", with: "-")
+        let u = dir.appendingPathComponent(name.isEmpty ? "File" : name)
+        do { try d.write(to: u, options: .completeFileProtection); return u } catch { return nil }
     }
 
     func setMuted(_ v: Bool) async {
@@ -324,12 +423,6 @@ final class ChatModel: ObservableObject {
         }
     }
 
-    private func shrink(_ img: UIImage) -> Data? {
-        let longSide = max(img.size.width, img.size.height), sc = min(1, 2048 / max(longSide, 1))
-        let size = CGSize(width: (img.size.width * sc).rounded(), height: (img.size.height * sc).rounded())
-        let f = UIGraphicsImageRendererFormat(); f.scale = 1
-        return UIGraphicsImageRenderer(size: size, format: f).image { _ in img.draw(in: CGRect(origin: .zero, size: size)) }.jpegData(compressionQuality: 0.82)
-    }
 }
 
 /// How many messages arrived since you last read each of your chats (for the badge on the dock's chat button).
@@ -545,8 +638,13 @@ struct ChatScreen: View {
     @StateObject var m: ChatModel
     @Environment(\.closeScreen) private var close
     @State private var text = ""
-    @State private var image: UIImage?
+    @State private var attach: Outgoing?
     @State private var pick: PhotosPickerItem?
+    @State private var picking = false
+    @State private var filing = false
+    @State private var polling = false
+    @State private var preview: URL?
+    @State private var opening: String?
     @State private var replyTo: CMsg?
     @State private var info = false
     @State private var zoom: UIImage?
@@ -568,6 +666,33 @@ struct ChatScreen: View {
         .task { await m.start() }
         .onDisappear { m.stop(); Task { await m.s.loadConvos() } }
         .sheet(isPresented: $info) { ChatInfo(m: m) { close() } }
+        .sheet(isPresented: $polling) { PollMaker { q, o in Task { await m.sendPoll(q, o) } } }
+        .quickLookPreview($preview)
+        .photosPicker(isPresented: $picking, selection: $pick, matching: .any(of: [.images, .videos]))
+        .onChange(of: pick) { _, it in
+            guard let it else { return }
+            Task {
+                let types = it.supportedContentTypes
+                if let d = try? await it.loadTransferable(type: Data.self) {
+                    if let v = types.first(where: { $0.conforms(to: .movie) }) {
+                        attach = Outgoing(data: d, name: "Video.\(v.preferredFilenameExtension ?? "mov")", mime: v.preferredMIMEType ?? "video/quicktime")
+                    } else if types.contains(where: { $0.conforms(to: .gif) }) {
+                        attach = Outgoing(data: d, name: "Animation.gif", mime: "image/gif", thumb: UIImage(data: d))
+                    } else if let img = UIImage(data: d), let jpg = shrinkJPEG(img) {
+                        attach = Outgoing(data: jpg, name: "Photo.jpg", mime: "image/jpeg", thumb: img)
+                    }
+                }
+                pick = nil
+            }
+        }
+        .fileImporter(isPresented: $filing, allowedContentTypes: [.item]) { res in
+            guard case .success(let u) = res else { return }
+            let ok = u.startAccessingSecurityScopedResource(); defer { if ok { u.stopAccessingSecurityScopedResource() } }
+            guard let d = try? Data(contentsOf: u) else { m.problem = "Couldn’t read that file."; return }
+            let t = UTType(filenameExtension: u.pathExtension)
+            let mime = t?.preferredMIMEType ?? "application/octet-stream"
+            attach = Outgoing(data: d, name: u.lastPathComponent, mime: mime, thumb: mime.hasPrefix("image/") ? UIImage(data: d) : nil)
+        }
         .fullScreenCover(item: Binding(get: { zoom.map { ZoomBox(img: $0) } }, set: { zoom = $0?.img })) { z in
             ZoomImageView(img: z.img) { zoom = nil }
         }
@@ -647,35 +772,110 @@ struct ChatScreen: View {
             if msg.deleted || msg.unreadable {
                 bubble(mine: mine) { Text(msg.deleted ? "Message deleted" : "Sent before you joined").italic().opacity(0.55) }
             } else {
-                if let p = msg.image {
-                    Group {
-                        if let img = m.images[p] {
-                            Image(uiImage: img).resizable().scaledToFit().frame(maxWidth: 250, maxHeight: 320).clipShape(RoundedRectangle(cornerRadius: 16))
-                                .onTapGesture { zoom = img }
-                        } else {
-                            RoundedRectangle(cornerRadius: 16).fill(T.card).frame(width: 200, height: 150).overlay(ProgressView().tint(T.muted))
-                                .task { await m.photo(msg) }
-                        }
-                    }
-                    .contextMenu { menu(msg, mine) }
+                if let a = msg.att {
+                    Group { if a.isImage { picture(msg, a) } else { fileCard(msg, a) } }
+                        .onTapGesture(count: 2) { Task { await m.react(msg, "❤️") } }
+                        .contextMenu { menu(msg, mine) }
                 }
-                if !msg.text.isEmpty || parent != nil {
+                if let p = msg.poll { pollCard(msg, p).contextMenu { menu(msg, mine) } }
+                if !msg.text.isEmpty || (parent != nil && msg.att == nil && msg.poll == nil) {
                     bubble(mine: mine) {
                         VStack(alignment: .leading, spacing: 4) {
                             if let parent {
-                                Text(parent.deleted ? "Message deleted" : parent.text.isEmpty ? "Photo" : String(parent.text.prefix(80)))
+                                Text(parent.deleted ? "Message deleted" : !parent.text.isEmpty ? String(parent.text.prefix(80)) : parent.poll != nil ? "Poll" : parent.att?.name ?? "Attachment")
                                     .font(.sans(14)).opacity(0.7).lineLimit(2).padding(.leading, 6)
                                     .overlay(alignment: .leading) { Rectangle().frame(width: 2).opacity(0.7) }
                             }
                             if !msg.text.isEmpty { Text(linked(msg.text)) }
                         }
                     }
+                    .onTapGesture(count: 2) { Task { await m.react(msg, "❤️") } }
                     .contextMenu { menu(msg, mine) }
+                }
+                if !msg.reacts.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(msg.reacts.keys.sorted(), id: \.self) { e in
+                            let who = msg.reacts[e] ?? []
+                            Button { Task { await m.react(msg, e) } } label: {
+                                Text("\(e) \(who.count)").font(.sans(12, .semibold)).foregroundStyle(T.ink).padding(.horizontal, 8).frame(height: 24)
+                                    .background(Capsule().fill(who.contains(m.me) ? Color.white.opacity(0.16) : T.card)).overlay(Capsule().stroke(T.rule))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("\(e), \(who.compactMap { m.s.people[$0]?.name }.joined(separator: ", "))")
+                        }
+                    }
+                    .padding(.horizontal, 4)
                 }
                 if msg.unverified { Text("Couldn’t confirm who sent this").font(.sans(11)).foregroundStyle(T.like).padding(.horizontal, 6) }
             }
         }
         .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
+    }
+
+    /// A photo or GIF, sized to fit; GIFs play.
+    @ViewBuilder private func picture(_ msg: CMsg, _ a: CAtt) -> some View {
+        if let img = m.images[a.path] {
+            let k = min(250 / max(img.size.width, 1), 320 / max(img.size.height, 1), 1)
+            let size = CGSize(width: max(60, img.size.width * k), height: max(60, img.size.height * k))
+            Group {
+                if img.images != nil { GIFView(img: img) } else { Image(uiImage: img).resizable().scaledToFill() }
+            }
+            .frame(width: size.width, height: size.height).clipShape(RoundedRectangle(cornerRadius: 16))
+            .onTapGesture { if img.images == nil { zoom = img } }
+        } else {
+            RoundedRectangle(cornerRadius: 16).fill(T.card).frame(width: 200, height: 150).overlay(ProgressView().tint(T.muted))
+                .task { await m.photo(msg) }
+        }
+    }
+
+    /// A video or any other file: a card that opens it.
+    private func fileCard(_ msg: CMsg, _ a: CAtt) -> some View {
+        Button {
+            guard opening == nil else { return }
+            opening = msg.id
+            Task { let u = await m.file(msg); opening = nil; if let u { preview = u } else { m.problem = "Couldn’t open that." } }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: a.isVideo ? "play.fill" : a.mime.hasPrefix("audio/") ? "waveform" : "doc.fill").font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(T.paper).frame(width: 40, height: 40).background(Circle().fill(T.ink))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(a.name).font(.sans(15, .semibold)).foregroundStyle(T.ink).lineLimit(1).truncationMode(.middle)
+                    Text(ByteCountFormatter.string(fromByteCount: Int64(a.size), countStyle: .file)).font(.sans(12)).foregroundStyle(T.muted)
+                }
+                Spacer(minLength: 0)
+                if opening == msg.id { ProgressView().tint(T.muted) }
+            }
+            .padding(10).frame(width: 250)
+            .background(RoundedRectangle(cornerRadius: 16).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.rule))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// A poll: tap an option to vote, tap it again to take the vote back.
+    private func pollCard(_ msg: CMsg, _ p: CPoll) -> some View {
+        let total = max(msg.votes.count, 1), my = msg.votes[m.me]
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(p.q).font(.serif(18, .semibold)).foregroundStyle(T.ink).fixedSize(horizontal: false, vertical: true)
+            ForEach(Array(p.opts.enumerated()), id: \.offset) { i, o in
+                let n = msg.votes.values.filter { $0 == i }.count
+                Button { Task { await m.vote(msg, i) } } label: {
+                    HStack(spacing: 8) {
+                        Text(o).font(.sans(15, my == i ? .semibold : .regular)).foregroundStyle(T.ink).multilineTextAlignment(.leading)
+                        Spacer(minLength: 4)
+                        if my == i { Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundStyle(T.ink) }
+                        Text("\(n)").font(.sans(13)).foregroundStyle(T.muted).monospacedDigit()
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 9).frame(minHeight: 40)
+                    .background(alignment: .leading) { GeometryReader { g in Color.white.opacity(0.10).frame(width: g.size.width * CGFloat(n) / CGFloat(total)) } }
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(my == i ? T.ink : T.border))
+                }
+                .buttonStyle(.plain)
+            }
+            Text("\(msg.votes.count) \(msg.votes.count == 1 ? "vote" : "votes")").font(.sans(12)).foregroundStyle(T.muted)
+        }
+        .padding(14).frame(width: 270, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 18).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 18).stroke(T.rule))
     }
 
     private func bubble<C: View>(mine: Bool, @ViewBuilder _ c: () -> C) -> some View {
@@ -688,6 +888,8 @@ struct ChatScreen: View {
     }
 
     @ViewBuilder private func menu(_ msg: CMsg, _ mine: Bool) -> some View {
+        ForEach(["❤️", "👍", "😂", "😮", "🙏"], id: \.self) { e in Button(e) { Task { await m.react(msg, e) } } }
+        Divider()
         Button { replyTo = msg; typing = true } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
         if !msg.text.isEmpty { Button { UIPasteboard.general.string = msg.text } label: { Label("Copy", systemImage: "doc.on.doc") } }
         if mine { Button(role: .destructive) { Task { await m.delete(msg) } } label: { Label("Delete", systemImage: "trash") } }
@@ -698,36 +900,46 @@ struct ChatScreen: View {
     }
 
     private var bar: some View {
-        let ok = !(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && image == nil) && !m.busy
+        let ok = !(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attach == nil) && !m.busy
         return VStack(alignment: .leading, spacing: 6) {
             if let r = replyTo {
                 HStack {
-                    Text("Replying: \(r.text.isEmpty ? "Photo" : String(r.text.prefix(50)))").font(.sans(13)).foregroundStyle(T.muted).lineLimit(1)
+                    Text("Replying: \(!r.text.isEmpty ? String(r.text.prefix(50)) : r.poll != nil ? "Poll" : r.att?.name ?? "Attachment")").font(.sans(13)).foregroundStyle(T.muted).lineLimit(1)
                     Spacer()
                     Button { replyTo = nil } label: { Text("✕").font(.sans(14)).foregroundStyle(T.muted) }
                 }.padding(.horizontal, 6)
             }
-            if let image {
-                Image(uiImage: image).resizable().scaledToFill().frame(width: 84, height: 84).clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(alignment: .topTrailing) { Button { self.image = nil } label: { Text("×").font(.sans(15)).foregroundStyle(.white).frame(width: 22, height: 22).background(Circle().fill(.black.opacity(0.65))) }.padding(4) }
+            if let a = attach {
+                HStack(spacing: 8) {
+                    if let t = a.thumb { Image(uiImage: t).resizable().scaledToFill().frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 12)) }
+                    else { Image(systemName: a.mime.hasPrefix("video/") ? "play.fill" : "doc.fill").foregroundStyle(T.paper).frame(width: 40, height: 40).background(Circle().fill(T.ink)) }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(a.name).font(.sans(14, .semibold)).foregroundStyle(T.ink).lineLimit(1).truncationMode(.middle)
+                        Text(ByteCountFormatter.string(fromByteCount: Int64(a.data.count), countStyle: .file)).font(.sans(12)).foregroundStyle(T.muted)
+                    }
+                    Spacer(minLength: 0)
+                    Button { attach = nil } label: { Text("✕").font(.sans(14)).foregroundStyle(T.muted).frame(width: 32, height: 32) }
+                }
+                .padding(8).background(RoundedRectangle(cornerRadius: 14).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 14).stroke(T.rule))
             }
             HStack(alignment: .bottom, spacing: 6) {
-                PhotosPicker(selection: $pick, matching: .images) {
+                Menu {
+                    Button { picking = true } label: { Label("Photo, GIF or video", systemImage: "photo.on.rectangle") }
+                    Button { filing = true } label: { Label("File", systemImage: "doc") }
+                    Button { typing = false; polling = true } label: { Label("Poll", systemImage: "chart.bar") }
+                } label: {
                     GlyphView(n: "plus", s: 22).foregroundStyle(T.ink).frame(width: 40, height: 40).background(Circle().fill(Color.white.opacity(0.08)))
                 }
-                .onChange(of: pick) { _, it in
-                    guard let it else { return }
-                    Task { if let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) { image = img }; pick = nil }
-                }
+                .accessibilityLabel("Add a photo, file or poll")
                 TextField("", text: $text, prompt: Text("Message").foregroundColor(T.muted), axis: .vertical)
                     .font(.serif(16)).foregroundStyle(T.ink).lineLimit(1...6).focused($typing)
                     .padding(.horizontal, 14).padding(.vertical, 9).frame(minHeight: 40)
                     .background(RoundedRectangle(cornerRadius: 20).fill(T.card))
                     .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color(rgb: 0x54563c)))
                 Button {
-                    let t = text.trimmingCharacters(in: .whitespacesAndNewlines), img = image, r = replyTo?.id
-                    text = ""; image = nil; replyTo = nil
-                    Task { if !(await m.send(t, image: img, replyTo: r)) { text = t; image = img } }
+                    let t = text.trimmingCharacters(in: .whitespacesAndNewlines), a = attach, r = replyTo?.id
+                    text = ""; attach = nil; replyTo = nil
+                    Task { if !(await m.send(t, attach: a, replyTo: r)) { text = t; attach = a } }
                 } label: {
                     Group { if m.busy { ProgressView().tint(T.paper) } else { GlyphView(n: "send", s: 18) } }
                         .foregroundStyle(T.paper).frame(width: 40, height: 40).background(Circle().fill(T.ink)).opacity(ok || m.busy ? 1 : 0.4)
@@ -738,6 +950,36 @@ struct ChatScreen: View {
         .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 10)
         .background(Color(rgb: 0x3a3d2b, 0.97).ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { T.rule.frame(height: 1) }
+    }
+}
+
+/// Ask the chat a question with two to six answers.
+private struct PollMaker: View {
+    let send: (String, [String]) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var q = ""
+    @State private var opts = ["", ""]
+    private var clean: [String] { opts.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Question") { TextField("Ask something", text: $q, axis: .vertical) }
+                Section("Answers") {
+                    ForEach(opts.indices, id: \.self) { i in TextField("Answer \(i + 1)", text: $opts[i]) }
+                    if opts.count < 6 { Button("Add an answer") { opts.append("") } }
+                }
+            }
+            .scrollContentBackground(.hidden).background(T.paper)
+            .navigationTitle("New poll").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Send") { send(q.trimmingCharacters(in: .whitespacesAndNewlines), clean); dismiss() }
+                        .disabled(q.trimmingCharacters(in: .whitespaces).isEmpty || clean.count < 2).fontWeight(.semibold)
+                }
+            }
+        }
+        .preferredColorScheme(.dark).tint(T.ink)
     }
 }
 
