@@ -201,7 +201,7 @@ struct SettingsScreen: View {
         do {
             _ = try await Supa(a: a).req("POST", "/functions/v1/delete-account", json: ["confirm": "DELETE"])
             UserDefaults.standard.removeObject(forKey: "lotm.me"); UserDefaults.standard.removeObject(forKey: "lotm.feed." + a.me)
-            web.view.evaluateJavaScript("window.lotmSignOut && window.lotmSignOut()")
+            web.view.evaluateJavaScript("window.lotmSignOut && window.lotmSignOut()", completionHandler: nil)
             web.select(.feed)
         } catch { deleteError = error.localizedDescription }
     }

@@ -106,7 +106,10 @@ struct MemberScreen: View {
     @StateObject private var mine: FeedModel
     @ObservedObject private var chat = ChatSession.shared
     @Environment(\.closeScreen) private var close
-    @State private var bio = "", role = "member", since: Date?, cover: URL?
+    @State private var bio = ""
+    @State private var role = "member"
+    @State private var since: Date?
+    @State private var cover: URL?
     @State private var reading: (title: String, cover: URL?, page: Int?)?
     @State private var replies: [MReply] = []
     @State private var finished = 0
@@ -265,7 +268,7 @@ struct MemberScreen: View {
     }
     private var safeTop: CGFloat { UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.top }.first ?? 47 }
 
-    private func load() async {
+    @MainActor private func load() async {
         if chat.a == nil { await chat.start(web.view) }
         guard let a = await feed.auth() else { return }
         let db = Supa(a: a)
