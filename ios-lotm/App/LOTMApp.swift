@@ -315,6 +315,8 @@ final class RouteHandler: NSObject, WKScriptMessageHandler {
             model.route = path
             // Arriving at a web tab some other way (a link, a notification) moves the tab bar with it.
             let p = path.split(separator: "?").first.map(String.init) ?? path
+            // The chat lives in the app: a chat link (say, from a notification) opens it natively.
+            if p == "/chat" || p.hasPrefix("/chat/") { model.go(model.tab.route); openChat(model); return }
             if p == "/reading" || p == "/notebook/index" { model.tab = .library } else if p == "/people" { model.tab = .people } else if p == "/settings" { model.tab = .settings }
         }
     }

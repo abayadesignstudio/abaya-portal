@@ -136,22 +136,29 @@ struct Splash: View {
 /// .mast — search, the title, and the bell with its count, on the tan-to-olive gradient.
 struct Mast: View {
     let unread: Int
+    var chatUnread = 0
     let search: () -> Void, bell: () -> Void, title: () -> Void
+    var chat: () -> Void = {}
     var body: some View {
-        HStack(spacing: 8) {
-            ibtn("search", search)
-            Wordmark().frame(maxWidth: .infinity).contentShape(Rectangle()).onTapGesture(perform: title)
-            ibtn("bell", bell)
-                .overlay(alignment: .topTrailing) {
-                    if unread > 0 {
-                        Text(unread > 9 ? "9+" : "\(unread)").font(.sans(10, .bold)).foregroundStyle(.white)
-                            .padding(.horizontal, 4).frame(minWidth: 16, minHeight: 16).background(Capsule().fill(T.like)).offset(x: 4, y: -3)
-                    }
-                }
-                .offset(x: -4)
+        // search and chat on the left, the bell on the right; the title stays in the true centre
+        ZStack {
+            Wordmark().frame(maxWidth: .infinity).contentShape(Rectangle()).onTapGesture(perform: title).padding(.horizontal, 84)
+            HStack(spacing: 8) {
+                ibtn("search", search)
+                Spacer(minLength: 0)
+                ibtn("chat", chat).overlay(alignment: .topTrailing) { badge(chatUnread) }
+                ibtn("bell", bell).overlay(alignment: .topTrailing) { badge(unread) }
+                    .offset(x: -4)
+            }
         }
         .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 12)
         .background(LinearGradient(stops: [.init(color: T.tan, location: 0), .init(color: T.tan, location: 0.3), .init(color: T.paper, location: 1)], startPoint: .top, endPoint: .bottom).ignoresSafeArea(edges: .top))
+    }
+    @ViewBuilder private func badge(_ n: Int) -> some View {
+        if n > 0 {
+            Text(n > 9 ? "9+" : "\(n)").font(.sans(10, .bold)).foregroundStyle(.white)
+                .padding(.horizontal, 4).frame(minWidth: 16, minHeight: 16).background(Capsule().fill(T.like)).offset(x: 4, y: -3)
+        }
     }
     private func ibtn(_ icon: String, _ run: @escaping () -> Void) -> some View {
         Button { Haptic.tap(); run() } label: {
@@ -170,13 +177,15 @@ struct FeedScreen: View {
     @State private var reporting: FPost?
     @State private var reason = ""
     @State private var deleting: FPost?
+    @State private var chatCount = 0
 
     var body: some View {
         VStack(spacing: 0) {
-            Mast(unread: m.unread,
+            Mast(unread: m.unread, chatUnread: chatCount,
                  search: { presentSlide(SearchScreen(feed: m, web: web)) },
                  bell: { presentSlide(NotificationsScreen(feed: m, web: web)) },
-                 title: { m.scrollTop += 1 })
+                 title: { m.scrollTop += 1 },
+                 chat: { chatCount = 0; openChat(web) })
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -202,6 +211,7 @@ struct FeedScreen: View {
         }
         .background(T.paper.ignoresSafeArea())
         .task { await m.load() }
+        .task { while !Task.isCancelled { if let a = await m.auth() { chatCount = await chatUnread(a) }; try? await Task.sleep(nanoseconds: 30_000_000_000) } }
         .sheet(item: $acting) { p in
             PostActions(p: p, m: m, web: web, close: { acting = nil }, report: { acting = nil; reporting = p; reason = "" }, delete: { acting = nil; deleting = p })
                 .presentationDetents([.medium, .large])
@@ -787,3 +797,6 @@ private struct PostActions: View {
         await m.load(quiet: true)
     }
 }
+
+/// The club chat slides in over everything (from the Feed's chat button, or a chat notification).
+@MainActor func openChat(_ web: WebModel) { guard !ChatModel.showing else { return }; ChatModel.showing = true; presentSlide(ChatScreen(m: ChatModel(web: web.view))) }
