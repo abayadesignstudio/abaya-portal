@@ -506,24 +506,28 @@ private struct PostCard: View {
         return "\(p.kind) · \(ago(p.created))\(p.edited ? " · Edited" : "")"
     }
     var body: some View {
-        // Laid out as X: the face in its own column, everything else beside it.
-        HStack(alignment: .top, spacing: 10) {
-            Button { web.go("/member/\(p.userId)") } label: { Face(person, s: 40) }.buttonStyle(.plain)
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    (Text(person?.name ?? "Member").font(.sans(15, .semibold)).foregroundColor(T.ink) + Text(" · \(kindLine)").font(.sans(15)).foregroundColor(T.muted))
-                        .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                    Button(action: more) { Text("···").font(.sans(15, .bold)).tracking(1).foregroundStyle(T.muted).frame(height: 18) }.buttonStyle(.plain)
+        // The header — face, name, kind and time — set off by a rule; the writing then runs the card's full width.
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Button { web.go("/member/\(p.userId)") } label: { Face(person, s: 36) }.buttonStyle(.plain)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(person?.name ?? "Member").font(.sans(15, .semibold)).foregroundStyle(T.ink).lineLimit(1)
+                    Text(kindLine).font(.sans(13)).foregroundStyle(T.muted).lineLimit(1)
                 }
-                VStack(alignment: .leading, spacing: 0) {
-                    if p.article { article } else { note }
-                }
-                .padding(.top, 2)
-                actions.padding(.top, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Button(action: more) { Text("···").font(.sans(15, .bold)).tracking(1).foregroundStyle(T.muted).frame(width: 32, height: 28) }.buttonStyle(.plain)
             }
+            .padding(.bottom, 12)
+            T.rule.frame(height: 1).padding(.horizontal, -16)
+            VStack(alignment: .leading, spacing: 0) {
+                if p.article { article } else { note }
+            }
+            .padding(.top, 12)
+            actions.padding(.top, 10)
         }
         // Each post on its own card, with room inside it.
-        .padding(.leading, 16).padding(.trailing, 18).padding(.top, 16).padding(.bottom, 10)
+        .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
         .background(RoundedRectangle(cornerRadius: 20).fill(T.card))
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(T.rule))
         .shadow(color: Color(rgb: 0x0c0e08, 0.14), radius: 5, y: 2)
@@ -543,11 +547,11 @@ private struct PostCard: View {
             Paras(text: p.body, size: 17.5, leading: 1.28, gap: 4)
         }
         if p.audio { Button { m.open(p.id, false) } label: { Label("Voice note", systemImage: "play.fill") }.buttonStyle(PillStyle()).padding(.top, 10) }
-        PhotoRow(urls: p.photos).padding(.top, p.photos.isEmpty ? 0 : 8)
-        if let b = p.book { BookCard(b: b).padding(.top, 8) }
-        if let q = p.quoteId { QuoteEmbed(userId: p.quoteUser ?? "", text: p.quoteText ?? "", m: m).onTapGesture { m.open(q, false) }.padding(.top, 8) }
-        if let poll = p.poll { PollView(poll: poll, me: m.me) { i in Task { await m.vote(p, i) } }.padding(.top, 10) }
-        if let l = p.link { LinkCard(url: l).padding(.top, 10) }
+        PhotoRow(urls: p.photos).padding(.top, p.photos.isEmpty ? 0 : 14)
+        if let b = p.book { BookCard(b: b).padding(.top, 14) }
+        if let q = p.quoteId { QuoteEmbed(userId: p.quoteUser ?? "", text: p.quoteText ?? "", m: m).onTapGesture { m.open(q, false) }.padding(.top, 14) }
+        if let poll = p.poll { PollView(poll: poll, me: m.me) { i in Task { await m.vote(p, i) } }.padding(.top, 14) }
+        if let l = p.link { LinkCard(url: l).padding(.top, 14) }
         if !p.tags.isEmpty {
             HStack(spacing: 8) { ForEach(p.tags, id: \.self) { t in Button("#\(t)") { presentSlide(SearchScreen(feed: m, web: web, start: "#" + t)) }.font(.sans(13)).foregroundStyle(T.ticker) } }.padding(.top, 6)
         }
