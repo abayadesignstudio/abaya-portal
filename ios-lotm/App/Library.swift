@@ -19,6 +19,8 @@ private func lshort(_ t: String) -> String { String(t.replacingOccurrences(of: #
 private func lnorm(_ t: String) -> String { lshort(t).lowercased() }
 private func lsame(_ a: String, _ b: String) -> Bool { let x = lnorm(a), y = lnorm(b); return x.contains(y.prefix(14)) || y.contains(x.prefix(14)) }
 private func lurl(_ s: Any?) -> URL? { (s as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) } }
+private func nz(_ v: Any?) -> Any { v ?? NSNull() }
+private func ne(_ s: String) -> Any { s.isEmpty ? NSNull() : s }
 private func lday(_ d: Date = Date()) -> String { let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"; return f.string(from: d) }
 private func liso(_ d: Date = Date()) -> String { ISO8601DateFormatter().string(from: d) }
 private func amazon(_ title: String, _ author: String?, _ url: String?) -> URL {
@@ -42,7 +44,9 @@ final class LibraryModel: ObservableObject {
     @Published var past: [LPast] = []
     @Published var shelfOrder: [String] = []
     @Published var notes: [String: Int] = [:]
-    @Published var goal = 20, remind = true, remindAt = "19:30"
+    @Published var goal = 20
+    @Published var remind = true
+    @Published var remindAt = "19:30"
     @Published var days: [String: Int] = [:]
     @Published var events: [LEvent] = []
     @Published var sugs: [LSug] = []
@@ -165,7 +169,7 @@ final class LibraryModel: ObservableObject {
     }
     func setStatus(_ r: LRead, _ status: String) async {
         guard let db = await db() else { return }
-        var row: [String: Any] = ["status": status, "finished_at": status == "finished" ? lday() : NSNull(), "updated_at": liso()]
+        var row: [String: Any] = ["status": status, "finished_at": status == "finished" ? lday() as Any : NSNull(), "updated_at": liso()]
         if status == "finished", let t = r.total { row["current_page"] = t }
         if status == "reading" && r.status == "want" { row["started_at"] = lday() }
         do { _ = try await db.req("PATCH", "/rest/v1/current_reads?id=eq.\(r.id)", json: row) } catch { say(error.localizedDescription) }
@@ -176,8 +180,8 @@ final class LibraryModel: ObservableObject {
     func edition(_ f: LFound) async -> String? {
         guard let db = await db() else { return nil }
         if let i = f.isbn, !i.isEmpty, let id = try? await db.rows("/rest/v1/editions?isbn13=eq.\(i)&select=id").first?["id"] as? String { return id }
-        let row: [String: Any] = ["isbn13": f.isbn ?? NSNull(), "title": f.title, "author": f.author ?? NSNull(), "publisher": f.publisher ?? NSNull(), "publication_year": f.year.flatMap { Int($0) } ?? NSNull(),
-                                  "total_pages": f.pages ?? NSNull(), "cover_url": f.cover ?? NSNull(), "book_url": f.bookURL ?? NSNull(), "edition_label": f.label ?? NSNull(), "created_by": db.a.me]
+        let row: [String: Any] = ["isbn13": nz(f.isbn), "title": f.title, "author": nz(f.author), "publisher": nz(f.publisher), "publication_year": nz(f.year.flatMap { Int($0) }),
+                                  "total_pages": nz(f.pages), "cover_url": nz(f.cover), "book_url": nz(f.bookURL), "edition_label": nz(f.label), "created_by": db.a.me]
         do {
             let d = try await db.req("POST", "/rest/v1/editions?select=id", json: row, prefer: "return=representation")
             return ((try? JSONSerialization.jsonObject(with: d)) as? [[String: Any]])?.first?["id"] as? String
@@ -200,7 +204,7 @@ final class LibraryModel: ObservableObject {
     func addByHand(title: String, author: String, pages: String, want: Bool) async {
         guard let db = await db() else { return }
         do {
-            _ = try await db.req("POST", "/rest/v1/current_reads", json: ["user_id": db.a.me, "custom_title": title, "custom_author": author.isEmpty ? NSNull() : author, "custom_total_pages": Int(pages) ?? NSNull(), "status": want ? "want" : "reading", "current_page": 0, "sort_order": front])
+            _ = try await db.req("POST", "/rest/v1/current_reads", json: ["user_id": db.a.me, "custom_title": title, "custom_author": ne(author), "custom_total_pages": nz(Int(pages)), "status": want ? "want" : "reading", "current_page": 0, "sort_order": front])
             await load()
         } catch { say(error.localizedDescription) }
     }
@@ -223,7 +227,7 @@ final class LibraryModel: ObservableObject {
         let k = "club" + b.id; ghost[k] = "adding"; Haptic.tap()
         guard let eid = await clubEdition(title: b.title, author: b.author, url: b.bookURL, cover: b.cover), let db = await db() else { ghost[k] = nil; return }
         do {
-            _ = try await db.req("POST", "/rest/v1/current_reads", json: ["user_id": db.a.me, "edition_id": eid, "custom_title": lshort(b.title), "custom_author": b.author ?? NSNull(), "custom_cover_url": b.cover?.absoluteString ?? NSNull(),
+            _ = try await db.req("POST", "/rest/v1/current_reads", json: ["user_id": db.a.me, "edition_id": eid, "custom_title": lshort(b.title), "custom_author": nz(b.author), "custom_cover_url": nz(b.cover?.absoluteString),
                                                                          "status": "reading", "current_page": 0, "sort_order": front, "started_at": lday()])
             ghost[k] = "added"; try? await Task.sleep(nanoseconds: 650_000_000); await load(); ghost[k] = nil
         } catch { ghost[k] = nil; say(error.localizedDescription.lowercased().contains("duplicate") ? "Already in your library" : error.localizedDescription) }
@@ -234,7 +238,7 @@ final class LibraryModel: ObservableObject {
         guard let eid = await clubEdition(title: b.title, author: b.author, url: b.bookURL, cover: b.cover), let db = await db() else { ghost[k] = nil; return }
         let pages = (try? await db.rows("/rest/v1/editions?id=eq.\(eid)&select=total_pages").first?["total_pages"] as? Int) ?? 0, day = lday(b.created)
         do {
-            _ = try await db.req("POST", "/rest/v1/current_reads", json: ["user_id": db.a.me, "edition_id": eid, "custom_title": lshort(b.title), "custom_author": b.author ?? NSNull(), "custom_cover_url": b.cover?.absoluteString ?? NSNull(),
+            _ = try await db.req("POST", "/rest/v1/current_reads", json: ["user_id": db.a.me, "edition_id": eid, "custom_title": lshort(b.title), "custom_author": nz(b.author), "custom_cover_url": nz(b.cover?.absoluteString),
                                                                          "status": "finished", "current_page": pages, "started_at": day, "finished_at": day, "sort_order": front])
             ghost[k] = "added"; try? await Task.sleep(nanoseconds: 650_000_000); await load(); ghost[k] = nil
         } catch { ghost[k] = nil; say(error.localizedDescription.lowercased().contains("duplicate") ? "Already in your library" : error.localizedDescription) }
@@ -248,14 +252,14 @@ final class LibraryModel: ObservableObject {
     }
     func saveEvent(title: String, when: Date, place: String, details: String, link: String) async {
         guard let db = await db() else { return }
-        let loc: Any = place.isEmpty ? NSNull() : place
+        let loc: Any = ne(place)
         do {
             if admin {
-                _ = try await db.req("POST", "/rest/v1/club_events", json: ["title": title, "starts_at": liso(when), "location": loc, "external_url": link.isEmpty ? NSNull() : link, "description": details.isEmpty ? NSNull() : details, "created_by": db.a.me, "source": "app"])
+                _ = try await db.req("POST", "/rest/v1/club_events", json: ["title": title, "starts_at": liso(when), "location": loc, "external_url": ne(link), "description": ne(details), "created_by": db.a.me, "source": "app"])
                 say("Added to the calendar")
             } else {
                 let d = [details, link].filter { !$0.isEmpty }.joined(separator: "\n")
-                _ = try await db.req("POST", "/rest/v1/event_suggestions", json: ["user_id": db.a.me, "title": title, "event_date": liso(when), "location": loc, "description": d.isEmpty ? NSNull() : d, "status": "pending"])
+                _ = try await db.req("POST", "/rest/v1/event_suggestions", json: ["user_id": db.a.me, "title": title, "event_date": liso(when), "location": loc, "description": ne(d), "status": "pending"])
                 say("Suggestion sent to the administrators")
             }
             await loadClub(db); NotificationCenter.default.post(name: .lotmFeedChanged, object: nil)
@@ -264,7 +268,7 @@ final class LibraryModel: ObservableObject {
     func approve(_ s: LSug, _ ok: Bool) async {
         guard let db = await db() else { return }
         if ok {
-            do { _ = try await db.req("POST", "/rest/v1/club_events", json: ["title": s.title, "starts_at": s.dateRaw ?? liso(), "location": s.place ?? NSNull(), "description": s.details ?? NSNull(), "created_by": db.a.me, "source": "suggestion"]) }
+            do { _ = try await db.req("POST", "/rest/v1/club_events", json: ["title": s.title, "starts_at": s.dateRaw ?? liso(), "location": nz(s.place), "description": nz(s.details), "created_by": db.a.me, "source": "suggestion"]) }
             catch { say(error.localizedDescription); return }
         }
         _ = try? await db.req("PATCH", "/rest/v1/event_suggestions?id=eq.\(s.id)", json: ["status": ok ? "approved" : "declined", "reviewed_by": db.a.me, "reviewed_at": liso()])
@@ -274,7 +278,7 @@ final class LibraryModel: ObservableObject {
     func shareLink(url: String, title: String, publication: String, image: String, blurb: String) async {
         guard let db = await db() else { return }
         do {
-            _ = try await db.req("POST", "/rest/v1/worthwhile_links", json: ["user_id": db.a.me, "url": url, "title": title, "publication": publication.isEmpty ? NSNull() : publication, "image_url": image.isEmpty ? NSNull() : image, "blurb": blurb.isEmpty ? NSNull() : blurb])
+            _ = try await db.req("POST", "/rest/v1/worthwhile_links", json: ["user_id": db.a.me, "url": url, "title": title, "publication": ne(publication), "image_url": ne(image), "blurb": ne(blurb)])
             await loadClub(db)
         } catch { say(error.localizedDescription) }
     }
@@ -291,7 +295,7 @@ final class LibraryModel: ObservableObject {
     func completeForClub(_ b: LUpdate) async {
         guard let db = await db() else { return }
         do {
-            _ = try await db.req("POST", "/rest/v1/books_read", json: ["title": lshort(b.title), "author": b.author ?? NSNull(), "cover_url": b.cover?.absoluteString ?? NSNull(), "book_url": b.bookURL ?? NSNull(), "created_by": db.a.me])
+            _ = try await db.req("POST", "/rest/v1/books_read", json: ["title": lshort(b.title), "author": nz(b.author), "cover_url": nz(b.cover?.absoluteString), "book_url": nz(b.bookURL), "created_by": db.a.me])
             say("Marked complete for LOTM"); await load()
         } catch { say(error.localizedDescription) }
     }
@@ -1007,7 +1011,9 @@ private struct BookSearch: View {
 private struct ByHand: View {
     let want: Bool
     let add: (String, String, String) -> Void
-    @State private var title = "", author = "", pages = ""
+    @State private var title = ""
+    @State private var author = ""
+    @State private var pages = ""
     var body: some View {
         SheetBody {
             VStack(alignment: .leading, spacing: 10) {
@@ -1084,10 +1090,10 @@ private struct UpdateSheet: View {
                 LField(label: "Reading file link (optional)", text: $d.file); LField(label: "Notes", text: $d.notes)
                 Button("Post update") {
                     guard !d.title.trimmingCharacters(in: .whitespaces).isEmpty else { m.say("Book title is required"); return }
-                    func v(_ s: String?) -> Any { (s ?? "").isEmpty ? NSNull() : s! }
+                    func v(_ s: String?) -> Any { (s ?? "").isEmpty ? NSNull() as Any : s! }
                     let row: [String: Any] = ["book_title": d.title, "book_author": v(d.author), "book_publisher": v(d.publisher), "reading_position": v(d.position), "book_url": v(d.bookURL), "cover_url": v(d.cover),
-                                              "reading_file_url": v(d.file), "synopsis": v(d.notes), "study_at": d.hasDate ? liso(d.when) : NSNull(), "study_location": v(d.place),
-                                              "study_location_url": d.place.isEmpty ? NSNull() : "https://www.google.com/maps/search/?api=1&query=\(d.place.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")"]
+                                              "reading_file_url": v(d.file), "synopsis": v(d.notes), "study_at": d.hasDate ? liso(d.when) as Any : NSNull(), "study_location": v(d.place),
+                                              "study_location_url": d.place.isEmpty ? NSNull() as Any : "https://www.google.com/maps/search/?api=1&query=\(d.place.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")"]
                     Task { if await m.postUpdate(row) { close() } }
                 }.buttonStyle(LBtn())
             }
@@ -1146,7 +1152,10 @@ private struct GoalSheet: View {
 private struct EventForm: View {
     @ObservedObject var m: LibraryModel
     let close: () -> Void
-    @State private var title = "", place = "", details = "", link = ""
+    @State private var title = ""
+    @State private var place = ""
+    @State private var details = ""
+    @State private var link = ""
     @State private var when = Date().addingTimeInterval(86400)
     var body: some View {
         SheetBody {
@@ -1171,7 +1180,11 @@ private struct EventForm: View {
 private struct LinkForm: View {
     @ObservedObject var m: LibraryModel
     let close: () -> Void
-    @State private var url = "", title = "", publication = "", image = "", blurb = ""
+    @State private var url = ""
+    @State private var title = ""
+    @State private var publication = ""
+    @State private var image = ""
+    @State private var blurb = ""
     @State private var busy = false
     var body: some View {
         SheetBody {
