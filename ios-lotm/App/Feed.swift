@@ -14,6 +14,7 @@ enum Tab: String { case feed, library, people, settings
 struct Shell: View {
     @ObservedObject var web: WebModel
     @StateObject private var feed = FeedModel()
+    @State private var splash = true
     /// The web's own tab screens; anything else it shows (a profile, the devotion, a web form) is a page over the app.
     private static let webTabs: Set<String> = ["/native", "/reading", "/people", "/settings", "/notebook/index", "/chat", "/loading", ""]
     private var path: String { String(web.route.split(separator: "?", maxSplits: 1).first ?? "") }
@@ -29,6 +30,7 @@ struct Shell: View {
                 .opacity(showWeb ? 1 : 0).allowsHitTesting(showWeb)
             if !overlay { Dock(web: web, feed: feed).transition(.opacity) }
             if let it = feed.detail { DropCard(it: it, m: feed, web: web).zIndex(5) }
+            if splash { Splash { splash = false }.zIndex(10) }
         }
         .animation(.easeOut(duration: 0.18), value: showWeb)
         .animation(.easeOut(duration: 0.18), value: overlay)
@@ -87,19 +89,47 @@ private struct Dock: View {
 
 // MARK: - Masthead
 
-/// The title: LIFE of the MIND, in Garamond small capitals, "of the" stacked between.
+/// The title: "Life of the Mind" in Garamond small capitals (capital L and M full height, the rest small), with
+/// "of the" stacked between, laid out as the stylesheet's .wordmark: line-height 1, "of the" at 0.86, set 11 pt down.
 struct Wordmark: View {
-    var size: CGFloat = 40
+    var size: CGFloat = 40, of: CGFloat = 14, ofTop: CGFloat = 11, gap: CGFloat = 6
     var body: some View {
-        HStack(alignment: .top, spacing: size * 0.15) {
-            Text("Life")
-            VStack(spacing: -size * 0.06) { Text("of"); Text("the") }
-                .font(.serif(size * 0.35, .semibold).smallCaps()).tracking(size * 0.35 * 0.06).padding(.top, size * 0.275)
-            Text("Mind")
+        HStack(alignment: .top, spacing: gap) {
+            big("Life")
+            VStack(spacing: 0) { small("of"); small("the") }.padding(.top, ofTop)
+            big("Mind")
         }
-        .font(.serif(size, .semibold).smallCaps()).tracking(size * 0.02)
-        .lineLimit(1).minimumScaleFactor(0.7)
         .foregroundStyle(T.cream)
+        .fixedSize()
+    }
+    private func big(_ t: String) -> some View {
+        Text(t).font(.serif(size, .semibold).lowercaseSmallCaps()).tracking(size * 0.02).frame(height: size)
+    }
+    private func small(_ t: String) -> some View {
+        Text(t).font(.serif(of, .semibold).lowercaseSmallCaps()).tracking(of * 0.06).frame(height: of * 0.86)
+    }
+}
+
+/// The opening title: on the olive ground it rises into place and fades in, holds, then the whole screen fades away
+/// (the web app's #splash, same sizes and timing). Only when the app is opened.
+struct Splash: View {
+    @State private var markIn = false
+    @State private var out = false
+    let done: () -> Void
+    var body: some View {
+        ZStack {
+            Color(rgb: 0x3b3e2a).ignoresSafeArea()
+            Wordmark(size: UIScreen.main.bounds.width <= 360 ? 40 : 48, of: UIScreen.main.bounds.width <= 360 ? 14 : 16.8,
+                     ofTop: UIScreen.main.bounds.width <= 360 ? 11 : 13.4, gap: 8)
+                .opacity(markIn ? 1 : 0).offset(y: markIn ? 0 : 4)
+        }
+        .opacity(out ? 0 : 1)
+        .allowsHitTesting(!out)
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.8)) { markIn = true }                                  // .8s in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.7) { withAnimation(.easeInOut(duration: 0.7)) { out = true } }  // ~.9s held, .7s out
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { done() }
+        }
     }
 }
 
