@@ -92,7 +92,7 @@ struct Person { let name: String, avatar: URL? }
 struct NPost: Identifiable {
     let id: String, userId: String
     var title: String, body: String, photos: [URL], link: URL?, created: Date, edited: Bool, views: Int
-    var allowReplies: Bool, likes = 0, liked = false, tags: [String] = [], quoted: NQuote? = nil, quoteId: String?
+    var allowReplies: Bool, likes = 0, liked = false, tags: [String] = [], quoted: NQuote? = nil, quoteId: String?, saved = false
     var showTitle: Bool {
         let n = { (t: String) in t.lowercased().replacingOccurrences(of: #"[…\.\s"“”'‘’,:;!?-]+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces) }
         let t = n(title); return !t.isEmpty && t != "voice note" && !n(body).hasPrefix(t)
@@ -155,11 +155,13 @@ final class PostModel: ObservableObject {
             let ids = ([p.id] + ps.map(\.id)).joined(separator: ",")
             async let likes = db.rows("/rest/v1/aside_likes?aside_id=in.(\(ids))&select=aside_id,user_id")
             async let tags = db.rows("/rest/v1/aside_tags?aside_id=eq.\(id)&select=tag")
+            async let sv = db.rows("/rest/v1/saved_posts?user_id=eq.\(a.me)&aside_id=in.(\(ids))&select=aside_id")
             async let cs = db.rows("/rest/v1/comments?aside_id=eq.\(id)&select=id,user_id,body,created_at,parent_comment_id,hidden_by_author,attachment_url&order=created_at")
-            let (L, T, C) = try await (likes, tags, cs)
+            let (L, Tg, C, SV) = try await (likes, tags, cs, sv)
             let tally = { (pid: String) in (L.filter { $0["aside_id"] as? String == pid }.count, L.contains { $0["aside_id"] as? String == pid && $0["user_id"] as? String == a.me }) }
-            (p.likes, p.liked) = tally(p.id); p.tags = T.compactMap { $0["tag"] as? String }
-            for k in ps.indices { (ps[k].likes, ps[k].liked) = tally(ps[k].id) }
+            (p.likes, p.liked) = tally(p.id); p.tags = Tg.compactMap { $0["tag"] as? String }
+            let savedIds = Set(SV.compactMap { $0["aside_id"] as? String }); p.saved = savedIds.contains(p.id)
+            for k in ps.indices { (ps[k].likes, ps[k].liked) = tally(ps[k].id); ps[k].saved = savedIds.contains(ps[k].id) }
             if let q = p.quoteId, let qr = try? await db.rows("/rest/v1/asides?id=eq.\(q)&select=id,user_id,title,body").first {
                 let t = (qr["body"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (qr["title"] as? String ?? "")
                 p.quoted = NQuote(id: q, userId: qr["user_id"] as? String ?? "", text: t)
@@ -191,6 +193,16 @@ final class PostModel: ObservableObject {
         guard let a = await auth() else { return }; let db = Supa(a: a)
         if nowLiked { _ = try? await db.req("POST", "/rest/v1/aside_likes", json: ["aside_id": pid, "user_id": a.me]) }
         else { _ = try? await db.req("DELETE", "/rest/v1/aside_likes?aside_id=eq.\(pid)&user_id=eq.\(a.me)") }
+        notifyWeb()
+    }
+    @MainActor func save(_ pid: String) async {
+        var on = false
+        if post?.id == pid { post!.saved.toggle(); on = post!.saved }
+        if let k = parts.firstIndex(where: { $0.id == pid }) { parts[k].saved.toggle(); on = parts[k].saved }
+        Haptic.tap()
+        guard let a = await auth() else { return }; let db = Supa(a: a)
+        if on { _ = try? await db.req("POST", "/rest/v1/saved_posts", json: ["aside_id": pid, "user_id": a.me]) }
+        else { _ = try? await db.req("DELETE", "/rest/v1/saved_posts?aside_id=eq.\(pid)&user_id=eq.\(a.me)") }
         notifyWeb()
     }
     @MainActor func likeReply(_ r: NReply) async {
@@ -233,7 +245,8 @@ final class PostModel: ObservableObject {
     }
 }
 
-// MARK: - Screen
+// MARK: - Screen (drawn as the web app's post page: .page with a Back bar, the post X-style, replies as cards,
+// and the Threads-style reply pill floating at the bottom)
 
 struct PostScreen: View {
     @ObservedObject var m: PostModel
@@ -243,6 +256,7 @@ struct PostScreen: View {
     @State private var sendError: String?
     @State private var showHidden = false
     @FocusState private var typing: Bool
+    private let z = T.z
 
     private var isAuthor: Bool { m.post?.userId == m.me }
     private var shown: [NReply] { m.replies.filter { showHidden || !$0.hidden || isAuthor } }
@@ -250,20 +264,7 @@ struct PostScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ZStack {
-                Text(m.parts.isEmpty ? "Post" : "Thread").font(.sans(17, .semibold)).foregroundStyle(P.ink)
-                HStack {
-                    Button { m.close() } label: {
-                        HStack(spacing: 3) { Image(systemName: "chevron.left").font(.sans(20, .semibold)); Text("Feed").font(.sans(17)) }
-                            .foregroundStyle(P.ink).padding(.vertical, 8).contentShape(Rectangle())
-                    }
-                    Spacer()
-                }
-            }
-            .padding(.horizontal, 12).frame(height: 48)
-            .background(Color(rgb: 0x3a3d2b, 0.96))
-            .overlay(alignment: .bottom) { P.rule.frame(height: 0.5) }
-
+            PageBar(title: m.parts.isEmpty ? "Post" : "Thread", back: "Feed") { m.close() }
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -271,7 +272,7 @@ struct PostScreen: View {
                             PostBody(p: p, m: m, first: true, onReply: { typing = true })
                             ForEach(m.parts) { PostBody(p: $0, m: m, first: false, onReply: { typing = true }) }
                             if !shown.isEmpty {
-                                VStack(spacing: 10) {
+                                VStack(spacing: 8) {
                                     ForEach(shown) { r in
                                         ReplyCard(r: r, m: m, parent: r.parent.flatMap { pid in m.replies.first { $0.id == pid } },
                                                   canHide: isAuthor && r.userId != m.me,
@@ -282,18 +283,18 @@ struct PostScreen: View {
                                 .padding(.horizontal, 12).padding(.top, 12)
                             }
                             if hiddenCount > 0 && !isAuthor {
-                                Button(showHidden ? "Hide \(hiddenCount) hidden" : "Show \(hiddenCount) hidden \(hiddenCount == 1 ? "reply" : "replies")") { withAnimation { showHidden.toggle() } }
-                                    .font(.sans(14)).foregroundStyle(P.muted).frame(maxWidth: .infinity).padding(14)
+                                Button { withAnimation { showHidden.toggle() } } label: {
+                                    Text("\(showHidden ? "Hide" : "Show") \(hiddenCount) hidden \(hiddenCount == 1 ? "reply" : "replies")").font(.sans(14)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(14)
+                                }.overlay(alignment: .bottom) { T.rule.frame(height: 1) }
                             }
                             if m.replies.isEmpty {
-                                Text(m.canReply ? "No replies yet." : "Replies are turned off for this post.")
-                                    .font(.sans(15)).foregroundStyle(P.muted).padding(20)
+                                Text(m.canReply ? "No replies yet." : "Replies are turned off for this post.").font(.sans(15)).foregroundStyle(T.muted).padding(.horizontal, 20).padding(.vertical, 16)
                             }
-                            Color.clear.frame(height: 24)
+                            Color.clear.frame(height: 110)
                         } else if let f = m.failed {
-                            Text(f).font(.sans(16)).foregroundStyle(P.muted).frame(maxWidth: .infinity).padding(.top, 80)
+                            Text(f).font(.sans(15)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(40)
                         } else {
-                            ProgressView().tint(P.muted).frame(maxWidth: .infinity).padding(.top, 80)
+                            Text("Loading…").font(.sans(15)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(40)
                         }
                     }
                 }
@@ -302,125 +303,122 @@ struct PostScreen: View {
                 .onChange(of: m.scrollTo) { _, id in if let id { withAnimation { proxy.scrollTo(id, anchor: .center) }; m.scrollTo = nil } }
             }
         }
-        .background(P.paper.ignoresSafeArea())
-        .safeAreaInset(edge: .bottom, spacing: 0) { if m.post != nil && m.canReply { replyBox } }
-        .tint(P.ink)
+        .background(T.paper.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) { if m.post != nil && m.canReply { replyBar } }
+        .tint(T.ink)
         .preferredColorScheme(.dark)
         .environment(\.openURL, OpenURLAction { url in openInApp(url); return .handled })
         .task { if m.focusReply { try? await Task.sleep(nanoseconds: 450_000_000); typing = true } }
         .alert("Couldn’t send", isPresented: Binding(get: { sendError != nil }, set: { if !$0 { sendError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(sendError ?? "") }
     }
 
-    private var replyBox: some View {
+    /// The web's ReplyBar: a floating pill with your face, the reply, a photo button, and send (or ↗ for the full composer).
+    private var replyBar: some View {
         let to = m.replyTo.map { m.person($0.userId).name } ?? m.post.map { m.person($0.userId).name } ?? ""
         let first = to.split(separator: " ").first.map(String.init) ?? to
         let ok = !(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && image == nil) && !m.sending
         return VStack(alignment: .leading, spacing: 8) {
             if let r = m.replyTo {
                 HStack(spacing: 6) {
-                    Text("Replying to \(m.person(r.userId).name.split(separator: " ").first.map(String.init) ?? "")").font(.sans(13)).foregroundStyle(P.muted)
-                    Button { m.replyTo = nil } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(P.muted) }
+                    (Text("Replying to ").foregroundColor(T.muted) + Text("@\(m.person(r.userId).name.split(separator: " ").first.map(String.init) ?? "")").foregroundColor(T.ticker)).font(.sans(13))
+                    Button { m.replyTo = nil } label: { Text("×").font(.sans(15)).foregroundStyle(T.muted) }
                 }
+                .padding(.leading, 12)
             }
             if let image {
-                Image(uiImage: image).resizable().scaledToFill().frame(width: 120, height: 90).clipShape(RoundedRectangle(cornerRadius: 10))
-                    .overlay(alignment: .topTrailing) {
-                        Button { self.image = nil } label: { Image(systemName: "xmark").font(.sans(11, .bold)).foregroundStyle(.white).frame(width: 22, height: 22).background(Circle().fill(.black.opacity(0.65))) }.padding(4)
-                    }
+                Image(uiImage: image).resizable().scaledToFill().frame(width: 96, height: 96).clipShape(RoundedRectangle(cornerRadius: 14)).shadow(color: .black.opacity(0.35), radius: 9, y: 6)
+                    .overlay(alignment: .topTrailing) { Button { self.image = nil } label: { Text("×").font(.sans(15)).foregroundStyle(.white).frame(width: 24, height: 24).background(Circle().fill(.black.opacity(0.65))) }.padding(5) }
+                    .padding(.leading, 8)
             }
-            HStack(alignment: .bottom, spacing: 10) {
-                PhotosPicker(selection: $pick, matching: .images) { Image(systemName: "photo").font(.sans(19)).foregroundStyle(P.muted).frame(width: 34, height: 38) }
+            HStack(alignment: .bottom, spacing: 4) {
+                Face(name: m.person(m.me).name, url: m.person(m.me).avatar, s: 36).padding(.bottom, 1)
+                TextField("", text: $text, prompt: Text("Reply to \(first)…").foregroundColor(T.muted), axis: .vertical)
+                    .font(.sans(16)).foregroundStyle(T.ink).lineLimit(1...6).focused($typing)
+                    .padding(.horizontal, 4).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 38)
+                PhotosPicker(selection: $pick, matching: .images) { GlyphView(n: "image", s: 23, w: 1.9).foregroundStyle(T.ink).frame(width: 38, height: 38) }
                     .onChange(of: pick) { _, it in
                         guard let it else { return }
                         Task { if let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) { await MainActor.run { image = img; pick = nil } } }
                     }
-                TextField("Reply to \(first)…", text: $text, axis: .vertical)
-                    .font(.sans(17)).foregroundStyle(P.ink).lineLimit(1...6).focused($typing)
-                    .padding(.horizontal, 14).padding(.vertical, 9)
-                    .background(RoundedRectangle(cornerRadius: 20).fill(P.soft))
-                Button {
-                    let t = text.trimmingCharacters(in: .whitespacesAndNewlines), img = image
-                    Task {
-                        if let e = await m.send(t, image: img) { sendError = e } else { text = ""; image = nil; typing = false }
+                if ok || typing {
+                    Button {
+                        let t = text.trimmingCharacters(in: .whitespacesAndNewlines), img = image
+                        Task { if let e = await m.send(t, image: img) { sendError = e } else { text = ""; image = nil; typing = false } }
+                    } label: {
+                        GlyphView(n: "arrowup", s: 19, w: 2.4).foregroundStyle(ok ? T.paper : T.muted)
+                            .frame(width: 36, height: 36).background(Circle().fill(ok ? T.ink : .white.opacity(0.12))).opacity(m.sending ? 0.5 : 1)
                     }
-                } label: {
-                    Group { if m.sending { ProgressView().tint(P.paper) } else { Image(systemName: "arrow.up").font(.sans(16, .bold)) } }
-                        .foregroundStyle(P.paper).frame(width: 36, height: 36).background(Circle().fill(ok ? P.ink : P.muted.opacity(0.35)))
+                    .disabled(!ok).padding(1)
+                } else {
+                    Button { if let p = m.post { m.close(); m.webGo("/reply/\(p.id)") } } label: { GlyphView(n: "expand", s: 21, w: 1.9).foregroundStyle(T.ink).frame(width: 38, height: 38) }
                 }
-                .disabled(!ok)
             }
+            .padding(.leading, 9).padding(.trailing, 8).padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 30).fill(Color(rgb: 0x484c37, 0.96)))
+            .overlay(RoundedRectangle(cornerRadius: 30).stroke(.white.opacity(0.12)))
+            .shadow(color: Color(rgb: 0x0a0c06, 0.35), radius: 15, y: 10)
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(P.card)
-        .overlay(alignment: .top) { P.rule.frame(height: 0.5) }
+        .padding(.horizontal, 12).padding(.bottom, 10)
     }
 }
 
+/// One focused post, as the web's: big header, the full writing, the time and views, the big action pills.
 private struct PostBody: View {
     let p: NPost
     @ObservedObject var m: PostModel
     let first: Bool
     let onReply: () -> Void
+    private let z = T.z
+    private var link: URL { URL(string: "https://lotmstudy.org/next/#/post/\(p.id)")! }
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
             if first {
                 HStack(spacing: 10) {
-                    Button { m.close(); m.webGo("/member/\(p.userId)") } label: { PersonFace(p: m.person(p.userId), size: 44) }
+                    Button { m.close(); m.webGo("/member/\(p.userId)") } label: { Face(name: m.person(p.userId).name, url: m.person(p.userId).avatar, s: 44 * z) }.buttonStyle(.plain)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(m.person(p.userId).name).font(.sans(15, .semibold)).foregroundStyle(P.ink)
-                        Text((["Reflection"] + p.tags).joined(separator: " · ")).font(.sans(13)).foregroundStyle(P.muted)
+                        Text(m.person(p.userId).name).font(.sans(14 * z, .semibold)).foregroundStyle(T.ink)
+                        Text((["Reflection"] + p.tags).joined(separator: " · ")).font(.sans(13 * z)).foregroundStyle(T.muted)
                     }
                     Spacer()
-                    ShareLink(item: URL(string: "https://lotmstudy.org/next/#/post/\(p.id)")!) { Image(systemName: "ellipsis").font(.sans(17, .bold)).foregroundStyle(P.muted).frame(width: 36, height: 36) }
+                    ShareLink(item: link) { Text("···").font(.sans(15 * z, .bold)).tracking(1).foregroundStyle(T.muted) }
                 }
-                if p.showTitle { Text(p.title).font(.serif(26, .semibold)).foregroundStyle(P.ink).fixedSize(horizontal: false, vertical: true) }
+                if p.showTitle { Text(p.title).font(.serif(26 * z, .semibold)).foregroundStyle(T.ink).fixedSize(horizontal: false, vertical: true).padding(.top, 12 * z) }
             }
-            if !p.body.isEmpty {
-                Text(linked(p.body)).font(.serif(18)).foregroundStyle(P.ink).lineSpacing(4)
-                    .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-            }
-            PhotoStrip(urls: p.photos)
-            if let link = p.link {
-                Button { openInApp(link) } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text((link.host ?? "").replacingOccurrences(of: "www.", with: "").uppercased()).font(.sans(11.5, .semibold)).foregroundStyle(P.muted)
-                        Text(link.absoluteString).font(.serif(15)).foregroundStyle(P.ink).lineLimit(2).multilineTextAlignment(.leading)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                    .background(RoundedRectangle(cornerRadius: 14).fill(P.paper)).overlay(RoundedRectangle(cornerRadius: 14).stroke(P.rule))
-                }
-            }
+            if !p.body.isEmpty { Paras(text: p.body, size: 18 * z, leading: 1.45, gap: 6 * z).padding(.top, 8 * z) }
+            if !p.photos.isEmpty { PhotoRow(urls: p.photos).padding(.top, 10 * z) }
             if let q = p.quoted {
                 Button { m.id = q.id; m.post = nil; m.parts = []; m.replies = []; Task { _ = await m.load() } } label: {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 6) { PersonFace(p: m.person(q.userId), size: 20); Text(m.person(q.userId).name).font(.sans(14, .semibold)).foregroundStyle(P.ink) }
-                        Text(q.text).font(.serif(16)).foregroundStyle(P.ink).lineLimit(5).multilineTextAlignment(.leading)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) { Face(name: m.person(q.userId).name, url: m.person(q.userId).avatar, s: 20); Text(m.person(q.userId).name).font(.sans(14, .semibold)).foregroundStyle(T.ink) }
+                        Text(q.text).font(.serif(16)).foregroundStyle(T.ink).lineLimit(3).multilineTextAlignment(.leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(P.rule))
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 12).stroke(T.border))
                 }
+                .buttonStyle(.plain).padding(.top, 8)
             }
+            if let l = p.link { LinkCard(url: l).padding(.top, 10) }
             if first {
-                Text("\(p.created.formatted(date: .omitted, time: .shortened)) · \(p.created.formatted(.dateTime.month(.abbreviated).day()))\(p.edited ? " · Edited" : "") · \(p.views) views")
-                    .font(.sans(13)).foregroundStyle(P.muted)
+                (Text("\(p.created.formatted(date: .omitted, time: .shortened)) · \(p.created.formatted(.dateTime.month(.abbreviated).day()))\(p.edited ? " · Edited" : "") · ").foregroundColor(T.muted)
+                 + Text("\(p.views)").font(.sans(13 * z, .bold)).foregroundColor(T.ink) + Text(" views").foregroundColor(T.muted))
+                    .font(.sans(13 * z)).padding(.top, 10 * z)
             }
-            HStack(spacing: 26) {
-                Button { Task { await m.like(p.id) } } label: {
-                    HStack(spacing: 6) { Image(systemName: p.liked ? "heart.fill" : "heart").foregroundStyle(p.liked ? P.like : P.muted).symbolEffect(.bounce, value: p.liked); if p.likes > 0 { Text("\(p.likes)") } }
-                }
-                if first && m.canReply {
-                    Button(action: onReply) { HStack(spacing: 6) { Image(systemName: "bubble.right"); if m.replyCount > 0 { Text("\(m.replyCount)") } } }
-                }
-                ShareLink(item: URL(string: "https://lotmstudy.org/next/#/post/\(p.id)")!) { Image(systemName: "paperplane") }
-                Spacer()
+            HStack(spacing: 8) {
+                Button(action: onReply) { HStack(spacing: 6) { GlyphView(n: "reply", s: 20); if first && m.replyCount > 0 { Text("\(m.replyCount)") } } }
+                    .buttonStyle(PillStyle(big: true)).disabled(!m.canReply).opacity(m.canReply ? 1 : 0.45)
+                Button { Task { await m.like(p.id) } } label: { HStack(spacing: 6) { GlyphView(n: "heart", s: 20, fill: p.liked).symbolPop(p.liked); if p.likes > 0 { Text("\(p.likes)") } } }
+                    .buttonStyle(PillStyle(liked: p.liked, big: true))
+                Button { Task { await m.save(p.id) } } label: { GlyphView(n: "bookmark", s: 20, fill: p.saved).symbolPop(p.saved) }.buttonStyle(PillStyle(big: true))
+                ShareLink(item: link) { GlyphView(n: "share", s: 20) }.buttonStyle(PillStyle(big: true))
             }
-            .font(.sans(17)).foregroundStyle(P.muted).padding(.top, 2)
+            .padding(.top, 12 * z).padding(.top, 12).overlay(alignment: .top) { Color(rgb: 0x4a4c35).frame(height: 1).padding(.top, 12 * z) }
         }
-        .padding(.horizontal, 20).padding(.vertical, 16)
-        .overlay(alignment: .bottom) { P.rule.frame(height: 0.5) }
+        .padding(.horizontal, 20 * z).padding(.top, 16 * z).padding(.bottom, 12 * z)
+        .overlay(alignment: .bottom) { T.rule.frame(height: 1) }
     }
 }
 
+/// A reply, as the web's ReplyRow: its own card; name and time, "Replying to @name", the writing, heart and reply.
 private struct ReplyCard: View {
     let r: NReply
     @ObservedObject var m: PostModel
@@ -430,34 +428,46 @@ private struct ReplyCard: View {
     @State private var confirmDelete = false
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Button { m.close(); m.webGo("/member/\(r.userId)") } label: { PersonFace(p: m.person(r.userId), size: 36) }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(m.person(r.userId).name).font(.sans(15, .semibold)).foregroundStyle(P.ink)
-                    Text(ago(r.created)).font(.sans(14)).foregroundStyle(P.muted)
-                    Spacer()
+            Button { m.close(); m.webGo("/member/\(r.userId)") } label: { Face(name: m.person(r.userId).name, url: m.person(r.userId).avatar, s: 36) }.buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(m.person(r.userId).name).font(.sans(15, .semibold)).foregroundStyle(T.ink).lineLimit(1)
+                    Text(ago(r.created)).font(.sans(14)).foregroundStyle(T.muted)
+                    if r.hidden { Text("· hidden").font(.sans(12)).foregroundStyle(T.muted) }
+                    Spacer(minLength: 0)
                     if r.userId == m.me || canHide {
                         Menu {
-                            if canHide { Button(r.hidden ? "Unhide reply" : "Hide reply", systemImage: r.hidden ? "eye" : "eye.slash") { Task { await m.hide(r) } } }
-                            if r.userId == m.me { Button("Delete reply", systemImage: "trash", role: .destructive) { confirmDelete = true } }
-                        } label: { Image(systemName: "ellipsis").foregroundStyle(P.muted).frame(width: 30, height: 22) }
+                            if canHide { Button(r.hidden ? "Unhide reply" : "Hide reply") { Task { await m.hide(r) } } }
+                            if r.userId == m.me { Button("Delete reply", role: .destructive) { confirmDelete = true } }
+                        } label: { Text("···").font(.sans(15, .bold)).tracking(1).foregroundStyle(T.muted).frame(height: 20) }
                     }
                 }
-                if let parent { Text("Replying to \(m.person(parent.userId).name.split(separator: " ").first.map(String.init) ?? "")").font(.sans(13)).foregroundStyle(P.muted) }
-                if !r.body.isEmpty { Text(linked(r.body)).font(.serif(17)).foregroundStyle(P.ink).lineSpacing(2).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
-                if let u = r.attachment { PhotoStrip(urls: [u]) }
+                .frame(minHeight: 20)
+                if let parent {
+                    (Text("Replying to ").foregroundColor(T.muted) + Text("@\(m.person(parent.userId).name.split(separator: " ").first.map(String.init) ?? "")").foregroundColor(T.ticker)).font(.sans(13)).padding(.top, 1)
+                }
+                if !r.body.isEmpty {
+                    Text(linked(r.body)).font(.serif(17.5)).foregroundStyle(T.ink).lineSpacing(max(0, 17.5 * 1.4 - 17.5 * 1.305)).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true).padding(.top, 3)
+                }
+                if let u = r.attachment {
+                    AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x2a2d1d) }.frame(maxWidth: .infinity, maxHeight: 300).clipShape(RoundedRectangle(cornerRadius: 14))
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(T.rule)).padding(.top, 8)
+                }
                 HStack(spacing: 22) {
                     Button { Task { await m.likeReply(r) } } label: {
-                        HStack(spacing: 5) { Image(systemName: r.liked ? "heart.fill" : "heart").foregroundStyle(r.liked ? P.like : P.muted).symbolEffect(.bounce, value: r.liked); if r.likes > 0 { Text("\(r.likes)") } }
-                    }
-                    if let onReply { Button(action: onReply) { Image(systemName: "arrowshape.turn.up.left") } }
+                        HStack(spacing: 5) { GlyphView(n: "heart", s: 19, w: 1.9, fill: r.liked).symbolPop(r.liked); if r.likes > 0 { Text("\(r.likes)") } }
+                            .foregroundStyle(r.liked ? T.like : T.muted).font(.sans(14)).padding(.vertical, 2)
+                    }.buttonStyle(.plain)
+                    if let onReply { Button(action: onReply) { GlyphView(n: "chat", s: 19, w: 1.9).foregroundStyle(T.muted).padding(.vertical, 2) }.buttonStyle(.plain) }
                 }
-                .font(.sans(15)).foregroundStyle(P.muted).padding(.top, 4)
+                .padding(.top, 8)
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
-        .background(RoundedRectangle(cornerRadius: 18).fill(P.card))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(P.rule))
+        .background(RoundedRectangle(cornerRadius: 18).fill(T.card))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(T.rule))
+        .shadow(color: Color(rgb: 0x0c0e08, 0.12), radius: 5, y: 2)
         .opacity(r.hidden ? 0.55 : 1)
         .confirmationDialog("Delete this reply?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { Task { await m.delete(r) } }

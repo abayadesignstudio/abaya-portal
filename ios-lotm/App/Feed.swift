@@ -506,9 +506,9 @@ private struct PostCard: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 Button { web.go("/member/\(p.userId)") } label: { Face(person, s: 36 * z) }.buttonStyle(.plain)
+                // like the web's .meta: the name, then kind and time, wrapping onto a second line if needed
                 (Text(person?.name ?? "Member").font(.sans(14 * z, .semibold)).foregroundColor(T.ink) + Text(" · \(kindLine)").font(.sans(14 * z)).foregroundColor(T.muted))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
+                    .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
                 Button(action: more) { Text("···").font(.sans(15 * z, .bold)).tracking(1).foregroundStyle(T.muted).padding(.horizontal, 2).frame(height: 28) }.buttonStyle(.plain)
             }
             VStack(alignment: .leading, spacing: 0) {
@@ -534,8 +534,7 @@ private struct PostCard: View {
         }
         if !p.body.isEmpty && !(p.audio && p.body.trimmingCharacters(in: .whitespaces) == "Voice note") {
             // a note shows in full (posts are short); only articles are cut to a card
-            Text(linked(p.body)).font(.serif(18 * z)).foregroundStyle(T.ink).lineSpacing(18 * z * 0.4 - 6)
-                .fixedSize(horizontal: false, vertical: true)
+            Paras(text: p.body, size: 18 * z, gap: 6 * z)
         }
         if p.audio { Button { m.open(p.id, false) } label: { Label("Voice note", systemImage: "play.fill") }.buttonStyle(PillStyle()).padding(.top, 10) }
         PhotoRow(urls: p.photos).padding(.top, p.photos.isEmpty ? 0 : 10)

@@ -539,6 +539,34 @@ enum Glyph {
             p.addCurve(to: CGPoint(x: 5, y: 11), control1: CGPoint(x: 19, y: 19.083), control2: CGPoint(x: 5, y: 19.083))
             p.move(to: CGPoint(x: 12, y: 18))
             p.addLine(to: CGPoint(x: 12, y: 21))
+        case "heart":
+            p.move(to: CGPoint(x: 12, y: 20.4))
+            p.addCurve(to: CGPoint(x: 10.9, y: 20), control1: CGPoint(x: 11.6, y: 20.4), control2: CGPoint(x: 11.2, y: 20.25))
+            p.addCurve(to: CGPoint(x: 3, y: 9.5), control1: CGPoint(x: 6.3, y: 16.6), control2: CGPoint(x: 3, y: 13.6))
+            p.addCurve(to: CGPoint(x: 7.7, y: 4.7), control1: CGPoint(x: 3, y: 6.8), control2: CGPoint(x: 5.1, y: 4.7))
+            p.addCurve(to: CGPoint(x: 12, y: 7.2), control1: CGPoint(x: 9.5, y: 4.7), control2: CGPoint(x: 11.1, y: 5.7))
+            p.addCurve(to: CGPoint(x: 16.3, y: 4.7), control1: CGPoint(x: 12.9, y: 5.7), control2: CGPoint(x: 14.5, y: 4.7))
+            p.addCurve(to: CGPoint(x: 21, y: 9.5), control1: CGPoint(x: 18.9, y: 4.7), control2: CGPoint(x: 21, y: 6.8))
+            p.addCurve(to: CGPoint(x: 13.1, y: 20), control1: CGPoint(x: 21, y: 13.6), control2: CGPoint(x: 17.7, y: 16.6))
+            p.addCurve(to: CGPoint(x: 12, y: 20.4), control1: CGPoint(x: 12.8, y: 20.25), control2: CGPoint(x: 12.4, y: 20.4))
+            p.closeSubpath()
+        case "arrowup":
+            p.move(to: CGPoint(x: 12, y: 19))
+            p.addLine(to: CGPoint(x: 12, y: 5))
+            p.move(to: CGPoint(x: 5, y: 12))
+            p.addLine(to: CGPoint(x: 12, y: 5))
+            p.addLine(to: CGPoint(x: 19, y: 12))
+        case "expand":
+            p.move(to: CGPoint(x: 14, y: 4))
+            p.addLine(to: CGPoint(x: 20, y: 4))
+            p.addLine(to: CGPoint(x: 20, y: 10))
+            p.move(to: CGPoint(x: 10, y: 20))
+            p.addLine(to: CGPoint(x: 4, y: 20))
+            p.addLine(to: CGPoint(x: 4, y: 14))
+            p.move(to: CGPoint(x: 20, y: 4))
+            p.addLine(to: CGPoint(x: 13, y: 11))
+            p.move(to: CGPoint(x: 4, y: 20))
+            p.addLine(to: CGPoint(x: 11, y: 13))
         default: break
         }
         return p

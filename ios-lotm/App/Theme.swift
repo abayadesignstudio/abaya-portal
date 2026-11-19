@@ -199,3 +199,21 @@ struct SheetBody<Content: View>: View {
         .preferredColorScheme(.dark)
     }
 }
+
+/// Writing laid out as the web app's .body: paragraphs (separated by a blank line) with a small gap between them, line
+/// breaks kept, web addresses tappable.
+struct Paras: View {
+    let text: String
+    var size: CGFloat = 18
+    var leading: CGFloat = 1.4
+    var gap: CGFloat = 6
+    var body: some View {
+        let ps = text.replacingOccurrences(of: "\r", with: "").split(separator: #/\n[ \t]*\n+/#).map { String($0).trimmingCharacters(in: .newlines) }.filter { !$0.isEmpty }
+        VStack(alignment: .leading, spacing: gap) {
+            ForEach(Array(ps.enumerated()), id: \.offset) { _, p in
+                Text(linked(p)).font(.serif(size)).foregroundStyle(T.ink).lineSpacing(max(0, size * leading - size * 1.305))
+                    .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
