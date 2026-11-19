@@ -20,7 +20,12 @@ struct Shell: View {
     private static let webTabs: Set<String> = ["/native", "/reading", "/people", "/settings", "/notebook/index", "/chat", "/loading", ""]
     private var path: String { String(web.route.split(separator: "?", maxSplits: 1).first ?? "") }
     private var overlay: Bool { !Self.webTabs.contains(path) && !path.hasPrefix("/post/") }
-    private var showWeb: Bool { (web.tab == .library && web.libPane == "notes") || overlay }
+    private var showWeb: Bool { web.tab == .library || overlay }
+    /// On the Library tab the web page is the middle pane (Notes), under the app's tabs.
+    private var asPane: Bool { web.tab == .library && !overlay }
+    private var W: CGFloat { UIScreen.main.bounds.width }
+    /// Leaving, a page is gone at once; arriving, it fades up after a beat. Two pages never show through each other.
+    private var page: AnyTransition { .asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.18).delay(0.08)), removal: .opacity.animation(.easeIn(duration: 0.07))) }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -35,12 +40,16 @@ struct Shell: View {
                 }
                 ZStack(alignment: .bottom) {
                     FeedScreen(m: feed, web: web).opacity(web.tab == .feed ? 1 : 0).allowsHitTesting(web.tab == .feed && !overlay)
-                    if web.tab == .library && web.libPane != "notes" { LibraryScreen(m: library, feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
-                    if web.tab == .chat { ChatListScreen(s: ChatSession.shared, embedded: true).allowsHitTesting(!overlay).transition(.opacity) }
-                    if web.tab == .people { DirectoryScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
-                    if web.tab == .settings { SettingsScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
+                        .animation(web.tab == .feed ? .easeOut(duration: 0.18).delay(0.08) : .easeIn(duration: 0.07), value: web.tab)
+                    if web.tab == .library { LibraryScreen(m: library, feed: feed, web: web).allowsHitTesting(!overlay).transition(page) }
+                    if web.tab == .chat { ChatListScreen(s: ChatSession.shared, embedded: true).allowsHitTesting(!overlay).transition(page) }
+                    if web.tab == .people { DirectoryScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(page) }
+                    if web.tab == .settings { SettingsScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(page) }
                     WebView(model: web).ignoresSafeArea()
-                        .opacity(showWeb ? 1 : 0).allowsHitTesting(showWeb)
+                        .padding(.top, asPane ? LibraryScreen.tabsHeight : 0)
+                        .offset(x: asPane ? (1 - LibraryScreen.paneIndex(web.libPane)) * W : 0)
+                        .animation(asPane ? LibraryScreen.slide : nil, value: web.libPane)
+                        .opacity(showWeb ? 1 : 0).allowsHitTesting(overlay || (asPane && web.libPane == "notes"))
                 }
             }
             if !overlay {
@@ -49,11 +58,10 @@ struct Shell: View {
             if let it = feed.detail { DropCard(it: it, m: feed, web: web).zIndex(5) }
             if splash { Splash { splash = false }.zIndex(10) }
         }
-        // a breath, then a short fade
-        .animation(.easeInOut(duration: 0.16).delay(0.07), value: web.tab)
-        .animation(.easeInOut(duration: 0.16).delay(0.07), value: web.libPane)
+        .animation(.easeOut(duration: 0.2), value: web.tab)
         .animation(.easeOut(duration: 0.18), value: showWeb)
         .animation(.easeOut(duration: 0.18), value: overlay)
+        .task { try? await Task.sleep(nanoseconds: 2_500_000_000); await ChatSession.shared.start(web.view) }   // so Chat opens already loaded
         .onAppear { web.feed = feed; feed.web = web.view; feed.open = { id, reply in web.openPost(id, people: feed.people, reply: reply) } }
         // Back from a web page (an edit, a profile) to the Feed: catch up quietly.
         .onChange(of: path) { old, new in if new == "/native" && old != "/native" { Task { await feed.load(quiet: true) } } }

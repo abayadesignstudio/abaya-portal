@@ -583,40 +583,37 @@ struct LibraryScreen: View {
     @State private var linkForm = false
     @State private var pastOpen = false
 
+    /// The room the tabs take at the top of the Library (the Notes page sits under them).
+    static let tabsHeight: CGFloat = 54
+    static func paneIndex(_ v: String) -> CGFloat { v == "mine" ? 0 : v == "club" ? 2 : 1 }
+    static let slide = Animation.smooth(duration: 0.36)
+
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    HStack {
-                        Text("Library").font(.serif(20, .semibold)).foregroundStyle(T.ink).offset(y: 1.3)   // level with the Notes page's title
-                        Spacer()
-                        if m.admin && web.libPane == "club" {
-                            Button { let c = m.current.first; editing = UpdateDraft(title: c.map { lshort($0.title) } ?? "", author: c?.author ?? "", cover: c?.cover?.absoluteString, bookURL: c?.bookURL, place: c?.place ?? "") } label: {
-                                Text("Post update").font(.sans(13, .bold)).foregroundStyle(T.ink).padding(.horizontal, 14).frame(height: 30).background(Capsule().fill(Color(rgb: 0x0c0e08, 0.08)))
-                            }
-                        }
+            // The tabs stay; the three panes slide beneath them like pages.
+            HStack(spacing: 0) {
+                ForEach([("mine", "My Library"), ("notes", "Notes"), ("club", "LOTM")], id: \.0) { v, t in
+                    let on = web.libPane == v
+                    Button { Haptic.tap(); web.setLibPane(v) } label: {
+                        Text(t).font(.sans(14, on ? .semibold : .regular)).foregroundStyle(T.ink).frame(maxWidth: .infinity).frame(height: 34)
+                            .background { if on { Capsule().fill(T.card).shadow(color: .black.opacity(0.12), radius: 1.5, y: 1).matchedGeometryEffect(id: "on", in: segNS) } }
+                            .contentShape(Rectangle())
                     }
-                    .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 4).frame(height: 50)   // where the web page sets it, so it holds still between panes
-                    HStack(spacing: 0) {
-                        ForEach([("mine", "My Library"), ("notes", "Notes"), ("club", "LOTM")], id: \.0) { v, t in
-                            let on = web.libPane == v
-                            Button { Haptic.tap(); withAnimation(.snappy(duration: 0.26)) { web.setLibPane(v) } } label: {
-                                Text(t).font(.sans(14, on ? .semibold : .regular)).foregroundStyle(T.ink).frame(maxWidth: .infinity).frame(height: 34)
-                                    .background { if on { Capsule().fill(T.card).shadow(color: .black.opacity(0.12), radius: 1.5, y: 1).matchedGeometryEffect(id: "on", in: segNS) } }
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(3).background(RoundedRectangle(cornerRadius: 20).fill(Color(rgb: 0x0c0e08, 0.08)))
-                    .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 4)
-                    if web.libPane == "club" { Group { club }.transition(.opacity) } else { Group { mine }.transition(.opacity) }
-                    Color.clear.frame(height: 130)
+                    .buttonStyle(.plain)
                 }
             }
-            .scrollDisabled(shelfDrag)
-            .refreshable { await m.load() }
+            .padding(3).background(RoundedRectangle(cornerRadius: 20).fill(Color(rgb: 0x0c0e08, 0.08)))
+            .padding(.horizontal, 20).padding(.top, 8).frame(height: Self.tabsHeight, alignment: .top)
+            GeometryReader { g in
+                let i = Self.paneIndex(web.libPane)
+                ZStack {
+                    page { mine }.offset(x: (0 - i) * g.size.width)
+                    page { club }.offset(x: (2 - i) * g.size.width)
+                }
+            }
+            .clipped()
         }
+        .animation(Self.slide, value: web.libPane)
         .background(T.paper.ignoresSafeArea())
         .preferredColorScheme(.dark).tint(T.ink)
         .overlay(alignment: .bottom) {
@@ -644,6 +641,14 @@ struct LibraryScreen: View {
         .sheet(isPresented: $linkForm) { LinkForm(m: m) { linkForm = false } }
     }
     @State private var pending: UpdateDraft?
+
+    private func page<V: View>(@ViewBuilder _ content: () -> V) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) { content(); Color.clear.frame(height: 130) }
+        }
+        .scrollDisabled(shelfDrag)
+        .refreshable { await m.load() }
+    }
 
     // MARK: My Library
 
@@ -789,7 +794,17 @@ struct LibraryScreen: View {
     }
     @ViewBuilder private var club: some View {
         let cur = m.current, done = m.doneThisYear
-        H2(t: "LOTM \(String(m.year)) Books", action: cur.isEmpty ? nil : "Update") { clubBook = cur.first }.padding(.top, -8)
+        HStack(alignment: .center, spacing: 12) {
+            Text("LOTM \(String(m.year)) Books").font(.serif(20, .semibold)).foregroundStyle(T.ink)
+            Spacer()
+            if m.admin {
+                Button { let c = m.current.first; editing = UpdateDraft(title: c.map { lshort($0.title) } ?? "", author: c?.author ?? "", cover: c?.cover?.absoluteString, bookURL: c?.bookURL, place: c?.place ?? "") } label: {
+                    Text("Post update").font(.sans(13, .bold)).foregroundStyle(T.ink).padding(.horizontal, 14).frame(height: 30).background(Capsule().fill(Color(rgb: 0x0c0e08, 0.08)))
+                }.buttonStyle(.plain)
+            }
+            if !cur.isEmpty { Button { clubBook = cur.first } label: { Text("Update ›").font(.sans(14, .semibold)).foregroundStyle(Color(rgb: 0xd0ceb9)) }.buttonStyle(.plain) }
+        }
+        .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
         if cur.isEmpty && done.isEmpty && !m.admin {
             Text(m.loaded ? "No current reading yet." : "Loading…").font(.sans(15)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(40)
         } else {
