@@ -93,6 +93,13 @@ WHAT_DEFAULT = '''1. Sign in with the account provided.
 
 action = os.environ.get('ACTION') or 'inspect'
 gname = os.environ.get('GROUP') or 'LOTM Test'
+if action.startswith('expire:'):
+    # pull a build out of TestFlight (this also cancels its Beta App Review), then carry on as 'auto'
+    old = by_num.get(action.split(':', 1)[1]) or sys.exit('No such build')
+    call('PATCH', f'/builds/{old["id"]}', {'data': {'type': 'builds', 'id': old['id'], 'attributes': {'expired': True}}})
+    print(f'\nExpired build {old["attributes"]["version"]}')
+    subs['data'] = [x for x in subs.get('data', []) if x['relationships']['build']['data']['id'] != old['id']]
+    action = 'auto'
 if action == 'auto':
     # Nothing to do while Apple is reviewing a build; otherwise send the newest build to the group if it isn't there yet.
     busy = [s for s in subs.get('data', []) if s['attributes'].get('betaReviewState') in ('WAITING_FOR_REVIEW', 'IN_REVIEW')]
