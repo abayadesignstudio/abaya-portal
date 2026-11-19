@@ -45,12 +45,23 @@ private extension UIImage {
     }
 }
 
+private struct CamTarget: Identifiable { let id: UUID }
+struct ComposeBook: Identifiable, Equatable { var id: String { title }; let title: String, author: String?, cover: URL? }
+
 final class ComposeModel: ObservableObject {
     @Published var posts: [DraftPost]
     @Published var policy: String
     @Published var busy = false
     @Published var error: String?
     let name: String, avatar: URL?
+    // the first post's extras, as in the web composer
+    @Published var link = ""
+    @Published var quote: String? = nil
+    @Published var book: ComposeBook? = nil
+    @Published var tags: [String] = []
+    @Published var poll: [String]? = nil
+    @Published var pollDays = 3
+    var auth: () async -> SupaAuth? = { nil }
     var send: (String, @escaping (String) -> Void) -> Void = { _, done in done("Not connected") }
     var close: () -> Void = {}
     private static let key = "lotm.nativeDraft"
@@ -63,7 +74,7 @@ final class ComposeModel: ObservableObject {
         posts = texts.isEmpty ? [DraftPost()] : texts.map { DraftPost(text: $0) }
         policy = (saved?["policy"] as? String) ?? "everyone"
     }
-    var hasContent: Bool { posts.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !$0.images.isEmpty } }
+    var hasContent: Bool { posts.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !$0.images.isEmpty } || !(quote ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
     var canPost: Bool { hasContent && !busy && !posts.contains { words($0.text) > LIMIT } }
     func saveDraft() { UserDefaults.standard.set(["texts": posts.map(\.text), "policy": policy], forKey: Self.key) }
     func clearDraft() { UserDefaults.standard.removeObject(forKey: Self.key) }
@@ -72,8 +83,11 @@ final class ComposeModel: ObservableObject {
         guard canPost else { return }
         busy = true; error = nil
         let posts = self.posts, policy = self.policy
+        var extras: [String: Any] = ["link": link, "quote": quote ?? "", "tags": tags]
+        if let b = book { extras["book"] = ["title": b.title, "author": b.author ?? "", "cover": b.cover?.absoluteString ?? ""] }
+        if let p = poll { extras["poll"] = ["options": p, "days": pollDays] }
         DispatchQueue.global(qos: .userInitiated).async {
-            let payload: [String: Any] = ["policy": policy, "posts": posts.map { ["text": $0.text, "images": $0.images.compactMap { $0.dataURL() }] }]
+            let payload: [String: Any] = ["policy": policy, "extras": extras, "posts": posts.map { ["text": $0.text, "images": $0.images.compactMap { $0.dataURL() }] }]
             let json = (try? JSONSerialization.data(withJSONObject: payload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
             DispatchQueue.main.async {
                 self.send(json) { result in
@@ -90,6 +104,8 @@ struct ComposeView: View {
     @ObservedObject var m: ComposeModel
     @FocusState private var focus: UUID?
     @State private var confirmCancel = false
+    @State private var sheet: ComposeSheet?
+    @State private var cameraFor: UUID?
 
     private var current: DraftPost { m.posts.first { $0.id == focus } ?? m.posts[0] }
 
@@ -115,7 +131,8 @@ struct ComposeView: View {
                             PostRow(post: $p, index: i, name: m.name, avatar: m.avatar, showLine: true, focus: $focus,
                                     remove: i > 0 ? { withAnimation(.snappy) { m.posts.removeAll { $0.id == p.id } } } : nil,
                                     splitOver: { let (a, b) = split(p.text, after: LIMIT); p.text = a
-                                                 let n = DraftPost(text: b); m.posts.insert(n, at: i + 1); focus = n.id })
+                                                 let n = DraftPost(text: b); m.posts.insert(n, at: i + 1); focus = n.id },
+                                    m: m, openSheet: { focus = nil; sheet = $0 }, camera: { cameraFor = p.id })
                                 .id(p.id)
                         }
                         // Like Threads: a faded "Add to thread" under the last post
@@ -181,6 +198,23 @@ struct ComposeView: View {
             Button("OK", role: .cancel) {}
         } message: { Text(m.error ?? "") }
         .interactiveDismissDisabled(m.hasContent)
+        .sheet(item: $sheet) { s in
+            Group {
+                switch s {
+                case .link: LinkSheet(m: m)
+                case .book: BookSheet(m: m)
+                case .tags: TagSheet(m: m)
+                }
+            }
+            .presentationDetents(s == .link ? [.medium] : [.medium, .large])
+        }
+        .fullScreenCover(item: Binding(get: { cameraFor.map { CamTarget(id: $0) } }, set: { cameraFor = $0?.id })) { t in
+            CameraPicker { img in
+                if let img, let k = m.posts.firstIndex(where: { $0.id == t.id }) { m.posts[k].images.append(img) }
+                cameraFor = nil
+            }
+            .ignoresSafeArea()
+        }
     }
 }
 
@@ -190,7 +224,11 @@ private struct PostRow: View {
     var focus: FocusState<UUID?>.Binding
     let remove: (() -> Void)?
     let splitOver: () -> Void
+    @ObservedObject var m: ComposeModel
+    let openSheet: (ComposeSheet) -> Void
+    let camera: () -> Void
     @State private var picks: [PhotosPickerItem] = []
+    @FocusState private var quoteFocus: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -201,14 +239,15 @@ private struct PostRow: View {
             .frame(width: 40)
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text(name).font(.sans(16, .semibold)).foregroundStyle(C.ink)
+                    Text(name).font(.sans(17, .semibold)).foregroundStyle(C.ink)
                     Spacer()
-                    if let remove { Button(action: remove) { Image(systemName: "xmark").font(.sans(13, .semibold)).foregroundStyle(C.muted).frame(width: 28, height: 28) } }
+                    if let remove { Button(action: remove) { Text("×").font(.sans(20)).foregroundStyle(C.muted).frame(width: 28, height: 28) } }
                 }
                 TextField(index == 0 ? "What’s on your mind?" : "Say more…", text: $post.text, axis: .vertical)
                     .font(.serif(20)).foregroundStyle(C.ink).lineSpacing(3)
                     .focused(focus, equals: post.id)
                     .textInputAutocapitalization(.sentences)
+                if index == 0 { extras }
                 if !post.images.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
@@ -219,8 +258,7 @@ private struct PostRow: View {
                                     .overlay(RoundedRectangle(cornerRadius: 14).stroke(C.rule, lineWidth: 1))
                                     .overlay(alignment: .topTrailing) {
                                         Button { withAnimation(.snappy) { _ = post.images.remove(at: k) } } label: {
-                                            Image(systemName: "xmark").font(.sans(12, .bold)).foregroundStyle(.white)
-                                                .frame(width: 26, height: 26).background(Circle().fill(.black.opacity(0.65)))
+                                            Text("×").font(.sans(16)).foregroundStyle(.white).frame(width: 26, height: 26).background(Circle().fill(Color(rgb: 0x0a0c06, 0.72)))
                                         }.padding(6)
                                     }
                             }
@@ -234,26 +272,247 @@ private struct PostRow: View {
                         Text("Over \(LIMIT) words — continue as a thread").font(.sans(15, .semibold)).foregroundStyle(C.red)
                     }.padding(.top, 4)
                 }
-                // tools for this post
-                HStack(spacing: 22) {
-                    PhotosPicker(selection: $picks, maxSelectionCount: max(1, 10 - post.images.count), matching: .images) {
-                        Image(systemName: "photo.on.rectangle").font(.sans(19))
-                    }
-                    .disabled(post.images.count >= 10)
+                tools
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    // A quoted passage, the tagged book, topics, a poll and a link card: the first post's extras.
+    @ViewBuilder private var extras: some View {
+        if let q = m.quote {
+            HStack(alignment: .top, spacing: 0) {
+                C.ink.frame(width: 3)
+                TextField("Quote a passage", text: Binding(get: { q }, set: { m.quote = $0 }), axis: .vertical)
+                    .font(.serif(21, italic: true)).foregroundStyle(C.ink).focused($quoteFocus).padding(.leading, 14)
+                Button { withAnimation(.snappy) { m.quote = nil }; focus.wrappedValue = post.id } label: {
+                    Text("×").font(.sans(15)).foregroundStyle(C.ink).frame(width: 24, height: 24).background(Circle().fill(Color(rgb: 0x0c0e08, 0.08)))
                 }
-                .foregroundStyle(C.muted)
-                .padding(.top, 10).padding(.bottom, 18)
-                .onChange(of: picks) { _, items in
-                    guard !items.isEmpty else { return }
-                    Task {
-                        var out: [UIImage] = []
-                        for it in items { if let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) { out.append(img) } }
-                        await MainActor.run { withAnimation(.snappy) { post.images.append(contentsOf: out.prefix(10 - post.images.count)) }; picks = [] }
+            }
+            .fixedSize(horizontal: false, vertical: true).padding(.vertical, 6)
+            .onAppear { if q.isEmpty { quoteFocus = true } }
+        }
+        if let b = m.book {
+            HStack(spacing: 10) {
+                AsyncImage(url: b.cover) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0xc9c7af) }.frame(width: 26, height: 38).clipShape(RoundedRectangle(cornerRadius: 3))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(b.title).font(.serif(14, italic: true)).foregroundStyle(C.ink)
+                    Text([b.author, "tagged book"].compactMap { $0 }.joined(separator: " · ")).font(.sans(12)).foregroundStyle(C.muted)
+                }
+                Spacer(minLength: 0)
+                Button { m.book = nil } label: { Text("×").font(.sans(16)).foregroundStyle(C.ink).frame(width: 28, height: 28).background(Circle().fill(Color(rgb: 0x0c0e08, 0.08))) }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8).background(RoundedRectangle(cornerRadius: 12).fill(Color(rgb: 0x444530))).overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(rgb: 0x54563c)))
+            .padding(.top, 8)
+        }
+        if let p = m.poll { pollEditor(p) }
+        if !m.tags.isEmpty {
+            HStack(spacing: 10) { ForEach(m.tags, id: \.self) { t in Button { m.tags.removeAll { $0 == t } } label: { Text("#\(t) ×").font(.sans(13)).foregroundStyle(Color(rgb: 0xd0ceb9)) } } }.padding(.top, 6)
+        }
+        if let u = URL(string: m.link.trimmingCharacters(in: .whitespaces)), !m.link.isEmpty {
+            LinkCard(url: u).overlay(alignment: .topTrailing) {
+                Button { m.link = "" } label: { Text("×").font(.sans(15)).foregroundStyle(.white).frame(width: 26, height: 26).background(Circle().fill(Color(rgb: 0x0a0c06, 0.72))) }.padding(8)
+            }
+            .padding(.top, 8)
+        }
+    }
+    private func pollEditor(_ p: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(p.indices, id: \.self) { i in
+                TextField("Choice \(i + 1)", text: Binding(get: { m.poll?[safe: i] ?? "" }, set: { v in if m.poll != nil, i < m.poll!.count { m.poll![i] = v } }))
+                    .font(.sans(15)).foregroundStyle(C.ink).padding(.horizontal, 12).frame(height: 42)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color(rgb: 0x3b3e2a))).overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(rgb: 0x50533a)))
+            }
+            HStack(spacing: 8) {
+                if p.count < 4 { Button("Add choice") { m.poll?.append("") }.buttonStyle(SmallGhost()) }
+                Menu {
+                    ForEach([1, 3, 7], id: \.self) { d in Button("\(d) day\(d > 1 ? "s" : "")") { m.pollDays = d } }
+                } label: { Text("\(m.pollDays) day\(m.pollDays > 1 ? "s" : "") ▾").font(.sans(14)).foregroundStyle(C.ink).padding(.horizontal, 12).frame(height: 32).overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(rgb: 0x50533a))) }
+                Spacer()
+                Button("Remove") { withAnimation(.snappy) { m.poll = nil } }.buttonStyle(SmallGhost())
+            }
+        }
+        .padding(12).overlay(RoundedRectangle(cornerRadius: 14).stroke(C.rule)).padding(.top, 8)
+    }
+
+    // The web composer's toolbar: photo, camera, link, quote, book, topics, poll (the extras belong to the first post).
+    private var tools: some View {
+        HStack(spacing: 2) {
+            PhotosPicker(selection: $picks, maxSelectionCount: max(1, 10 - post.images.count), matching: .images) { tool("image") }
+                .disabled(post.images.count >= 10)
+            Button(action: camera) { tool("camera") }
+            if index == 0 {
+                Button { openSheet(.link) } label: { tool("link") }.foregroundStyle(m.link.isEmpty ? C.muted : C.ink)
+                Button { withAnimation(.snappy) { if m.quote == nil { m.quote = "" } else { quoteFocus = true } } } label: { tool("quote2") }
+                Button { openSheet(.book) } label: { tool("book") }.foregroundStyle(m.book == nil ? C.muted : C.ink)
+                Button { openSheet(.tags) } label: { tool("hash") }.foregroundStyle(m.tags.isEmpty ? C.muted : C.ink)
+                Button { withAnimation(.snappy) { m.poll = m.poll == nil ? ["", ""] : nil } } label: { tool("pollbars") }.foregroundStyle(m.poll == nil ? C.muted : C.ink)
+            }
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(C.muted)
+        .padding(.leading, -8).padding(.top, 8).padding(.bottom, 18)
+        .onChange(of: picks) { _, items in
+            guard !items.isEmpty else { return }
+            Task {
+                var out: [UIImage] = []
+                for it in items { if let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) { out.append(img) } }
+                await MainActor.run { withAnimation(.snappy) { post.images.append(contentsOf: out.prefix(10 - post.images.count)) }; picks = [] }
+            }
+        }
+    }
+    private func tool(_ n: String) -> some View { GlyphView(n: n, s: 24).frame(width: 44, height: 42).contentShape(Rectangle()) }
+}
+
+private struct SmallGhost: ButtonStyle {
+    func makeBody(configuration c: Configuration) -> some View {
+        c.label.font(.sans(14)).foregroundStyle(C.ink).padding(.horizontal, 12).frame(height: 32).overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(rgb: 0x50533a))).opacity(c.isPressed ? 0.7 : 1)
+    }
+}
+private extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
+
+enum ComposeSheet: String, Identifiable { case link, book, tags; var id: String { rawValue } }
+
+/// Add a link: the post shows its card.
+private struct LinkSheet: View {
+    @ObservedObject var m: ComposeModel
+    @State private var draft = ""
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var f: Bool
+    private var fixed: String { let t = draft.trimmingCharacters(in: .whitespaces); return t.isEmpty ? "" : (t.lowercased().hasPrefix("http") ? t : "https://" + t) }
+    private var ok: Bool { fixed.range(of: #"^https?://[^/\s]+\.[^/\s]{2,}"#, options: .regularExpression) != nil }
+    var body: some View {
+        SheetBody {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Add a link").font(.serif(20, .semibold)).foregroundStyle(C.ink)
+                TextField("", text: $draft, prompt: Text("Paste or type a web address").foregroundColor(C.muted)).focused($f)
+                    .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().submitLabel(.done).onSubmit { if ok { m.link = fixed; dismiss() } }
+                    .font(.sans(16)).foregroundStyle(C.ink).padding(.horizontal, 12).frame(height: 46)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color(rgb: 0x3b3e2a))).overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(rgb: 0x50533a)))
+                if ok, let u = URL(string: fixed) { LinkCard(url: u) }
+                Button { m.link = fixed; dismiss() } label: { Text(m.link.isEmpty ? "Add link" : "Update link").font(.sans(16, .semibold)).foregroundStyle(C.paper).frame(maxWidth: .infinity).frame(height: 48).background(RoundedRectangle(cornerRadius: 14).fill(ok ? C.ink : C.muted.opacity(0.4))) }.disabled(!ok)
+                if !m.link.isEmpty { Button { m.link = ""; dismiss() } label: { Text("Remove link").font(.sans(16)).foregroundStyle(C.ink).frame(maxWidth: .infinity).frame(height: 44) } }
+            }
+            .padding(.horizontal, 20)
+        }
+        .onAppear { draft = m.link; f = true }
+    }
+}
+
+/// Tag a book from your library, the club's books and books read.
+private struct BookSheet: View {
+    @ObservedObject var m: ComposeModel
+    @State private var q = ""
+    @State private var books: [ComposeBook] = []
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        SheetBody {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Tag a book").font(.serif(20, .semibold)).foregroundStyle(C.ink).padding(.horizontal, 20)
+                TextField("", text: $q, prompt: Text("Search your library").foregroundColor(C.muted)).font(.sans(16)).foregroundStyle(C.ink)
+                    .padding(.horizontal, 12).frame(height: 44).background(RoundedRectangle(cornerRadius: 12).fill(Color(rgb: 0x3b3e2a))).padding(.horizontal, 20)
+                Card14 {
+                    ForEach(Array(books.filter { q.isEmpty || $0.title.localizedCaseInsensitiveContains(q) || ($0.author ?? "").localizedCaseInsensitiveContains(q) }.enumerated()), id: \.element.id) { k, b in
+                        if k > 0 { GroupLine() }
+                        Button { m.book = b; Haptic.tap(); dismiss() } label: {
+                            HStack(spacing: 12) {
+                                AsyncImage(url: b.cover) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x9c5463) }.frame(width: 30, height: 44).clipShape(RoundedRectangle(cornerRadius: 3))
+                                VStack(alignment: .leading, spacing: 1) { Text(b.title).font(.serif(16)).foregroundStyle(C.ink).multilineTextAlignment(.leading); if let a = b.author { Text(a).font(.sans(12)).foregroundStyle(C.muted) } }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 16).frame(minHeight: 60).contentShape(Rectangle())
+                        }.buttonStyle(.plain)
                     }
                 }
             }
         }
-        .padding(.horizontal, 16)
+        .task { await load() }
+    }
+    @MainActor private func load() async {
+        guard let a = await m.auth() else { return }; let db = Supa(a: a)
+        async let R = db.rows("/rest/v1/current_reads?user_id=eq.\(a.me)&select=custom_title,custom_author,custom_cover_url,editions(title,author,cover_url)")
+        async let U = db.rows("/rest/v1/club_updates?select=book_title,book_author,cover_url&order=created_at.desc&limit=40")
+        async let B = db.rows("/rest/v1/books_read?select=title,author,cover_url")
+        guard let res = try? await (R, U, B) else { return }
+        let (r, u, b) = res
+        var seen = Set<String>(), out: [ComposeBook] = []
+        func add(_ t: String?, _ au: String?, _ c: String?) {
+            guard let t, !t.isEmpty else { return }
+            let clean = t.replacingOccurrences(of: #"^Amazon\.com:\s*"#, with: "", options: .regularExpression).components(separatedBy: ":").prefix(2).joined(separator: ":").trimmingCharacters(in: .whitespaces)
+            if seen.insert(clean.lowercased()).inserted { out.append(ComposeBook(title: clean, author: au, cover: c.flatMap(URL.init(string:)))) }
+        }
+        for x in r { let e = x["editions"] as? [String: Any]; add((e?["title"] as? String) ?? (x["custom_title"] as? String), (e?["author"] as? String) ?? (x["custom_author"] as? String), (e?["cover_url"] as? String) ?? (x["custom_cover_url"] as? String)) }
+        for x in u { add(x["book_title"] as? String, x["book_author"] as? String, x["cover_url"] as? String) }
+        for x in b { add(x["title"] as? String, x["author"] as? String, x["cover_url"] as? String) }
+        books = out
+    }
+}
+
+/// Topics (#tags): type one, or pick from those already in use.
+private struct TagSheet: View {
+    @ObservedObject var m: ComposeModel
+    @State private var draft = ""
+    @State private var known: [String] = []
+    @FocusState private var f: Bool
+    private func add(_ t: String) {
+        let c = t.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "#", with: "").lowercased().replacingOccurrences(of: " ", with: "-")
+        if !c.isEmpty && !m.tags.contains(c) { m.tags.append(c); Haptic.tap() }
+        draft = ""
+    }
+    var body: some View {
+        SheetBody {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Topics").font(.serif(20, .semibold)).foregroundStyle(C.ink)
+                TextField("", text: $draft, prompt: Text("Add a topic").foregroundColor(C.muted)).focused($f).submitLabel(.done).onSubmit { add(draft) }
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .font(.sans(16)).foregroundStyle(C.ink).padding(.horizontal, 12).frame(height: 46).background(RoundedRectangle(cornerRadius: 12).fill(Color(rgb: 0x3b3e2a)))
+                if !m.tags.isEmpty {
+                    FlowTags(tags: m.tags.map { "#\($0) ×" }) { i in m.tags.remove(at: i) }
+                }
+                let pick = known.filter { !m.tags.contains($0) && (draft.isEmpty || $0.contains(draft.lowercased())) }
+                if !pick.isEmpty {
+                    Eyebrow(t: "In use")
+                    FlowTags(tags: pick.prefix(16).map { "#\($0)" }) { i in add(Array(pick.prefix(16))[i]) }
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+        .onAppear { f = true }
+        .task {
+            guard let a = await m.auth(), let rows = try? await Supa(a: a).rows("/rest/v1/aside_tags?select=tag&limit=400") else { return }
+            var c: [String: Int] = [:]; for r in rows { if let t = r["tag"] as? String { c[t, default: 0] += 1 } }
+            known = c.sorted { $0.value > $1.value }.map(\.key)
+        }
+    }
+}
+private struct FlowTags: View {
+    let tags: [String]
+    let tap: (Int) -> Void
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8, alignment: .leading)], alignment: .leading, spacing: 8) {
+            ForEach(Array(tags.enumerated()), id: \.offset) { i, t in
+                Button { tap(i) } label: { Text(t).font(.sans(14, .semibold)).foregroundStyle(C.ink).lineLimit(1).padding(.horizontal, 12).frame(height: 32).background(Capsule().fill(Color(rgb: 0x454832))) }.buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+/// The camera, for a photo straight into the post.
+struct CameraPicker: UIViewControllerRepresentable {
+    let done: (UIImage?) -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(done: done) }
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let p = UIImagePickerController()
+        p.sourceType = UIImagePickerController.isSourceTypeAvailable(.camera) ? .camera : .photoLibrary
+        p.delegate = context.coordinator
+        return p
+    }
+    func updateUIViewController(_ vc: UIImagePickerController, context: Context) {}
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let done: (UIImage?) -> Void
+        init(done: @escaping (UIImage?) -> Void) { self.done = done }
+        func imagePickerController(_ p: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) { done(info[.originalImage] as? UIImage) }
+        func imagePickerControllerDidCancel(_ p: UIImagePickerController) { done(nil) }
     }
 }
 
@@ -284,6 +543,7 @@ final class ComposeHandler: NSObject, WKScriptMessageHandler {
         guard let top, !(top is UIHostingController<ComposeView>) else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         let model = ComposeModel(name: name, avatar: avatar)
+        model.auth = { [weak self] in await webAuth(self?.web) }
         let vc = UIHostingController(rootView: ComposeView(m: model))
         vc.overrideUserInterfaceStyle = .dark
         vc.view.backgroundColor = UIColor(red: 0.255, green: 0.271, blue: 0.188, alpha: 1)

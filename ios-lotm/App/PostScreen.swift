@@ -467,23 +467,28 @@ private struct ReplyCard: View {
 
 struct PhotoStrip: View {
     let urls: [URL]
+    @State private var openAt: Int?
     var body: some View {
-        if urls.count == 1 {
-            AsyncImage(url: urls[0]) { $0.resizable().scaledToFit() } placeholder: { P.soft.frame(height: 220) }
-                .frame(maxWidth: .infinity, maxHeight: 460, alignment: .leading).clipShape(RoundedRectangle(cornerRadius: 14))
-                .onTapGesture { openInApp(urls[0]) }
-        } else if urls.count > 1 {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(urls, id: \.self) { u in
-                        AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { P.soft }
-                            .frame(width: 220, height: 280).clipShape(RoundedRectangle(cornerRadius: 14)).onTapGesture { openInApp(u) }
+        ZStack {
+            if urls.count == 1 {
+                AsyncImage(url: urls[0]) { $0.resizable().scaledToFit() } placeholder: { P.soft.frame(height: 220) }
+                    .frame(maxWidth: .infinity, maxHeight: 460, alignment: .leading).clipShape(RoundedRectangle(cornerRadius: 14))
+                    .onTapGesture { openAt = 0 }
+            } else if urls.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(urls.enumerated()), id: \.offset) { i, u in
+                            AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { P.soft }
+                                .frame(width: 220, height: 280).clipShape(RoundedRectangle(cornerRadius: 14)).onTapGesture { openAt = i }
+                        }
                     }
                 }
             }
         }
+        .fullScreenCover(item: Binding(get: { openAt.map { PhotoIndex(v: $0) } }, set: { openAt = $0?.v })) { b in Lightbox(urls: urls, start: b.v) }
     }
 }
+struct PhotoIndex: Identifiable { let v: Int; var id: Int { v } }
 
 struct PersonFace: View {
     let p: Person, size: CGFloat

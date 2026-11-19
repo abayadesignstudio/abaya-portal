@@ -601,32 +601,7 @@ struct PhotoRow: View {
                 .padding(.trailing, -16)
             }
         }
-        .fullScreenCover(item: Binding(get: { openAt.map { IntBox(v: $0) } }, set: { openAt = $0?.v })) { b in Lightbox(urls: urls, start: b.v) }
-    }
-}
-private struct IntBox: Identifiable { let v: Int; var id: Int { v } }
-
-/// Full-screen photos: swipe sideways for the next, swipe down or ✕ to close.
-private struct Lightbox: View {
-    let urls: [URL], start: Int
-    @State private var i = 0
-    @State private var drop: CGFloat = 0
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Color.black.opacity(Double(1 - min(CGFloat(0.6), abs(drop) / CGFloat(600)))).ignoresSafeArea()
-            TabView(selection: $i) {
-                ForEach(Array(urls.enumerated()), id: \.offset) { k, u in
-                    AsyncImage(url: u) { $0.resizable().scaledToFit() } placeholder: { ProgressView().tint(.white) }.tag(k)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: urls.count > 1 ? .automatic : .never))
-            .offset(y: drop)
-            .gesture(DragGesture().onChanged { drop = max(0, $0.translation.height) }.onEnded { g in if g.translation.height > 120 { dismiss() } else { withAnimation(.spring) { drop = 0 } } })
-            Button { dismiss() } label: { Text("✕").font(.sans(17)).foregroundStyle(.white).frame(width: 40, height: 40).background(Circle().fill(.white.opacity(0.15))) }.padding(16)
-        }
-        .onAppear { i = start }
-        .statusBarHidden()
+        .fullScreenCover(item: Binding(get: { openAt.map { PhotoIndex(v: $0) } }, set: { openAt = $0?.v })) { b in Lightbox(urls: urls, start: b.v) }
     }
 }
 
