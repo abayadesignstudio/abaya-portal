@@ -25,12 +25,23 @@ struct Shell: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             T.paper.ignoresSafeArea()
-            FeedScreen(m: feed, web: web).opacity(web.tab == .feed ? 1 : 0).allowsHitTesting(web.tab == .feed && !overlay)
-            if web.tab == .library && web.libPane != "notes" { LibraryScreen(m: library, feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
-            if web.tab == .people { DirectoryScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
-            if web.tab == .settings { SettingsScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
-            WebView(model: web).ignoresSafeArea()
-                .opacity(showWeb ? 1 : 0).allowsHitTesting(showWeb)
+            // The masthead stays put on every tab; only the page under it changes.
+            VStack(spacing: 0) {
+                if !overlay {
+                    Mast(unread: feed.unread,
+                         settings: { web.select(.settings) },
+                         bell: { presentSlide(NotificationsScreen(feed: feed, web: web)) },
+                         title: { if web.tab == .feed { feed.scrollTop += 1 } else { web.select(.feed) } })
+                }
+                ZStack(alignment: .bottom) {
+                    FeedScreen(m: feed, web: web).opacity(web.tab == .feed ? 1 : 0).allowsHitTesting(web.tab == .feed && !overlay)
+                    if web.tab == .library && web.libPane != "notes" { LibraryScreen(m: library, feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
+                    if web.tab == .people { DirectoryScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
+                    if web.tab == .settings { SettingsScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
+                    WebView(model: web).ignoresSafeArea()
+                        .opacity(showWeb ? 1 : 0).allowsHitTesting(showWeb)
+                }
+            }
             if !overlay {
                 Dock(web: web, feed: feed).transition(.opacity)
             }
@@ -173,8 +184,8 @@ struct Leaves: View {
             TimelineView(.animation(minimumInterval: 1 / 30)) { tl in
                 Canvas { g, size in
                     let t = tl.date.timeIntervalSinceReferenceDate
-                    for slot in 0..<6 {
-                        let period = 11 + Self.rnd(slot, 1, 0) * 9, shifted = t + Self.rnd(slot, 2, 0) * period
+                    for slot in 0..<12 {
+                        let period = 8 + Self.rnd(slot, 1, 0) * 7, shifted = t + Self.rnd(slot, 2, 0) * period
                         let cycle = Int(shifted / period), at = shifted - Double(cycle) * period
                         let fall = 6.5 + Self.rnd(slot, cycle, 3) * 3
                         guard at < fall else { continue }                      // the rest of the cycle this slot is empty
@@ -240,10 +251,6 @@ struct FeedScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Mast(unread: m.unread,
-                 settings: { web.select(.settings) },
-                 bell: { presentSlide(NotificationsScreen(feed: m, web: web)) },
-                 title: { m.scrollTop += 1 })
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
