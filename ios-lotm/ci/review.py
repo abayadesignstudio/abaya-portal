@@ -38,7 +38,7 @@ app = call('GET', f'/apps?filter[bundleId]={BUNDLE}')['data'][0]
 aid = app['id']
 print(f'App: {app["attributes"]["name"]} ({aid})')
 
-builds = call('GET', f'/builds?filter[app]={aid}&sort=-uploadedDate&limit=15&include=buildBetaDetail,preReleaseVersion,betaAppReviewSubmission')
+builds = call('GET', f'/builds?filter[app]={aid}&sort=-uploadedDate&limit=80&include=buildBetaDetail,preReleaseVersion,betaAppReviewSubmission')
 inc = {(i['type'], i['id']): i for i in builds.get('included', [])}
 def rel(b, name):
     d = (b['relationships'].get(name) or {}).get('data')
@@ -49,12 +49,14 @@ by_num = {}
 for b in builds['data']:
     a = b['attributes']; num = a['version']; by_num[num] = b
     det = rel(b, 'buildBetaDetail'); ver = rel(b, 'preReleaseVersion'); sub = rel(b, 'betaAppReviewSubmission')
+    ext = det["attributes"].get("externalBuildState") if det else "?"
+    if ext == 'READY_FOR_BETA_SUBMISSION' and not sub and int(num) < 55: continue
     print(f'  {ver["attributes"]["version"] if ver else "?"} ({num})  processing={a.get("processingState")}  expired={a.get("expired")}'
           f'  external={det["attributes"].get("externalBuildState") if det else "?"}'
           f'  internal={det["attributes"].get("internalBuildState") if det else "?"}'
           f'  review={sub["attributes"].get("betaReviewState") if sub else "-"}')
 
-subs = call('GET', f'/betaAppReviewSubmissions?filter[build]={",".join(b["id"] for b in builds["data"])}&limit=50&include=build')
+subs = call('GET', f'/betaAppReviewSubmissions?filter[build]={",".join(b["id"] for b in builds["data"][:50])}&limit=50&include=build')
 print('\nReview submissions:')
 for s in subs.get('data', []):
     bid = s['relationships']['build']['data']['id']
