@@ -146,7 +146,7 @@ final class ChatSession: ObservableObject {
             for (k, c) in out.enumerated() {
                 let last = reads[c.id].flatMap { $0.isEmpty ? nil : $0 } ?? "1970-01-01T00:00:00Z"
                 let q = last.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? last
-                g.addTask { (k, ((try? await db.rows("/rest/v1/messages?conversation_id=eq.\(c.id)&created_at=gt.\(q)&user_id=neq.\(db.a.me)&deleted_at=is.null&select=id&limit=20")) ?? []).count) }
+                g.addTask { (k, ((try? await db.rows("/rest/v1/messages?conversation_id=eq.\(c.id)&created_at=gt.\(q)&user_id=neq.\(db.a.me)&deleted_at=is.null&quiet=is.false&select=id&limit=20")) ?? []).count) }
             }
             for await (k, n) in g { out[k].unread = n }
         }
