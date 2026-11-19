@@ -84,10 +84,30 @@ loc = call('GET', f'/apps/{aid}/betaAppLocalizations')['data']
 print(f'  beta description: {"set" if loc and loc[0]["attributes"].get("description") else "MISSING"}'
       f'  feedbackEmail: {"set" if loc and loc[0]["attributes"].get("feedbackEmail") else "MISSING"}')
 
-if os.environ.get('ACTION') != 'submit':
+WHAT_DEFAULT = '''1. Sign in with the account provided.
+2. Feed: scroll posts, open one, like it, and reply.
+3. Tap the pencil button to write a short post (100 words at most).
+4. Library: switch between My Library, Commonplace and LOTM.
+5. Chat: choose a chat passphrase when asked, then send a message, a photo and a reaction.
+6. Settings: review profile and notification options.'''
+
+action = os.environ.get('ACTION') or 'inspect'
+gname = os.environ.get('GROUP') or 'LOTM Test'
+if action == 'auto':
+    # Nothing to do while Apple is reviewing a build; otherwise send the newest build to the group if it isn't there yet.
+    busy = [s for s in subs.get('data', []) if s['attributes'].get('betaReviewState') in ('WAITING_FOR_REVIEW', 'IN_REVIEW')]
+    if busy:
+        sys.exit('\nAUTO: a build is still in Beta App Review; nothing to do yet.')
+    newest = next((b for b in builds['data'] if b['attributes'].get('processingState') == 'VALID' and not b['attributes'].get('expired')), None)
+    in_group = {x['attributes']['version'] for x in call('GET', f'/betaGroups/{gid[gname]}/builds?limit=50')['data']} if gname in gid else set()
+    if not newest or newest['attributes']['version'] in in_group:
+        sys.exit(f'\nAUTO: "{gname}" already has the newest build; nothing to do.')
+    os.environ['BUILD'] = newest['attributes']['version']
+    action = 'submit'
+if action != 'submit':
     sys.exit(0)
 
-num, gname, what = os.environ['BUILD'], os.environ['GROUP'], os.environ.get('WHAT', '')
+num, what = os.environ['BUILD'], os.environ.get('WHAT') or WHAT_DEFAULT
 b = by_num.get(num) or sys.exit(f'No build {num}')
 print(f'\nSubmitting build {num} to "{gname}"')
 if what:

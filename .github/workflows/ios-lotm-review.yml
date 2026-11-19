@@ -1,6 +1,8 @@
 # Checks (or submits) the Life of the Mind TestFlight external review through the App Store Connect API.
 name: Life of the Mind TestFlight review
 on:
+  # every two hours: once Apple finishes reviewing, send the newest build to LOTM Test
+  schedule: [{ cron: '17 */2 * * *' }]
   workflow_dispatch:
     inputs:
       action: { description: 'inspect or submit', default: 'inspect' }
@@ -19,9 +21,9 @@ jobs:
           P8: '${{ secrets.ASC_KEY_P8 }}'
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ACTION: ${{ inputs.action }}
+          ACTION: ${{ inputs.action || 'auto' }}
           BUILD: ${{ inputs.build }}
-          GROUP: ${{ inputs.group }}
+          GROUP: ${{ inputs.group || 'LOTM Test' }}
           WHAT: ${{ inputs.what }}
         run: |
           printf '%s\n' "$P8" > "$RUNNER_TEMP/AuthKey.p8"; chmod 600 "$RUNNER_TEMP/AuthKey.p8"
