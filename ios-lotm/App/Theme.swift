@@ -205,18 +205,37 @@ struct SheetBody<Content: View>: View {
 
 /// Writing laid out as the web app's .body: paragraphs (separated by a blank line) with a small gap between them, line
 /// breaks kept, web addresses tappable.
-struct Paras: View {
-    let text: String
-    var size: CGFloat = 18
-    var leading: CGFloat = 1.4
-    var gap: CGFloat = 6
+/// A post's writing, paragraph by paragraph. A quoted passage (marked when the post is loaded) keeps its line down the left.
+struct Paras: View { let text: String; var size: CGFloat = 18; var leading: CGFloat = 1.4; var gap: CGFloat = 6
     var body: some View {
         let ps = text.replacingOccurrences(of: "\r", with: "").split(separator: #/\n[ \t]*\n+/#).map { String($0).trimmingCharacters(in: .newlines) }.filter { !$0.isEmpty }
-        VStack(alignment: .leading, spacing: gap) {
-            ForEach(Array(ps.enumerated()), id: \.offset) { _, p in
-                Text(linked(p)).font(.serif(size)).foregroundStyle(T.ink).lineSpacing(max(0, size * leading - size * 1.305))
-                    .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
+        VStack(alignment: .leading, spacing: gap) { ForEach(Array(ps.enumerated()), id: \.offset) { _, p in
+            let quote = p.hasPrefix(quoteMark)
+            Text(linked(quote ? String(p.dropFirst()) : p)).font(.serif(size, italic: quote)).foregroundStyle(T.ink).lineSpacing(max(0, size * leading - size * 1.305))
+                .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, quote ? 12 : 0)
+                .overlay(alignment: .leading) { if quote { T.ink.frame(width: 3) } }
+                .padding(.vertical, quote ? 2 : 0)
+        } } }
+}
+let quoteMark = "\u{E000}"
+/// The post's text with its quoted passages marked, read from the formatted copy (where a quote is a <blockquote>).
+func quoteMarked(_ body: String, _ html: String?) -> String {
+    guard let html, html.contains("<blockquote") else { return body }
+    func paras(_ h: String, _ q: Bool) -> [String] {
+        var t = h.replacingOccurrences(of: #"</p>|</div>|</h[1-6]>|</li>"#, with: "\n\n", options: .regularExpression)
+            .replacingOccurrences(of: #"<br\s*/?>"#, with: "\n", options: .regularExpression)
+            .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+        for (a, b) in [("&nbsp;", " "), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&#39;", "'"), ("&amp;", "&")] { t = t.replacingOccurrences(of: a, with: b) }
+        return t.components(separatedBy: "\n\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.map { q ? quoteMark + $0 : $0 }
     }
+    var out: [String] = []
+    for (i, part) in html.components(separatedBy: "<blockquote").enumerated() {
+        if i == 0 { out += paras(part, false); continue }
+        let seg = part.components(separatedBy: "</blockquote>")
+        let inner = seg[0].firstIndex(of: ">").map { String(seg[0][seg[0].index(after: $0)...]) } ?? seg[0]
+        out += paras(inner, true)
+        if seg.count > 1 { out += paras(seg.dropFirst().joined(), false) }
+    }
+    return out.isEmpty ? body : out.joined(separator: "\n\n")
 }

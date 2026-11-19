@@ -33,6 +33,12 @@ func shrinkJPEG(_ img: UIImage) -> Data? {
     let f = UIGraphicsImageRendererFormat(); f.scale = 1
     return UIGraphicsImageRenderer(size: size, format: f).image { _ in img.draw(in: CGRect(origin: .zero, size: size)) }.jpegData(compressionQuality: 0.82)
 }
+/// An emoji drawn large, for the press-and-hold menu (menus shrink plain text).
+func emojiImage(_ e: String, _ s: CGFloat = 30) -> UIImage {
+    UIGraphicsImageRenderer(size: CGSize(width: s + 8, height: s + 8)).image { _ in
+        (e as NSString).draw(at: CGPoint(x: 4, y: 2), withAttributes: [.font: UIFont.systemFont(ofSize: s)])
+    }.withRenderingMode(.alwaysOriginal)
+}
 /// A GIF's frames as one animated image.
 func animatedGIF(_ d: Data) -> UIImage? {
     guard let src = CGImageSourceCreateWithData(d as CFData, nil) else { return nil }
@@ -151,6 +157,19 @@ final class ChatSession: ObservableObject {
             for await (k, n) in g { out[k].unread = n }
         }
         convos = out
+        await syncKeys()
+    }
+
+    /// Every chat key shared with you, unlocked and kept in this phone's keychain, so a notification can show its message.
+    private var stored: Set<String> = []
+    private func syncKeys() async {
+        guard let db, let id, let rows = try? await db.rows("/rest/v1/chat_key_shares?user_id=eq.\(me)&select=conversation_id,epoch,recipient_key,ephemeral,sealed,signature,created_by") else { return }
+        for r in rows {
+            guard let c = r["conversation_id"] as? String, let e = r["epoch"] as? Int, !stored.contains("\(c)|\(e)"), let to = r["recipient_key"] as? String, to == id.agreePub,
+                  let by = r["created_by"] as? String, let signer = people[by]?.sign,
+                  let k = try? ChatCrypto.open(conv: c, epoch: e, user: me, to: to, eph: r["ephemeral"] as? String ?? "", sealed: r["sealed"] as? String ?? "", sig: r["signature"] as? String ?? "", signer: signer, me: id) else { continue }
+            ChatKeyStore.save(conv: c, epoch: e, key: k.withUnsafeBytes { Data($0) }); stored.insert("\(c)|\(e)")
+        }
     }
 
     var unread: Int { convos.reduce(0) { $0 + $1.unread } }
@@ -250,7 +269,7 @@ final class ChatModel: ObservableObject {
             guard let e = r["epoch"] as? Int, keys[e] == nil, let to = r["recipient_key"] as? String, to == id.agreePub,
                   let by = r["created_by"] as? String, let signer = s.people[by]?.sign else { continue }
             if let k = try? ChatCrypto.open(conv: conv, epoch: e, user: me, to: to, eph: r["ephemeral"] as? String ?? "", sealed: r["sealed"] as? String ?? "",
-                                            sig: r["signature"] as? String ?? "", signer: signer, me: id) { keys[e] = k }
+                                            sig: r["signature"] as? String ?? "", signer: signer, me: id) { keys[e] = k; ChatKeyStore.save(conv: conv, epoch: e, key: k.withUnsafeBytes { Data($0) }) }
         }
         if latest == 0 { try await newEpoch(1) }
     }
@@ -283,6 +302,7 @@ final class ChatModel: ObservableObject {
         do { try await db.req("POST", "/rest/v1/chat_epochs", json: ["conversation_id": conv, "epoch": n, "created_by": me], prefer: "return=minimal") }
         catch { try await loadKeys(); return }   // someone else started it a moment ago
         let k = SymmetricKey(size: .bits256); latest = n; keys[n] = k
+        ChatKeyStore.save(conv: conv, epoch: n, key: k.withUnsafeBytes { Data($0) })
         var rows: [[String: Any]] = []
         for m in members.values { guard let to = m.agree else { continue }; rows.append(share(m.id, to, try ChatCrypto.seal(k, conv: conv, epoch: n, user: m.id, to: to, by: id))) }
         if !rows.isEmpty { try await db.req("POST", "/rest/v1/chat_key_shares", json: rows, prefer: "resolution=merge-duplicates,return=minimal") }
@@ -669,6 +689,8 @@ struct ChatScreen: View {
     @State private var gifs = false
     @State private var deleting: CMsg?
     @State private var reacting: CMsg?
+    @State private var dragId: String?
+    @State private var dragX: CGFloat = 0
     @State private var preview: URL?
     @State private var opening: String?
     @State private var replyTo: CMsg?
@@ -799,7 +821,7 @@ struct ChatScreen: View {
             if gap {
                 Text(stamp(msg.created)).font(.sans(12)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(.top, 6).padding(.bottom, 4)
             }
-            if showName { Text(m.s.people[msg.userId]?.name ?? "Former member").font(.sans(12)).foregroundStyle(T.muted).padding(.leading, 12) }
+            if showName { Text(m.s.people[msg.userId]?.name ?? "Former member").font(.sans(13)).foregroundStyle(T.muted).padding(.leading, 12) }
             if msg.deleted || msg.unreadable {
                 bubble(mine: mine) { Text(msg.deleted ? "Message deleted" : "Sent before you joined").italic().opacity(0.55) }
             } else {
@@ -814,7 +836,7 @@ struct ChatScreen: View {
                         VStack(alignment: .leading, spacing: 4) {
                             if let parent {
                                 Text(parent.deleted ? "Message deleted" : !parent.text.isEmpty ? String(parent.text.prefix(80)) : parent.poll != nil ? "Poll" : parent.att?.name ?? "Attachment")
-                                    .font(.sans(14)).opacity(0.7).lineLimit(2).padding(.leading, 6)
+                                    .font(.system(size: 15)).opacity(0.7).lineLimit(2).padding(.leading, 6)
                                     .overlay(alignment: .leading) { Rectangle().frame(width: 2).opacity(0.7) }
                             }
                             if !msg.text.isEmpty { Text(linked(msg.text)) }
@@ -828,16 +850,16 @@ struct ChatScreen: View {
                         ForEach(msg.reacts.keys.sorted(), id: \.self) { e in
                             let who = msg.reacts[e] ?? []
                             Button { Task { await m.react(msg, e) } } label: {
-                                Text("\(e) \(who.count)").font(.sans(12, .semibold)).foregroundStyle(T.ink).padding(.horizontal, 8).frame(height: 24)
+                                HStack(spacing: 4) { Text(e).font(.system(size: 19)); Text("\(who.count)").font(.sans(14, .semibold)) }.foregroundStyle(T.ink).padding(.horizontal, 10).frame(height: 34)
                                     .background(Capsule().fill(who.contains(m.me) ? Color.white.opacity(0.16) : T.card)).overlay(Capsule().stroke(T.rule))
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("\(e), \(who.compactMap { m.s.people[$0]?.name }.joined(separator: ", "))")
                         }
                         Button { typing = false; reacting = msg } label: {
-                            Image(systemName: "face.smiling").font(.system(size: 13, weight: .semibold)).foregroundStyle(T.muted)
-                                .overlay(alignment: .bottomTrailing) { Image(systemName: "plus").font(.system(size: 7, weight: .black)).foregroundStyle(T.muted).offset(x: 5, y: 3) }
-                                .padding(.horizontal, 10).frame(height: 24).background(Capsule().fill(T.card)).overlay(Capsule().stroke(T.rule))
+                            Image(systemName: "face.smiling").font(.system(size: 18, weight: .semibold)).foregroundStyle(T.muted)
+                                .overlay(alignment: .bottomTrailing) { Image(systemName: "plus").font(.system(size: 9, weight: .black)).foregroundStyle(T.muted).offset(x: 6, y: 3) }
+                                .padding(.horizontal, 12).frame(height: 34).background(Capsule().fill(T.card)).overlay(Capsule().stroke(T.rule))
                         }
                         .buttonStyle(.plain).accessibilityLabel("Add a reaction")
                     }
@@ -847,6 +869,23 @@ struct ChatScreen: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
+        // swipe a message to the right to reply to it
+        .offset(x: dragId == msg.id ? dragX : 0)
+        .background(alignment: .leading) {
+            if dragId == msg.id { Image(systemName: "arrowshape.turn.up.left.fill").font(.system(size: 16)).foregroundStyle(T.muted).opacity(Double(min(1, dragX / 44))).padding(.leading, 2) }
+        }
+        .contentShape(Rectangle())
+        .simultaneousGesture(DragGesture(minimumDistance: 22).onChanged { v in
+            guard !msg.deleted, !msg.unreadable, v.translation.width > 0, abs(v.translation.width) > abs(v.translation.height) * 1.6 else { return }
+            if dragId != msg.id { dragId = msg.id }
+            let x = min(72, v.translation.width * 0.55)
+            if x >= 44 && dragX < 44 { Haptic.tap() }
+            dragX = x
+        }.onEnded { _ in
+            if dragId == msg.id && dragX >= 44 { replyTo = msg; typing = true }
+            withAnimation(.snappy(duration: 0.2)) { dragX = 0 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { if dragX == 0 { dragId = nil } }
+        })
     }
 
     /// A photo or GIF, sized to fit; GIFs play.
@@ -916,8 +955,8 @@ struct ChatScreen: View {
     }
 
     private func bubble<C: View>(mine: Bool, @ViewBuilder _ c: () -> C) -> some View {
-        c().font(.serif(17)).foregroundStyle(mine ? T.paper : T.ink)
-            .padding(.horizontal, 13).padding(.vertical, 9)
+        c().font(.system(size: 17)).foregroundStyle(mine ? T.paper : T.ink)
+            .padding(.horizontal, 14).padding(.vertical, 9)
             .background(UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: mine ? 18 : 6, bottomTrailingRadius: mine ? 6 : 18, topTrailingRadius: 18).fill(mine ? T.ink : T.card))
             .overlay(UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: mine ? 18 : 6, bottomTrailingRadius: mine ? 6 : 18, topTrailingRadius: 18).stroke(mine ? .clear : T.rule))
             .frame(maxWidth: UIScreen.main.bounds.width * 0.76, alignment: mine ? .trailing : .leading)
@@ -926,8 +965,11 @@ struct ChatScreen: View {
 
     @ViewBuilder private func menu(_ msg: CMsg, _ mine: Bool) -> some View {
         ControlGroup {
-            ForEach(["❤️", "👍", "😂", "🙏"], id: \.self) { e in Button(e) { Task { await m.react(msg, e) } } }
+            ForEach(["❤️", "👍", "😂", "😮", "🙏"], id: \.self) { e in
+                Button { Task { await m.react(msg, e) } } label: { Image(uiImage: emojiImage(e)) }.accessibilityLabel(e)
+            }
         }
+        .controlGroupStyle(.palette)
         Button { typing = false; reacting = msg } label: { Label("More emoji…", systemImage: "face.smiling") }
         Divider()
         Button { replyTo = msg; typing = true } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
@@ -973,7 +1015,7 @@ struct ChatScreen: View {
                 }
                 .accessibilityLabel("Add a photo, file or poll")
                 TextField("", text: $text, prompt: Text("Message").foregroundColor(T.muted), axis: .vertical)
-                    .font(.serif(16)).foregroundStyle(T.ink).lineLimit(1...6).focused($typing)
+                    .font(.system(size: 17)).foregroundStyle(T.ink).lineLimit(1...6).focused($typing)
                     .padding(.horizontal, 14).padding(.vertical, 9).frame(minHeight: 40)
                     .background(RoundedRectangle(cornerRadius: 20).fill(T.card))
                     .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color(rgb: 0x54563c)))
@@ -1271,9 +1313,9 @@ private struct EmojiPicker: View {
             Text("React").font(.serif(22, .semibold)).foregroundStyle(T.ink).padding(.top, 22)
             EmojiKeyboardField(pick: pick).frame(height: 44).padding(.horizontal, 14)
                 .background(RoundedRectangle(cornerRadius: 12).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 12).stroke(T.border))
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 8), spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 6), spacing: 10) {
                 ForEach(common, id: \.self) { e in
-                    Button { pick(e) } label: { Text(e).font(.system(size: 28)).frame(maxWidth: .infinity, minHeight: 40) }.buttonStyle(.plain)
+                    Button { pick(e) } label: { Text(e).font(.system(size: 36)).frame(maxWidth: .infinity, minHeight: 50) }.buttonStyle(.plain)
                 }
             }
             Spacer(minLength: 0)

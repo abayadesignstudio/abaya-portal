@@ -15,7 +15,7 @@ struct FPost: Identifiable, Codable {
     var tags: [String] = [], thumb: URL? = nil
     var showTitle: Bool {
         if article { return !title.isEmpty }
-        let n = { (t: String) in t.lowercased().replacingOccurrences(of: #"[…\.\s"“”'‘’,:;!?-]+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces) }
+        let n = { (t: String) in t.replacingOccurrences(of: quoteMark, with: "").lowercased().replacingOccurrences(of: #"[…\.\s"“”'‘’,:;!?-]+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces) }
         let t = n(title); return !t.isEmpty && t != "voice note" && !n(body).hasPrefix(t)
     }
 }
@@ -81,7 +81,7 @@ final class FeedModel: ObservableObject {
         } catch { if posts.isEmpty { failed = error.localizedDescription } }
     }
 
-    private static let cols = "id,user_id,title,subtitle,body,aside_type,link_url,thumbnail_url,image_urls,created_at,edited_at,allow_comments,reply_policy,thread_parent_id,quote_of_id,post_format,selected_edition_id,related_edition_id,audio_url,publish_at"
+    private static let cols = "id,user_id,title,subtitle,body,body_html,aside_type,link_url,thumbnail_url,image_urls,created_at,edited_at,allow_comments,reply_policy,thread_parent_id,quote_of_id,post_format,selected_edition_id,related_edition_id,audio_url,publish_at"
     private func loadPosts(_ db: Supa) async throws -> [FPost] {
         let me = db.a.me
         let rows = try await db.rows("/rest/v1/asides?select=\(Self.cols)&or=(visibility.eq.public,visibility.is.null,and(user_id.eq.\(me),publish_at.not.is.null))&order=created_at.desc&limit=60")
@@ -118,7 +118,7 @@ final class FeedModel: ObservableObject {
             let book = eid.flatMap { e in eds.first { $0["id"] as? String == e } }.map { FBook(title: $0["title"] as? String ?? "", author: $0["author"] as? String, cover: ($0["cover_url"] as? String).flatMap(URL.init(string:))) }
             let audio = (r["audio_url"] as? String) != nil
             let kind = (r["publish_at"] as? String) != nil ? "Scheduled" : article ? "Article" : (r["quote_of_id"] as? String) != nil ? "Quote" : poll != nil ? "Poll" : audio ? "Voice note" : (r["aside_type"] as? String ?? "Reflection")
-            return FPost(id: id, userId: r["user_id"] as? String ?? "", title: r["title"] as? String ?? "", subtitle: r["subtitle"] as? String ?? "", body: body, kind: kind,
+            return FPost(id: id, userId: r["user_id"] as? String ?? "", title: r["title"] as? String ?? "", subtitle: r["subtitle"] as? String ?? "", body: article ? body : quoteMarked(body, r["body_html"] as? String), kind: kind,
                          created: parseDate(r["created_at"]), edited: (r["edited_at"] as? String) != nil, publishAt: (r["publish_at"] as? String).map { parseDate($0) },
                          photos: article ? [] : photos, link: photos.isEmpty && !audio ? link : nil, article: article, audio: audio,
                          likes: count(likes, "aside_id", id), liked: likes.contains { $0["aside_id"] as? String == id && $0["user_id"] as? String == me },

@@ -94,7 +94,7 @@ struct NPost: Identifiable {
     var title: String, body: String, photos: [URL], link: URL?, created: Date, edited: Bool, views: Int
     var allowReplies: Bool, likes = 0, liked = false, tags: [String] = [], quoted: NQuote? = nil, quoteId: String?, saved = false
     var showTitle: Bool {
-        let n = { (t: String) in t.lowercased().replacingOccurrences(of: #"[…\.\s"“”'‘’,:;!?-]+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces) }
+        let n = { (t: String) in t.replacingOccurrences(of: quoteMark, with: "").lowercased().replacingOccurrences(of: #"[…\.\s"“”'‘’,:;!?-]+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces) }
         let t = n(title); return !t.isEmpty && t != "voice note" && !n(body).hasPrefix(t)
     }
 }
@@ -126,12 +126,12 @@ final class PostModel: ObservableObject {
     func person(_ id: String) -> Person { people[id] ?? Person(name: "Member", avatar: nil) }
     var canReply: Bool { post?.allowReplies ?? false }
 
-    private static let cols = "id,user_id,title,body,link_url,thumbnail_url,image_urls,created_at,edited_at,allow_comments,reply_policy,view_count,post_format,quote_of_id,audio_url"
+    private static let cols = "id,user_id,title,body,body_html,link_url,thumbnail_url,image_urls,created_at,edited_at,allow_comments,reply_policy,view_count,post_format,quote_of_id,audio_url"
     private func makePost(_ r: [String: Any]) -> NPost {
         let photos = ((r["image_urls"] as? [String])?.isEmpty == false ? (r["image_urls"] as? [String] ?? []) : [r["thumbnail_url"] as? String].compactMap { $0 }).compactMap(URL.init(string:))
         let body = r["body"] as? String ?? ""
         let link = (r["link_url"] as? String).flatMap(URL.init(string:)) ?? firstLink(body)
-        return NPost(id: r["id"] as? String ?? "", userId: r["user_id"] as? String ?? "", title: r["title"] as? String ?? "", body: body,
+        return NPost(id: r["id"] as? String ?? "", userId: r["user_id"] as? String ?? "", title: r["title"] as? String ?? "", body: quoteMarked(body, r["body_html"] as? String),
                      photos: photos, link: photos.isEmpty ? link : nil, created: parseDate(r["created_at"]), edited: r["edited_at"] as? String != nil,
                      views: r["view_count"] as? Int ?? 0, allowReplies: (r["allow_comments"] as? Bool ?? true) && (r["reply_policy"] as? String) != "none",
                      quoteId: r["quote_of_id"] as? String)

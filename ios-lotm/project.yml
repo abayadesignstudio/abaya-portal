@@ -57,6 +57,7 @@ targets:
     dependencies:
       - target: LOTMShare
       - target: LOTMWidgets
+      - target: LOTMNotify
     scheme: {}
   LOTMShare:
     type: app-extension
@@ -117,4 +118,31 @@ targets:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: LOTM CI Widgets
+  LOTMNotify:
+    type: app-extension
+    platform: iOS
+    sources: [Notify, Shared/ChatKeyStore.swift]
+    info:
+      path: Notify/Info.plist
+      properties:
+        CFBundleDisplayName: LOTM
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        AppIdentifierPrefix: $(AppIdentifierPrefix)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    entitlements:
+      path: Notify/LOTMNotify.entitlements
+      properties:
+        keychain-access-groups: [$(AppIdentifierPrefix)org.lotmstudy.shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.lotmstudy.app.notify
+        TARGETED_DEVICE_FAMILY: "1,2"
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: LOTM CI Notify
 # App Store Connect record: "Life of the Mind Study" (org.lotmstudy.app).
