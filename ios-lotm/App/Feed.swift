@@ -40,10 +40,11 @@ struct Shell: View {
     }
 }
 
-/// .dock — the floating bar: Feed, Library, the write button, Directory, Settings.
+/// .dock — the floating bar: Feed, Library, the write button, Chat, Directory, Settings.
 private struct Dock: View {
     @ObservedObject var web: WebModel
     @ObservedObject var feed: FeedModel
+    @State private var chatCount = 0
     var body: some View {
         HStack(spacing: 0) {
             item(.feed, "feed", "Feed")
@@ -52,17 +53,30 @@ private struct Dock: View {
                 Haptic.tap()
                 web.composer.present(name: feed.myName, avatar: feed.myAvatar)
             } label: {
-                GlyphView(n: "pencil", s: 22).foregroundStyle(T.paper)
+                GlyphView(n: "pencil", s: 21).foregroundStyle(T.paper)
                     .frame(width: 44, height: 44).background(Circle().fill(T.ink)).shadow(color: Color(rgb: 0x0c0e08, 0.3), radius: 6, y: 4)
-                    .frame(width: 60, height: 52)
+                    .frame(maxWidth: .infinity).frame(height: 52)
             }
             .buttonStyle(Press(scale: 0.92)).frame(maxWidth: .infinity)
             .accessibilityLabel("Write a post")
+            // the chat slides in over everything, like a post
+            Button { Haptic.tap(); chatCount = 0; openChat(web) } label: {
+                GlyphView(n: "chat", s: 25).foregroundStyle(T.muted)
+                    .overlay(alignment: .topTrailing) {
+                        if chatCount > 0 {
+                            Text(chatCount > 9 ? "9+" : "\(chatCount)").font(.sans(10, .bold)).foregroundStyle(.white)
+                                .padding(.horizontal, 4).frame(minWidth: 16, minHeight: 16).background(Capsule().fill(T.like)).offset(x: 8, y: -6)
+                        }
+                    }
+                    .frame(maxWidth: .infinity).frame(height: 48)
+            }
+            .buttonStyle(Press(scale: 0.92)).frame(maxWidth: .infinity)
+            .accessibilityLabel(chatCount > 0 ? "Chat, \(chatCount) unread" : "Chat")
             item(.people, "members", "Directory")
             item(.settings, "settings", "Settings")
         }
-        .padding(.horizontal, 8)
-        .frame(width: min(362, UIScreen.main.bounds.width - 28), height: 68)
+        .padding(.horizontal, 10)
+        .frame(width: UIScreen.main.bounds.width - 24, height: 66)
         .background(.ultraThinMaterial.opacity(0.9), in: Capsule())
         .background(Capsule().fill(Color(rgb: 0x454934, 0.8)))
         .overlay(Capsule().stroke(.white.opacity(0.16), lineWidth: 1))
@@ -70,6 +84,7 @@ private struct Dock: View {
         .shadow(color: Color(rgb: 0x0c0e08, 0.18), radius: 15, y: 10)
         .padding(.bottom, 2)
         .environment(\.colorScheme, .dark)
+        .task { while !Task.isCancelled { if !ChatModel.showing, let a = await feed.auth() { chatCount = await chatUnread(a) }; try? await Task.sleep(nanoseconds: 30_000_000_000) } }
     }
     private func item(_ t: Tab, _ icon: String, _ label: String) -> some View {
         let on = web.tab == t
@@ -78,8 +93,9 @@ private struct Dock: View {
             if on && t == .feed { feed.scrollTop += 1; return }
             web.select(t)
         } label: {
-            GlyphView(n: icon, s: 28).foregroundStyle(on ? T.ink : T.muted)
-                .frame(width: 60, height: 52).background(Capsule().fill(on ? Color(rgb: 0x0c0e08, 0.09) : .clear))
+            GlyphView(n: icon, s: 25).foregroundStyle(on ? T.ink : T.muted)
+                .frame(maxWidth: .infinity).frame(height: 48)
+                .background(Capsule().fill(on ? Color(rgb: 0x0c0e08, 0.09) : .clear).padding(.horizontal, 2))
         }
         .buttonStyle(Press(scale: 0.92)).frame(maxWidth: .infinity)
         .accessibilityLabel(label)
@@ -136,20 +152,13 @@ struct Splash: View {
 /// .mast — search, the title, and the bell with its count, on the tan-to-olive gradient.
 struct Mast: View {
     let unread: Int
-    var chatUnread = 0
     let search: () -> Void, bell: () -> Void, title: () -> Void
-    var chat: () -> Void = {}
     var body: some View {
-        // search and chat on the left, the bell on the right; the title stays in the true centre
-        ZStack {
-            Wordmark().frame(maxWidth: .infinity).contentShape(Rectangle()).onTapGesture(perform: title).padding(.horizontal, 84)
-            HStack(spacing: 8) {
-                ibtn("search", search)
-                Spacer(minLength: 0)
-                ibtn("chat", chat).overlay(alignment: .topTrailing) { badge(chatUnread) }
-                ibtn("bell", bell).overlay(alignment: .topTrailing) { badge(unread) }
-                    .offset(x: -4)
-            }
+        HStack(spacing: 8) {
+            ibtn("search", search)
+            Wordmark().frame(maxWidth: .infinity).contentShape(Rectangle()).onTapGesture(perform: title)
+            ibtn("bell", bell).overlay(alignment: .topTrailing) { badge(unread) }
+                .offset(x: -4)
         }
         .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 12)
         .background(LinearGradient(stops: [.init(color: T.tan, location: 0), .init(color: T.tan, location: 0.3), .init(color: T.paper, location: 1)], startPoint: .top, endPoint: .bottom).ignoresSafeArea(edges: .top))
@@ -177,15 +186,13 @@ struct FeedScreen: View {
     @State private var reporting: FPost?
     @State private var reason = ""
     @State private var deleting: FPost?
-    @State private var chatCount = 0
 
     var body: some View {
         VStack(spacing: 0) {
-            Mast(unread: m.unread, chatUnread: chatCount,
+            Mast(unread: m.unread,
                  search: { presentSlide(SearchScreen(feed: m, web: web)) },
                  bell: { presentSlide(NotificationsScreen(feed: m, web: web)) },
-                 title: { m.scrollTop += 1 },
-                 chat: { chatCount = 0; openChat(web) })
+                 title: { m.scrollTop += 1 })
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -211,7 +218,6 @@ struct FeedScreen: View {
         }
         .background(T.paper.ignoresSafeArea())
         .task { await m.load() }
-        .task { while !Task.isCancelled { if let a = await m.auth() { chatCount = await chatUnread(a) }; try? await Task.sleep(nanoseconds: 30_000_000_000) } }
         .sheet(item: $acting) { p in
             PostActions(p: p, m: m, web: web, close: { acting = nil }, report: { acting = nil; reporting = p; reason = "" }, delete: { acting = nil; deleting = p })
                 .presentationDetents([.medium, .large])
