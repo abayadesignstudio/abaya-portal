@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreText
 import WebKit
 import SafariServices
 import UserNotifications
@@ -12,6 +13,9 @@ let home = URL(string: "https://lotmstudy.org/next/")!
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     static weak var web: WebModel?
     func application(_ app: UIApplication, didFinishLaunchingWithOptions o: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // The app's own fonts (EB Garamond, Inter), loaded straight from the app, so every native screen is set in them.
+        for url in Bundle.main.urls(forResourcesWithExtension: "ttf", subdirectory: nil) ?? [] { CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil) }
+        for url in Bundle.main.urls(forResourcesWithExtension: "ttf", subdirectory: "Fonts") ?? [] { CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil) }
         let c = UNUserNotificationCenter.current(); c.delegate = self
         c.requestAuthorization(options: [.alert, .sound, .badge]) { ok, _ in
             if ok { DispatchQueue.main.async { app.registerForRemoteNotifications() } }
