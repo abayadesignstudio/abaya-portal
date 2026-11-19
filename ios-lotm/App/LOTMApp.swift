@@ -75,12 +75,13 @@ final class WebModel: NSObject, ObservableObject {
         cfg.userContentController.add(composer, name: "compose")
         cfg.userContentController.add(poster, name: "post")
         let routes = RouteHandler(); cfg.userContentController.add(routes, name: "route")
+        let chat = ChatHandler(); cfg.userContentController.add(chat, name: "chat")
         // The web app knows it is inside the app's native shell (it hides its own tab bar and Feed).
         cfg.userContentController.addUserScript(WKUserScript(source: "document.documentElement.classList.add('native-shell')", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         // The web app knows it is inside the app's native shell (it hides its own tab bar and Feed).
         view = WKWebView(frame: .zero, configuration: cfg)
         super.init()
-        routes.model = self
+        routes.model = self; chat.model = self
         view.scrollView.contentInsetAdjustmentBehavior = .never
         view.scrollView.bounces = true
         view.scrollView.alwaysBounceVertical = true
@@ -316,7 +317,7 @@ final class RouteHandler: NSObject, WKScriptMessageHandler {
             // Arriving at a web tab some other way (a link, a notification) moves the tab bar with it.
             let p = path.split(separator: "?").first.map(String.init) ?? path
             // The chat lives in the app: a chat link (say, from a notification) opens it natively.
-            if p == "/chat" || p.hasPrefix("/chat/") { model.go(model.tab.route); openChat(model); return }
+            if p == "/chat" || p.hasPrefix("/chat/") { model.go(model.tab.route); openChat(model, conv: p.hasPrefix("/chat/") ? String(p.dropFirst(6)) : nil); return }
             if p == "/reading" || p == "/notebook/index" { model.tab = .library } else if p == "/people" { model.tab = .people } else if p == "/settings" { model.tab = .settings }
         }
     }

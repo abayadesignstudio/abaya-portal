@@ -84,7 +84,7 @@ private struct Dock: View {
         .shadow(color: Color(rgb: 0x0c0e08, 0.18), radius: 15, y: 10)
         .padding(.bottom, 2)
         .environment(\.colorScheme, .dark)
-        .task { while !Task.isCancelled { if !ChatModel.showing, let a = await feed.auth() { chatCount = await chatUnread(a) }; try? await Task.sleep(nanoseconds: 30_000_000_000) } }
+        .task { while !Task.isCancelled { if !ChatListScreen.showing { chatCount = await chatUnread(web: web.view) }; try? await Task.sleep(nanoseconds: 30_000_000_000) } }
     }
     private func item(_ t: Tab, _ icon: String, _ label: String) -> some View {
         let on = web.tab == t
@@ -805,4 +805,3 @@ private struct PostActions: View {
 }
 
 /// The club chat slides in over everything (from the Feed's chat button, or a chat notification).
-@MainActor func openChat(_ web: WebModel) { guard !ChatModel.showing else { return }; ChatModel.showing = true; presentSlide(ChatScreen(m: ChatModel(web: web.view))) }
