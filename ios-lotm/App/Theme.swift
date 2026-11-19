@@ -7,21 +7,21 @@ extension Font {
     /// EB Garamond (the app's serif).
     static func serif(_ size: CGFloat, _ weight: Font.Weight = .regular, italic: Bool = false) -> Font {
         let heavy = weight == .semibold || weight == .bold || weight == .heavy || weight == .black
-        if italic { return .custom(heavy ? "EBGaramond-SemiBoldItalic" : "EBGaramond-Italic", size: size) }
+        if italic { return .custom(heavy ? "EBGaramond-SemiBoldItalic" : "EBGaramond-Italic", fixedSize: size) }
         switch weight {
-        case .medium: return .custom("EBGaramond-Medium", size: size)
-        case .semibold: return .custom("EBGaramond-SemiBold", size: size)
-        case .bold, .heavy, .black: return .custom("EBGaramond-Bold", size: size)
-        default: return .custom("EBGaramond-Regular", size: size)
+        case .medium: return .custom("EBGaramond-Medium", fixedSize: size)
+        case .semibold: return .custom("EBGaramond-SemiBold", fixedSize: size)
+        case .bold, .heavy, .black: return .custom("EBGaramond-Bold", fixedSize: size)
+        default: return .custom("EBGaramond-Regular", fixedSize: size)
         }
     }
     /// Inter (the app's sans).
     static func sans(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         switch weight {
-        case .medium: return .custom("Inter-Medium", size: size)
-        case .semibold: return .custom("Inter-SemiBold", size: size)
-        case .bold, .heavy, .black: return .custom("Inter-Bold", size: size)
-        default: return .custom("Inter-Regular", size: size)
+        case .medium: return .custom("Inter-Medium", fixedSize: size)
+        case .semibold: return .custom("Inter-SemiBold", fixedSize: size)
+        case .bold, .heavy, .black: return .custom("Inter-Bold", fixedSize: size)
+        default: return .custom("Inter-Regular", fixedSize: size)
         }
     }
 }
