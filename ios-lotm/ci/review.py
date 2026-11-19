@@ -97,11 +97,11 @@ if action == 'auto':
     # Nothing to do while Apple is reviewing a build; otherwise send the newest build to the group if it isn't there yet.
     busy = [s for s in subs.get('data', []) if s['attributes'].get('betaReviewState') in ('WAITING_FOR_REVIEW', 'IN_REVIEW')]
     if busy:
-        sys.exit('\nAUTO: a build is still in Beta App Review; nothing to do yet.')
+        print('\nAUTO: a build is still in Beta App Review; nothing to do yet.'); sys.exit(0)
     newest = next((b for b in builds['data'] if b['attributes'].get('processingState') == 'VALID' and not b['attributes'].get('expired')), None)
     in_group = {x['attributes']['version'] for x in call('GET', f'/betaGroups/{gid[gname]}/builds?limit=50')['data']} if gname in gid else set()
     if not newest or newest['attributes']['version'] in in_group:
-        sys.exit(f'\nAUTO: "{gname}" already has the newest build; nothing to do.')
+        print(f'\nAUTO: "{gname}" already has the newest build; nothing to do.'); sys.exit(0)
     os.environ['BUILD'] = newest['attributes']['version']
     action = 'submit'
 if action != 'submit':
