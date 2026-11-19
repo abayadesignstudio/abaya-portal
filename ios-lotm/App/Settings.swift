@@ -125,10 +125,6 @@ struct SettingsScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Mast(unread: feed.unread,
-                 search: { presentSlide(SearchScreen(feed: feed, web: web)) },
-                 bell: { presentSlide(NotificationsScreen(feed: feed, web: web)) },
-                 title: { web.select(.feed) })
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Settings").font(.serif(20, .semibold)).tracking(-0.2).foregroundStyle(T.ink).padding(.horizontal, 20).padding(.top, 12)
