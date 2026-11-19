@@ -58,7 +58,7 @@ struct GIFView: UIViewRepresentable {
 struct CMember { let id: String, name: String, avatar: URL?; var agree: String? = nil, sign: String? = nil }
 struct Convo: Identifiable, Equatable {
     let id: String, kind: String
-    var title: String?, createdBy: String?, last: Date, members: [String], unread = 0
+    var title: String?, createdBy: String?, last: Date, members: [String], unread = 0, muted = false
 }
 
 /// Who you are in chat (your keys), who everyone else is, and your list of conversations.
@@ -131,12 +131,13 @@ final class ChatSession: ObservableObject {
 
     /// Your conversations, newest first, each with how many messages came since you last read it.
     func loadConvos() async {
-        guard let db, let rows = try? await db.rows("/rest/v1/conversations?select=id,kind,title,created_by,last_message_at,conversation_members(user_id,last_read_at)&order=last_message_at.desc.nullslast") else { return }
+        guard let db, let rows = try? await db.rows("/rest/v1/conversations?select=id,kind,title,created_by,last_message_at,conversation_members(user_id,last_read_at,muted)&order=last_message_at.desc.nullslast") else { return }
         var out: [Convo] = rows.compactMap { r in
             guard let i = r["id"] as? String, let k = r["kind"] as? String else { return nil }
             let ms = (r["conversation_members"] as? [[String: Any]]) ?? []
             if k != "club" && !ms.contains(where: { $0["user_id"] as? String == me }) { return nil }
-            return Convo(id: i, kind: k, title: r["title"] as? String, createdBy: r["created_by"] as? String, last: parseDate(r["last_message_at"]), members: ms.compactMap { $0["user_id"] as? String })
+            let mine = ms.first { $0["user_id"] as? String == me }
+            return Convo(id: i, kind: k, title: r["title"] as? String, createdBy: r["created_by"] as? String, last: parseDate(r["last_message_at"]), members: ms.compactMap { $0["user_id"] as? String }, muted: mine?["muted"] as? Bool ?? false)
         }
         // the club chat first, then the rest by their latest message
         out.sort { ($0.kind == "club" ? 1 : 0, $0.last) > ($1.kind == "club" ? 1 : 0, $1.last) }
@@ -183,6 +184,11 @@ final class ChatSession: ObservableObject {
         } catch { problem = error.localizedDescription; return nil }
     }
 
+    func setMuted(_ c: Convo, _ v: Bool) async {
+        if let k = convos.firstIndex(where: { $0.id == c.id }) { convos[k].muted = v }
+        Haptic.tap()
+        _ = try? await db?.req("POST", "/rest/v1/conversation_members", json: ["conversation_id": c.id, "user_id": me, "muted": v], prefer: "resolution=merge-duplicates,return=minimal")
+    }
     func add(_ ids: [String], to c: Convo) async {
         _ = try? await db?.req("POST", "/rest/v1/conversation_members", json: ids.map { ["conversation_id": c.id, "user_id": $0] }, prefer: "resolution=ignore-duplicates,return=minimal")
         await loadConvos()
@@ -463,6 +469,7 @@ struct ChatListScreen: View {
     @Environment(\.closeScreen) private var close
     @State private var composing = false
     @State private var went = false
+    @State private var removing: Convo?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -489,17 +496,23 @@ struct ChatListScreen: View {
     }
 
     private var list: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(s.convos) { c in
-                    Button { open(c) } label: { row(c) }.buttonStyle(.plain)
-                }
+        List {
+            ForEach(s.convos) { c in
+                Button { open(c) } label: { row(c) }.buttonStyle(.plain)
+                    .listRowInsets(EdgeInsets()).listRowBackground(T.paper).listRowSeparator(.hidden)
+                    // swipe left: mute, or (for anything but the club chat) delete
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        if c.kind != "club" { Button(role: .destructive) { removing = c } label: { Label(c.kind == "group" ? "Leave" : "Delete", systemImage: "trash") } }
+                        Button { Task { await s.setMuted(c, !c.muted) } } label: { Label(c.muted ? "Unmute" : "Mute", systemImage: c.muted ? "bell" : "bell.slash") }.tint(Color(rgb: 0x6f7350))
+                    }
+            }
+            VStack(spacing: 0) {
                 if s.convos.count <= 1 {
                     Button { composing = true } label: {
                         Text("Message someone in the club").font(.sans(15, .semibold)).foregroundStyle(T.paper)
                             .padding(.horizontal, 20).frame(height: 44).background(Capsule().fill(T.ink))
                     }
-                    .padding(.top, 28)
+                    .buttonStyle(.plain).padding(.top, 28)
                 }
                 HStack(spacing: 6) {
                     Image(systemName: "lock.fill").font(.system(size: 10, weight: .semibold))
@@ -507,9 +520,14 @@ struct ChatListScreen: View {
                 }
                 .foregroundStyle(T.muted).padding(.top, 24).padding(.bottom, 120)
             }
-            .padding(.top, 6)
+            .frame(maxWidth: .infinity)
+            .listRowInsets(EdgeInsets()).listRowBackground(T.paper).listRowSeparator(.hidden)
         }
+        .listStyle(.plain).scrollContentBackground(.hidden)
         .refreshable { await s.loadConvos() }
+        .confirmationDialog(removing?.kind == "group" ? "Leave this group?" : "Delete this chat?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
+            Button(removing?.kind == "group" ? "Leave" : "Delete", role: .destructive) { if let c = removing { Task { await s.remove(s.me, from: c) } } }
+        } message: { Text("It’s removed from your list and you stop getting its messages. The others keep their copy.") }
     }
 
     private func row(_ c: Convo) -> some View {
@@ -522,7 +540,10 @@ struct ChatListScreen: View {
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 6) {
-                Text(c.last.timeIntervalSince1970 < 86400 ? "" : ago(c.last)).font(.sans(12)).foregroundStyle(T.muted)
+                HStack(spacing: 4) {
+                    if c.muted { Image(systemName: "bell.slash.fill").font(.system(size: 10)).foregroundStyle(T.muted) }
+                    Text(c.last.timeIntervalSince1970 < 86400 ? "" : ago(c.last)).font(.sans(12)).foregroundStyle(T.muted)
+                }
                 if c.unread > 0 {
                     Text(c.unread > 9 ? "9+" : "\(c.unread)").font(.sans(11, .bold)).foregroundStyle(.white)
                         .padding(.horizontal, 6).frame(minWidth: 20, minHeight: 20).background(Capsule().fill(T.like))

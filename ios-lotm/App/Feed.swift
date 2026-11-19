@@ -28,7 +28,17 @@ struct Shell: View {
             if web.tab == .settings { SettingsScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
             WebView(model: web).ignoresSafeArea()
                 .opacity(showWeb ? 1 : 0).allowsHitTesting(showWeb)
-            if !overlay { Dock(web: web, feed: feed).transition(.opacity) }
+            if !overlay {
+                Dock(web: web, feed: feed).transition(.opacity)
+                // the write button floats in the corner, just above the bar
+                Button { Haptic.tap(); web.composer.present(name: feed.myName, avatar: feed.myAvatar) } label: {
+                    GlyphView(n: "pencil", s: 24).foregroundStyle(T.paper)
+                        .frame(width: 56, height: 56).background(Circle().fill(T.ink)).shadow(color: Color(rgb: 0x0c0e08, 0.35), radius: 10, y: 6)
+                }
+                .buttonStyle(Press(scale: 0.92)).accessibilityLabel("Write a post")
+                .frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, 16).padding(.bottom, 82)
+                .transition(.opacity)
+            }
             if let it = feed.detail { DropCard(it: it, m: feed, web: web).zIndex(5) }
             if splash { Splash { splash = false }.zIndex(10) }
         }
@@ -40,7 +50,7 @@ struct Shell: View {
     }
 }
 
-/// .dock — the floating bar: Feed, Library, the write button, Chat, Directory, Settings.
+/// .dock — the floating bar: Feed, Library, Chat, Directory, Settings. The write button floats above it.
 private struct Dock: View {
     @ObservedObject var web: WebModel
     @ObservedObject var feed: FeedModel
@@ -49,19 +59,9 @@ private struct Dock: View {
         HStack(spacing: 0) {
             item(.feed, "feed", "Feed")
             item(.library, "reading", "Library")
-            Button {
-                Haptic.tap()
-                web.composer.present(name: feed.myName, avatar: feed.myAvatar)
-            } label: {
-                GlyphView(n: "pencil", s: 21).foregroundStyle(T.paper)
-                    .frame(width: 44, height: 44).background(Circle().fill(T.ink)).shadow(color: Color(rgb: 0x0c0e08, 0.3), radius: 6, y: 4)
-                    .frame(maxWidth: .infinity).frame(height: 52)
-            }
-            .buttonStyle(Press(scale: 0.92)).frame(maxWidth: .infinity)
-            .accessibilityLabel("Write a post")
             // the chat slides in over everything, like a post
             Button { Haptic.tap(); chatCount = 0; openChat(web) } label: {
-                GlyphView(n: "chat", s: 25).foregroundStyle(T.muted)
+                GlyphView(n: "chat", s: 27).foregroundStyle(T.muted)
                     .overlay(alignment: .topTrailing) {
                         if chatCount > 0 {
                             Text(chatCount > 9 ? "9+" : "\(chatCount)").font(.sans(10, .bold)).foregroundStyle(.white)
@@ -76,7 +76,7 @@ private struct Dock: View {
             item(.settings, "settings", "Settings")
         }
         .padding(.horizontal, 10)
-        .frame(width: UIScreen.main.bounds.width - 24, height: 66)
+        .frame(width: min(372, UIScreen.main.bounds.width - 24), height: 66)
         .background(.ultraThinMaterial.opacity(0.9), in: Capsule())
         .background(Capsule().fill(Color(rgb: 0x454934, 0.8)))
         .overlay(Capsule().stroke(.white.opacity(0.16), lineWidth: 1))
@@ -93,7 +93,7 @@ private struct Dock: View {
             if on && t == .feed { feed.scrollTop += 1; return }
             web.select(t)
         } label: {
-            GlyphView(n: icon, s: 25).foregroundStyle(on ? T.ink : T.muted)
+            GlyphView(n: icon, s: 27).foregroundStyle(on ? T.ink : T.muted)
                 .frame(maxWidth: .infinity).frame(height: 48)
                 .background(Capsule().fill(on ? Color(rgb: 0x0c0e08, 0.09) : .clear).padding(.horizontal, 2))
         }
