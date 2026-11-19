@@ -43,12 +43,15 @@ final class FeedModel: ObservableObject {
     var myName: String { people[me]?.name ?? "" }
     var myAvatar: URL? { people[me]?.avatar }
     private var watching: NSObjectProtocol?
+    /// Set for a member's page: only that member's posts.
+    let only: String?
 
-    init() {
+    init(only: String? = nil) {
+        self.only = only
         // The last Feed shows at once; the fresh one replaces it a moment later.
         if let me = UserDefaults.standard.string(forKey: "lotm.me") {
             self.me = me
-            if let d = UserDefaults.standard.data(forKey: "lotm.feed." + me), let p = try? JSONDecoder().decode([FPost].self, from: d) { posts = p; loaded = true }
+            if only == nil, let d = UserDefaults.standard.data(forKey: "lotm.feed." + me), let p = try? JSONDecoder().decode([FPost].self, from: d) { posts = p; loaded = true }
             if let d = UserDefaults.standard.dictionary(forKey: "lotm.people") as? [String: [String: String]] { people = Self.people(d) }
         }
         watching = NotificationCenter.default.addObserver(forName: .lotmFeedChanged, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in await self?.load(quiet: true) } }
@@ -77,14 +80,14 @@ final class FeedModel: ObservableObject {
             for p in Pr { if let id = p["id"] as? String { map[id] = ["name": p["display_name"] as? String ?? "", "avatar": p["avatar_url"] as? String ?? ""] } }
             people = Self.people(map); UserDefaults.standard.set(map, forKey: "lotm.people")
             posts = Fe; pins = Pi; unread = Nn.count; loaded = true; failed = nil
-            if let d = try? JSONEncoder().encode(Array(Fe.prefix(25))) { UserDefaults.standard.set(d, forKey: cacheKey) }
+            if only == nil, let d = try? JSONEncoder().encode(Array(Fe.prefix(25))) { UserDefaults.standard.set(d, forKey: cacheKey) }
         } catch { if posts.isEmpty { failed = error.localizedDescription } }
     }
 
     private static let cols = "id,user_id,title,subtitle,body,body_html,aside_type,link_url,thumbnail_url,image_urls,created_at,edited_at,allow_comments,reply_policy,thread_parent_id,quote_of_id,post_format,selected_edition_id,related_edition_id,audio_url,publish_at"
     private func loadPosts(_ db: Supa) async throws -> [FPost] {
         let me = db.a.me
-        let rows = try await db.rows("/rest/v1/asides?select=\(Self.cols)&or=(visibility.eq.public,visibility.is.null,and(user_id.eq.\(me),publish_at.not.is.null))&order=created_at.desc&limit=60")
+        let rows = try await db.rows("/rest/v1/asides?select=\(Self.cols)&or=(visibility.eq.public,visibility.is.null,and(user_id.eq.\(me),publish_at.not.is.null))\(only.map { "&user_id=eq.\($0)" } ?? "")&order=created_at.desc&limit=60")
         let muted = Set(try await db.rows("/rest/v1/member_mutes?user_id=eq.\(me)&select=muted_user_id").compactMap { $0["muted_user_id"] as? String })
         let top = rows.filter { ($0["thread_parent_id"] as? String) == nil && !muted.contains($0["user_id"] as? String ?? "") }
         let ids = top.compactMap { $0["id"] as? String }
@@ -198,6 +201,7 @@ final class FeedModel: ObservableObject {
         posts.removeAll { $0.userId == p.userId }
         guard let a = await auth() else { return }
         _ = try? await Supa(a: a).req("POST", "/rest/v1/member_mutes", json: ["user_id": a.me, "muted_user_id": p.userId])
+        ChatSession.shared.blocked.insert(p.userId)
     }
     @MainActor func report(_ p: FPost, _ reason: String) async {
         guard let a = await auth() else { return }

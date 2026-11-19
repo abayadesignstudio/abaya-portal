@@ -54,6 +54,7 @@ struct LOTMApp: App {
 
 final class WebModel: NSObject, ObservableObject {
     let view: WKWebView
+    weak var feed: FeedModel?
     /// The screen the web app is on (it reports each change), and the tab chosen in the app's own tab bar.
     @Published var route = ""
     @Published var tab: Tab = .feed
@@ -313,6 +314,9 @@ final class RouteHandler: NSObject, WKScriptMessageHandler {
         guard let path = m.body as? String else { return }
         DispatchQueue.main.async {
             guard let model = self.model else { return }
+            // A member's page is native: a link to one opens it over the app, and the web goes back to where it was.
+            let first = path.split(separator: "?").first.map(String.init) ?? path
+            if first.hasPrefix("/member/") { model.go(model.tab.route); openMember(String(first.dropFirst(8)), model); return }
             model.route = path
             // Arriving at a web tab some other way (a link, a notification) moves the tab bar with it.
             let p = path.split(separator: "?").first.map(String.init) ?? path

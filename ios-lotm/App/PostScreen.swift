@@ -21,12 +21,13 @@ struct SupaAuth { let token: String, me: String, url: String, key: String }
 struct Supa {
     let a: SupaAuth
     @discardableResult
-    func req(_ method: String, _ path: String, json: Any? = nil, raw: Data? = nil, type: String = "application/json", prefer: String? = nil) async throws -> Data {
+    func req(_ method: String, _ path: String, json: Any? = nil, raw: Data? = nil, type: String = "application/json", prefer: String? = nil, extra: [String: String] = [:]) async throws -> Data {
         guard let url = URL(string: a.url + path) else { throw err("Bad address") }
         var r = URLRequest(url: url); r.httpMethod = method; r.timeoutInterval = 30
         r.setValue(a.key, forHTTPHeaderField: "apikey"); r.setValue("Bearer \(a.token)", forHTTPHeaderField: "Authorization")
         r.setValue(type, forHTTPHeaderField: "Content-Type")
         if let prefer { r.setValue(prefer, forHTTPHeaderField: "Prefer") }
+        for (k, v) in extra { r.setValue(v, forHTTPHeaderField: k) }
         if let raw { r.httpBody = raw } else if let json { r.httpBody = try JSONSerialization.data(withJSONObject: json) }
         let (d, resp) = try await URLSession.shared.data(for: r)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
@@ -259,7 +260,7 @@ struct PostScreen: View {
     private let z = T.z
 
     private var isAuthor: Bool { m.post?.userId == m.me }
-    private var shown: [NReply] { m.replies.filter { showHidden || !$0.hidden || isAuthor } }
+    private var shown: [NReply] { m.replies.filter { (showHidden || !$0.hidden || isAuthor) && !ChatSession.shared.blocked.contains($0.userId) } }
     private var hiddenCount: Int { m.replies.filter(\.hidden).count }
 
     var body: some View {

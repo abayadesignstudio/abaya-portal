@@ -94,7 +94,7 @@ final class SettingsModel: ObservableObject {
         await load()
     }
     @MainActor func unmute(_ id: String) async {
-        mutes.removeAll { $0 == id }
+        mutes.removeAll { $0 == id }; ChatSession.shared.blocked.remove(id)
         guard let a = await feed?.auth() else { return }
         _ = try? await Supa(a: a).req("DELETE", "/rest/v1/member_mutes?user_id=eq.\(a.me)&muted_user_id=eq.\(id)")
         await feed?.load(quiet: true)
@@ -119,6 +119,9 @@ struct SettingsScreen: View {
     @StateObject private var m = SettingsModel()
     @State private var sheet: SettingsSheet?
     @State private var confirmSignOut = false
+    @State private var confirmDelete = false
+    @State private var deletingAccount = false
+    @State private var deleteError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -152,16 +155,23 @@ struct SettingsScreen: View {
                     }
                     .padding(.top, 12)
                     Card14 {
-                        GroupRow(icon: "mute", label: "Muted members", action: { sheet = .mutes }) { HStack(spacing: 8) { CountText(n: m.mutes.count); Chevron() } }
+                        GroupRow(icon: "mute", label: "Blocked members", action: { sheet = .mutes }) { HStack(spacing: 8) { CountText(n: m.mutes.count); Chevron() } }
                         if m.admin { GroupLine(); GroupRow(icon: "flag", label: "Reports", action: { sheet = .reports }) { HStack(spacing: 8) { LikeBadge(n: m.reports.count); Chevron() } } }
                     }
                     .padding(.top, 12)
                     if m.admin { Text("Reports are shown to administrators only.").font(.sans(12)).foregroundStyle(T.muted).padding(.horizontal, 30).padding(.top, 6) }
                     Card14 {
                         GroupRow(icon: "link", label: "Open the classic site", action: { openInApp(URL(string: "https://lotmstudy.org/")!) }) { Text("↗").font(.sans(15)).foregroundStyle(T.chev) }; GroupLine()
+                        GroupRow(icon: "link", label: "Terms of Use", action: { UIApplication.shared.open(URL(string: "https://lotmstudy.org/terms")!) }) { Text("↗").font(.sans(15)).foregroundStyle(T.chev) }; GroupLine()
+                        GroupRow(icon: "link", label: "Privacy Policy", action: { UIApplication.shared.open(URL(string: "https://lotmstudy.org/privacy")!) }) { Text("↗").font(.sans(15)).foregroundStyle(T.chev) }; GroupLine()
                         GroupRow(icon: "logout", label: "Sign out", danger: true, action: { confirmSignOut = true }) { EmptyView() }
                     }
                     .padding(.top, 12)
+                    Card14 {
+                        GroupRow(icon: "trash", label: deletingAccount ? "Deleting…" : "Delete account", danger: true, action: { if !deletingAccount { confirmDelete = true } }) { EmptyView() }
+                    }
+                    .padding(.top, 12)
+                    Text("Deleting your account permanently removes your profile, posts, replies, notes and chat keys.").font(.sans(12)).foregroundStyle(T.muted).padding(.horizontal, 30).padding(.top, 6)
                     Text("Life of the Mind · version 2.0").font(.sans(12)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(.top, 14)
                     Color.clear.frame(height: 110)
                 }
@@ -172,6 +182,10 @@ struct SettingsScreen: View {
         .preferredColorScheme(.dark)
         .task { m.feed = feed; await m.load() }
         .sheet(item: $sheet) { s in sheetView(s).presentationDetents([.medium, .large]) }
+        .confirmationDialog("Delete your account?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete my account", role: .destructive) { Task { await deleteAccount() } }
+        } message: { Text("This permanently removes your profile, posts, replies, notes and chat keys. It cannot be undone.") }
+        .alert("Couldn’t delete the account", isPresented: Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(deleteError ?? "") }
         .confirmationDialog("Sign out of Life of the Mind?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) {
                 UserDefaults.standard.removeObject(forKey: "lotm.me")
@@ -179,6 +193,17 @@ struct SettingsScreen: View {
                 web.select(.feed)
             }
         }
+    }
+
+    private func deleteAccount() async {
+        guard let a = await feed.auth() else { deleteError = "You’re not signed in."; return }
+        deletingAccount = true; defer { deletingAccount = false }
+        do {
+            _ = try await Supa(a: a).req("POST", "/functions/v1/delete-account", json: ["confirm": "DELETE"])
+            UserDefaults.standard.removeObject(forKey: "lotm.me"); UserDefaults.standard.removeObject(forKey: "lotm.feed." + a.me)
+            web.view.evaluateJavaScript("window.lotmSignOut && window.lotmSignOut()")
+            web.select(.feed)
+        } catch { deleteError = error.localizedDescription }
     }
 
     @ViewBuilder private func sheetView(_ s: SettingsSheet) -> some View {
@@ -391,7 +416,7 @@ private struct MutesSheet: View {
     var body: some View {
         SheetBody {
             Card14 {
-                if m.mutes.isEmpty { Text("You haven’t muted anyone.").font(.sans(15)).foregroundStyle(T.muted).padding(16).frame(maxWidth: .infinity, alignment: .leading) }
+                if m.mutes.isEmpty { Text("You haven’t blocked anyone.").font(.sans(15)).foregroundStyle(T.muted).padding(16).frame(maxWidth: .infinity, alignment: .leading) }
                 ForEach(Array(m.mutes.enumerated()), id: \.element) { k, id in
                     if k > 0 { GroupLine() }
                     Button { Haptic.tap(); Task { await m.unmute(id) } } label: {

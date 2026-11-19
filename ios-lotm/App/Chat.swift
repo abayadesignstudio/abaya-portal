@@ -13,6 +13,8 @@ struct CMsg: Identifiable, Equatable {
     let id: String, userId: String, created: Date
     var epoch = 0, text = "", replyTo: String? = nil
     var deleted = false, unreadable = false, unverified = false
+    /// shown at once when you send; pending until the server has it, failed if it couldn't be sent
+    var pending = false, failed = false
     var att: CAtt? = nil, poll: CPoll? = nil
     /// emoji → who reacted; member → the poll option they chose
     var reacts: [String: [String]] = [:], votes: [String: Int] = [:]
@@ -38,6 +40,18 @@ func emojiImage(_ e: String, _ s: CGFloat = 30) -> UIImage {
     UIGraphicsImageRenderer(size: CGSize(width: s + 8, height: s + 8)).image { _ in
         (e as NSString).draw(at: CGPoint(x: 4, y: 2), withAttributes: [.font: UIFont.systemFont(ofSize: s)])
     }.withRenderingMode(.alwaysOriginal)
+}
+/// Message text with its links, and *italic*, **bold**, ~~struck~~ and `code` shown as such.
+func rich(_ s: String) -> AttributedString {
+    guard var a = try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) else { return linked(s) }
+    let plain = String(a.characters)
+    guard let d = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return a }
+    for match in d.matches(in: plain, range: NSRange(plain.startIndex..., in: plain)) {
+        guard let url = match.url, let r = Range(match.range, in: plain),
+              let lo = AttributedString.Index(r.lowerBound, within: a), let hi = AttributedString.Index(r.upperBound, within: a) else { continue }
+        a[lo..<hi].link = url; a[lo..<hi].underlineStyle = .single
+    }
+    return a
 }
 /// A GIF's frames as one animated image.
 func animatedGIF(_ d: Data) -> UIImage? {
@@ -78,6 +92,10 @@ final class ChatSession: ObservableObject {
     @Published var busy = false
     @Published var problem: String?
     @Published var admin = false
+    @Published var blocked: Set<String> = []
+    private var models: [String: ChatModel] = [:]
+    /// One live model per chat, kept while the app runs, so a chat opens at once the second time.
+    func model(_ c: Convo) -> ChatModel { if let m = models[c.id] { m.c = c; return m }; let m = ChatModel(c); models[c.id] = m; return m }
     weak var web: WKWebView?
     private(set) var a: SupaAuth?
     var db: Supa? { a.map { Supa(a: $0) } }
@@ -127,7 +145,9 @@ final class ChatSession: ObservableObject {
     func loadPeople() async throws {
         async let P = db!.rows("/rest/v1/profiles?status=eq.approved&select=id,display_name,avatar_url,role")
         async let K = db!.rows("/rest/v1/chat_keys?select=user_id,agree_key,sign_key")
+        async let B = db!.rows("/rest/v1/member_mutes?user_id=eq.\(me)&select=muted_user_id")
         let (ps, ks) = try await (P, K)
+        blocked = Set(((try? await B) ?? []).compactMap { $0["muted_user_id"] as? String })
         var out: [String: CMember] = [:]
         for p in ps { guard let i = p["id"] as? String else { continue }; out[i] = CMember(id: i, name: p["display_name"] as? String ?? "Member", avatar: (p["avatar_url"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }) }
         for k in ks { if let i = k["user_id"] as? String, out[i] != nil { out[i]!.agree = k["agree_key"] as? String; out[i]!.sign = k["sign_key"] as? String } }
@@ -158,6 +178,8 @@ final class ChatSession: ObservableObject {
         }
         convos = out
         await syncKeys()
+        // get the first few chats ready in the background, so they open with their messages already there
+        for c in out.prefix(4) { let m = model(c); Task { await m.warm() } }
     }
 
     /// Every chat key shared with you, unlocked and kept in this phone's keychain, so a notification can show its message.
@@ -208,6 +230,16 @@ final class ChatSession: ObservableObject {
         Haptic.tap()
         _ = try? await db?.req("POST", "/rest/v1/conversation_members", json: ["conversation_id": c.id, "user_id": me, "muted": v], prefer: "resolution=merge-duplicates,return=minimal")
     }
+    func block(_ uid: String) async {
+        blocked.insert(uid); Haptic.tap()
+        _ = try? await db?.req("POST", "/rest/v1/member_mutes", json: ["user_id": me, "muted_user_id": uid], prefer: "resolution=ignore-duplicates,return=minimal")
+        NotificationCenter.default.post(name: .lotmFeedChanged, object: nil)
+    }
+    func unblock(_ uid: String) async {
+        blocked.remove(uid); Haptic.tap()
+        _ = try? await db?.req("DELETE", "/rest/v1/member_mutes?user_id=eq.\(me)&muted_user_id=eq.\(uid)")
+        NotificationCenter.default.post(name: .lotmFeedChanged, object: nil)
+    }
     func add(_ ids: [String], to c: Convo) async {
         _ = try? await db?.req("POST", "/rest/v1/conversation_members", json: ids.map { ["conversation_id": c.id, "user_id": $0] }, prefer: "resolution=ignore-duplicates,return=minimal")
         await loadConvos()
@@ -240,8 +272,28 @@ final class ChatModel: ObservableObject {
     private var cache: [String: CMsg] = [:]
     private var timer: Task<Void, Never>?
     private var lastMaintain = Date.distantPast
+    private var started = false, starting = false
+    private var rows: [[String: Any]] = []      // what the server has, oldest first
+    private var ticks = 0
+    private var outbox: [String: (p: [String: Any], attach: Outgoing?, epoch: Int)] = [:]
+    private var sendingOrder: [String] = []
+    @Published var notice: String?
 
     init(_ c: Convo) { self.c = c }
+
+    /// Load keys and messages without starting to watch (used to get a chat ready before it is opened).
+    func warm() async {
+        guard !started, !starting, s.id != nil else { return }
+        starting = true; defer { starting = false }
+        do {
+            try await loadKeys()
+            if keys[latest] != nil { try await maintain() }
+            stage = keys[latest] == nil ? .waiting : .ready
+            await refresh(full: true)
+            if let r = try? await db!.rows("/rest/v1/conversation_members?conversation_id=eq.\(conv)&user_id=eq.\(me)&select=muted").first { muted = r["muted"] as? Bool ?? false }
+            started = true
+        } catch { stage = .failed(error.localizedDescription) }
+    }
 
     /// Who may hold this chat's key: every member for the club chat, otherwise the people in it.
     var members: [String: CMember] {
@@ -249,14 +301,9 @@ final class ChatModel: ObservableObject {
     }
 
     func start() async {
-        do {
-            try await loadKeys()
-            if keys[latest] != nil { try await maintain() }
-            stage = keys[latest] == nil ? .waiting : .ready
-            await refresh()
-            if let r = try? await db!.rows("/rest/v1/conversation_members?conversation_id=eq.\(conv)&user_id=eq.\(me)&select=muted").first { muted = r["muted"] as? Bool ?? false }
-            poll()
-        } catch { stage = .failed(error.localizedDescription) }
+        while starting { try? await Task.sleep(nanoseconds: 50_000_000) }
+        if !started { await warm() } else { Task { await refresh(full: true) } }
+        if started { markRead(); poll() }
     }
 
     private func loadKeys() async throws {
@@ -265,6 +312,8 @@ final class ChatModel: ObservableObject {
         async let S = db.rows("/rest/v1/chat_key_shares?conversation_id=eq.\(conv)&user_id=eq.\(me)&select=epoch,recipient_key,ephemeral,sealed,signature,created_by")
         let (es, ss) = try await (E, S)
         latest = es.first?["epoch"] as? Int ?? 0
+        // keys this phone already unlocked (kept in its keychain) still work if whoever shared them has since left
+        if latest > 0 { for e in 1...latest where keys[e] == nil { if let d = ChatKeyStore.load(conv: conv, epoch: e) { keys[e] = SymmetricKey(data: d) } } }
         for r in ss {
             guard let e = r["epoch"] as? Int, keys[e] == nil, let to = r["recipient_key"] as? String, to == id.agreePub,
                   let by = r["created_by"] as? String, let signer = s.people[by]?.sign else { continue }
@@ -312,26 +361,40 @@ final class ChatModel: ObservableObject {
         timer?.cancel()
         timer = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
                 guard let self else { return }
-                await self.refresh()
+                self.ticks += 1
+                await self.refresh(full: self.ticks % 12 == 0)
             }
         }
     }
     func stop() { timer?.cancel(); timer = nil }
 
-    func refresh() async {
+    /// New messages are asked for every second or so (only what came since the last one); a full look, which also
+    /// catches deletions, happens every quarter minute.
+    func refresh(full: Bool = false) async {
         guard let db else { return }
         if stage == .waiting || Date().timeIntervalSince(lastMaintain) > 60 {
             try? await loadKeys()
             if keys[latest] != nil { try? await maintain(); if stage == .waiting { stage = .ready } }
         }
-        guard let rows = try? await db.rows("/rest/v1/messages?conversation_id=eq.\(conv)&select=id,user_id,ciphertext,epoch,signature,created_at,deleted_at&order=created_at.desc&limit=300") else { return }
+        let cols = "id,user_id,ciphertext,epoch,signature,created_at,deleted_at"
+        if full || rows.isEmpty {
+            guard let got = try? await db.rows("/rest/v1/messages?conversation_id=eq.\(conv)&select=\(cols)&order=created_at.desc&limit=300") else { return }
+            rows = got.reversed()
+        } else {
+            let last = rows.last?["created_at"] as? String ?? "1970-01-01T00:00:00Z"
+            let q = last.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? last
+            guard let got = try? await db.rows("/rest/v1/messages?conversation_id=eq.\(conv)&created_at=gt.\(q)&select=\(cols)&order=created_at.asc&limit=100") else { return }
+            if got.isEmpty { return }
+            let have = Set(rows.compactMap { $0["id"] as? String })
+            rows += got.filter { !have.contains($0["id"] as? String ?? "") }
+        }
         var all: [CMsg] = []
-        for r in rows.reversed() {
+        for r in rows {
             guard let mid = r["id"] as? String else { continue }
             let deleted = !(r["deleted_at"] is NSNull) && r["deleted_at"] != nil
-            if var x = cache[mid] { if deleted && !x.deleted { x.deleted = true; x.text = ""; x.att = nil; x.poll = nil; cache[mid] = x }; all.append(cache[mid]!); continue }
+            if var x = cache[mid] { if x.pending || x.failed { x.pending = false; x.failed = false; cache[mid] = x; outbox[mid] = nil }; if deleted && !x.deleted { x.deleted = true; x.text = ""; x.att = nil; x.poll = nil; cache[mid] = x }; all.append(cache[mid]!); continue }
             var m = CMsg(id: mid, userId: r["user_id"] as? String ?? "", created: parseDate(r["created_at"]), epoch: r["epoch"] as? Int ?? 0, deleted: deleted)
             if !deleted {
                 if let e = r["epoch"] as? Int, let k = keys[e], let ct = r["ciphertext"] as? String, let d = Data(base64Encoded: ct),
@@ -359,7 +422,11 @@ final class ChatModel: ObservableObject {
                 reacts[t, default: [:]][e] = l.isEmpty ? nil : l
             } else if x.ctl == "vote", let o = x.option { votes[t, default: [:]][x.userId] = o < 0 ? nil : o }
         }
-        let out: [CMsg] = all.filter { $0.ctl == nil }.map { var y = $0; y.reacts = reacts[y.id.lowercased()] ?? [:]; y.votes = votes[y.id.lowercased()] ?? [:]; return y }
+        var out: [CMsg] = all.filter { $0.ctl == nil && !s.blocked.contains($0.userId) }.map { var y = $0; y.reacts = reacts[y.id.lowercased()] ?? [:]; y.votes = votes[y.id.lowercased()] ?? [:]; return y }
+        // what you've just sent and the server doesn't have yet stays at the bottom
+        let seen = Set(all.map(\.id))
+        sendingOrder.removeAll { seen.contains($0) || cache[$0] == nil }
+        out += sendingOrder.compactMap { cache[$0] }
         if out != msgs { msgs = out; markRead() }
     }
 
@@ -379,24 +446,59 @@ final class ChatModel: ObservableObject {
         try await db.req("POST", "/rest/v1/messages", json: row, prefer: "return=minimal")
     }
 
-    func send(_ text: String, attach: Outgoing?, replyTo: String?) async -> Bool {
-        guard let db, let k = keys[latest] else { return false }
-        busy = true; defer { busy = false }
+    /// Your message appears at once; sealing and sending happen behind it. If sending fails it is marked, and a tap retries.
+    func send(_ text: String, attach: Outgoing?, replyTo: String?) {
+        guard keys[latest] != nil else { problem = "This chat isn’t unlocked yet."; return }
+        if let attach, attach.data.count > 45_000_000 { problem = "That’s too large to send (45 MB at most)."; return }
         let mid = UUID().uuidString.lowercased(), e = latest
-        do {
-            var p: [String: Any] = ["t": text]
-            if let replyTo { p["r"] = replyTo }
-            if let attach {
-                guard attach.data.count <= 45_000_000 else { throw ChatError("That’s too large to send (45 MB at most).") }
-                let path = "\(me)/\(mid).bin"
-                try await db.req("POST", "/storage/v1/object/chat-sealed/\(path)", raw: try ChatCrypto.encrypt(attach.data, key: k, aad: "lotm-chat-img|\(conv)|\(e)|\(path)"), type: "application/octet-stream")
-                p["att"] = ["p": path, "n": attach.name, "m": attach.mime, "s": attach.data.count]
-                if attach.mime.hasPrefix("image/") { images[path] = attach.mime == "image/gif" ? animatedGIF(attach.data) : UIImage(data: attach.data) }
+        var p: [String: Any] = ["t": text]
+        if let replyTo { p["r"] = replyTo }
+        var local = CMsg(id: mid, userId: me, created: Date(), epoch: e, text: text, replyTo: replyTo, pending: true)
+        if let attach {
+            let path = "\(me)/\(mid).bin"
+            p["att"] = ["p": path, "n": attach.name, "m": attach.mime, "s": attach.data.count]
+            local.att = CAtt(path: path, name: attach.name, mime: attach.mime, size: attach.data.count)
+            if attach.mime.hasPrefix("image/") { images[path] = attach.mime == "image/gif" ? animatedGIF(attach.data) : UIImage(data: attach.data) }
+        }
+        cache[mid] = local; sendingOrder.append(mid); outbox[mid] = (p, attach, e)
+        msgs.append(local)
+        Haptic.tap()
+        deliver(mid)
+    }
+
+    func retry(_ m: CMsg) {
+        guard m.failed, outbox[m.id] != nil else { return }
+        cache[m.id]?.failed = false; cache[m.id]?.pending = true
+        if let k = msgs.firstIndex(where: { $0.id == m.id }) { msgs[k].failed = false; msgs[k].pending = true }
+        deliver(m.id)
+    }
+
+    private func deliver(_ mid: String) {
+        guard let job = outbox[mid], let db, let k = keys[job.epoch] else { return }
+        Task {
+            do {
+                if let a = job.attach, let path = (job.p["att"] as? [String: Any])?["p"] as? String {
+                    let sealed = try ChatCrypto.encrypt(a.data, key: k, aad: "lotm-chat-img|\(conv)|\(job.epoch)|\(path)")
+                    try await db.req("POST", "/storage/v1/object/chat-sealed/\(path)", raw: sealed, type: "application/octet-stream", prefer: nil, extra: ["x-upsert": "true"])
+                }
+                try await post(job.p, mid: mid, epoch: job.epoch)
+                outbox[mid] = nil
+                cache[mid]?.pending = false
+                if let i = msgs.firstIndex(where: { $0.id == mid }) { msgs[i].pending = false }
+                await refresh()
+            } catch {
+                cache[mid]?.pending = false; cache[mid]?.failed = true
+                if let i = msgs.firstIndex(where: { $0.id == mid }) { msgs[i].pending = false; msgs[i].failed = true }
             }
-            try await post(p, mid: mid, epoch: e)
-            Haptic.tap()
-            await refresh(); return true
-        } catch { problem = error.localizedDescription; return false }
+        }
+    }
+
+    func report(_ m: CMsg, _ why: String) async {
+        let who = s.people[m.userId]?.name ?? "a member"
+        let what = !m.text.isEmpty ? "“\(m.text.prefix(500))”" : m.poll != nil ? "a poll" : "an attachment"
+        let reason = "Chat message from \(who): \(what)" + (why.isEmpty ? "" : " — \(why)")
+        do { try await db?.req("POST", "/rest/v1/reports", json: ["reporter_id": me, "message_id": m.id, "reason": reason], prefer: "return=minimal"); notice = "Reported to the administrators. They review reports within 24 hours." }
+        catch { problem = error.localizedDescription }
     }
 
     func sendPoll(_ q: String, _ opts: [String]) async {
@@ -404,10 +506,16 @@ final class ChatModel: ObservableObject {
     }
     func react(_ m: CMsg, _ e: String) async {
         Haptic.tap()
+        if let i = msgs.firstIndex(where: { $0.id == m.id }) {
+            var l = msgs[i].reacts[e] ?? []
+            if let k = l.firstIndex(of: me) { l.remove(at: k) } else { l.append(me) }
+            msgs[i].reacts[e] = l.isEmpty ? nil : l
+        }
         do { try await post(["k": "react", "m": m.id.lowercased(), "e": e], quiet: true); await refresh() } catch { problem = error.localizedDescription }
     }
     func vote(_ m: CMsg, _ o: Int) async {
         Haptic.tap()
+        if let i = msgs.firstIndex(where: { $0.id == m.id }) { msgs[i].votes[me] = m.votes[me] == o ? nil : o }
         do { try await post(["k": "vote", "m": m.id.lowercased(), "o": m.votes[me] == o ? -1 : o], quiet: true); await refresh() } catch { problem = error.localizedDescription }
     }
 
@@ -415,7 +523,7 @@ final class ChatModel: ObservableObject {
         guard let db else { return }
         _ = try? await db.req("PATCH", "/rest/v1/messages?id=eq.\(m.id)" + (m.userId == me ? "&user_id=eq.\(me)" : ""), json: ["deleted_at": ISO8601DateFormatter().string(from: Date()), "ciphertext": NSNull()], prefer: "return=minimal")
         if let p = m.att?.path { _ = try? await db.req("DELETE", "/storage/v1/object/chat-sealed/\(p)") }
-        cache[m.id]?.deleted = true; await refresh()
+        cache[m.id]?.deleted = true; sendingOrder.removeAll { $0 == m.id }; outbox[m.id] = nil; await refresh(full: true)
     }
 
     /// An attachment, fetched and opened with the key of the message it came with.
@@ -575,7 +683,7 @@ struct ChatListScreen: View {
         .overlay(alignment: .bottom) { T.rule.frame(height: 0.5).padding(.leading, 82) }
     }
 
-    private func open(_ c: Convo) { Haptic.tap(); presentSlide(ChatScreen(m: ChatModel(c))) }
+    private func open(_ c: Convo) { Haptic.tap(); presentSlide(ChatScreen(m: s.model(c))) }
 
     /// Straight to a chat: from a notification (a conversation) or a profile's Message button (a person).
     private func jump() async {
@@ -678,8 +786,10 @@ private struct NewChat: View {
 // MARK: - One chat
 
 struct ChatScreen: View {
-    @StateObject var m: ChatModel
+    @ObservedObject var m: ChatModel
     @Environment(\.closeScreen) private var close
+    @State private var reportingMsg: CMsg?
+    @State private var why = ""
     @State private var text = ""
     @State private var attach: Outgoing?
     @State private var pick: PhotosPickerItem?
@@ -715,6 +825,12 @@ struct ChatScreen: View {
         .onDisappear { m.stop(); Task { await m.s.loadConvos() } }
         .sheet(isPresented: $info) { ChatInfo(m: m) { close() } }
         .sheet(item: $reacting) { msg in EmojiPicker { e in reacting = nil; Task { await m.react(msg, e) } }.presentationDetents([.medium, .large]) }
+        .alert("Report this message?", isPresented: Binding(get: { reportingMsg != nil }, set: { if !$0 { reportingMsg = nil } })) {
+            TextField("What’s wrong? (optional)", text: $why)
+            Button("Cancel", role: .cancel) {}
+            Button("Report") { if let x = reportingMsg { Task { await m.report(x, why) } } }
+        } message: { Text("The message’s text is sent to the administrators with your report.") }
+        .alert("Thank you", isPresented: Binding(get: { m.notice != nil }, set: { if !$0 { m.notice = nil } })) { Button("OK", role: .cancel) {} } message: { Text(m.notice ?? "") }
         .sheet(isPresented: $gifs) { GifPicker(db: m.s.db) { d in attach = Outgoing(data: d, name: "Animation.gif", mime: "image/gif", thumb: UIImage(data: d)) } }
         .confirmationDialog("Delete this message for everyone?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
             Button("Delete", role: .destructive) { if let d = deleting { Task { await m.delete(d) } } }
@@ -839,7 +955,7 @@ struct ChatScreen: View {
                                     .font(.system(size: 15)).opacity(0.7).lineLimit(2).padding(.leading, 6)
                                     .overlay(alignment: .leading) { Rectangle().frame(width: 2).opacity(0.7) }
                             }
-                            if !msg.text.isEmpty { Text(linked(msg.text)) }
+                            if !msg.text.isEmpty { Text(rich(msg.text)) }
                         }
                     }
                     .onTapGesture(count: 2) { Task { await m.react(msg, "❤️") } }
@@ -865,10 +981,14 @@ struct ChatScreen: View {
                     }
                     .padding(.horizontal, 4)
                 }
+                if msg.failed {
+                    Button { m.retry(msg) } label: { Text("Not delivered · Tap to try again").font(.sans(12, .semibold)).foregroundStyle(T.like).padding(.horizontal, 6) }.buttonStyle(.plain)
+                }
                 if msg.unverified { Text("Couldn’t confirm who sent this").font(.sans(11)).foregroundStyle(T.like).padding(.horizontal, 6) }
             }
         }
         .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
+        .opacity(msg.pending ? 0.72 : 1)
         // swipe a message to the right to reply to it
         .offset(x: dragId == msg.id ? dragX : 0)
         .background(alignment: .leading) {
@@ -974,6 +1094,10 @@ struct ChatScreen: View {
         Divider()
         Button { replyTo = msg; typing = true } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
         if !msg.text.isEmpty { Button { UIPasteboard.general.string = msg.text } label: { Label("Copy", systemImage: "doc.on.doc") } }
+        if !mine {
+            Button { why = ""; reportingMsg = msg } label: { Label("Report", systemImage: "flag") }
+            Button(role: .destructive) { Task { await m.s.block(msg.userId); await m.refresh(full: true) } } label: { Label("Block \(m.s.people[msg.userId]?.name.split(separator: " ").first.map(String.init) ?? "member")", systemImage: "hand.raised") }
+        }
         if mine || m.s.admin { Button(role: .destructive) { deleting = msg } label: { Label(mine ? "Delete" : "Delete (administrator)", systemImage: "trash") } }
     }
 
@@ -982,7 +1106,7 @@ struct ChatScreen: View {
     }
 
     private var bar: some View {
-        let ok = !(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attach == nil) && !m.busy
+        let ok = !(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attach == nil)
         return VStack(alignment: .leading, spacing: 6) {
             if let r = replyTo {
                 HStack {
@@ -1022,10 +1146,10 @@ struct ChatScreen: View {
                 Button {
                     let t = text.trimmingCharacters(in: .whitespacesAndNewlines), a = attach, r = replyTo?.id
                     text = ""; attach = nil; replyTo = nil
-                    Task { if !(await m.send(t, attach: a, replyTo: r)) { text = t; attach = a } }
+                    withAnimation(.snappy(duration: 0.22)) { m.send(t, attach: a, replyTo: r) }
                 } label: {
-                    Group { if m.busy { ProgressView().tint(T.paper) } else { GlyphView(n: "send", s: 18) } }
-                        .foregroundStyle(T.paper).frame(width: 40, height: 40).background(Circle().fill(T.ink)).opacity(ok || m.busy ? 1 : 0.4)
+                    GlyphView(n: "arrowup", s: 19, w: 2.6)
+                        .foregroundStyle(T.paper).frame(width: 36, height: 36).background(Circle().fill(T.ink)).opacity(ok ? 1 : 0.35).padding(2)
                 }
                 .disabled(!ok)
             }

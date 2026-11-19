@@ -6,7 +6,7 @@ import WebKit
 // Screens not yet native are the web app, shown in place; the web tells the app which screen it is on.
 
 enum Tab: String { case feed, library, people, settings
-    var route: String { switch self { case .feed, .settings: "/native"; case .library: "/reading"; case .people: "/people" } }
+    var route: String { switch self { case .feed, .settings, .people: "/native"; case .library: "/reading" } }
 }
 
 // MARK: - Shell
@@ -19,12 +19,13 @@ struct Shell: View {
     private static let webTabs: Set<String> = ["/native", "/reading", "/people", "/settings", "/notebook/index", "/chat", "/loading", ""]
     private var path: String { String(web.route.split(separator: "?", maxSplits: 1).first ?? "") }
     private var overlay: Bool { !Self.webTabs.contains(path) && !path.hasPrefix("/post/") }
-    private var showWeb: Bool { web.tab == .library || web.tab == .people || overlay }
+    private var showWeb: Bool { web.tab == .library || overlay }
 
     var body: some View {
         ZStack(alignment: .bottom) {
             T.paper.ignoresSafeArea()
             FeedScreen(m: feed, web: web).opacity(web.tab == .feed ? 1 : 0).allowsHitTesting(web.tab == .feed && !overlay)
+            if web.tab == .people { DirectoryScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
             if web.tab == .settings { SettingsScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(.opacity) }
             WebView(model: web).ignoresSafeArea()
                 .opacity(showWeb ? 1 : 0).allowsHitTesting(showWeb)
@@ -44,7 +45,7 @@ struct Shell: View {
         }
         .animation(.easeOut(duration: 0.18), value: showWeb)
         .animation(.easeOut(duration: 0.18), value: overlay)
-        .onAppear { feed.web = web.view; feed.open = { id, reply in web.openPost(id, people: feed.people, reply: reply) } }
+        .onAppear { web.feed = feed; feed.web = web.view; feed.open = { id, reply in web.openPost(id, people: feed.people, reply: reply) } }
         // Back from a web page (an edit, a profile) to the Feed: catch up quietly.
         .onChange(of: path) { old, new in if new == "/native" && old != "/native" { Task { await feed.load(quiet: true) } } }
     }
@@ -254,7 +255,7 @@ private struct StoryRow: View {
                     Button {
                         Haptic.tap()
                         seen.insert(it.id); UserDefaults.standard.set(Array(seen.suffix(300)), forKey: seenKey)
-                        if it.kind == .read, let s = it.slug { web.go("/read/\(s)") } else { m.detail = it }
+                        if it.kind == .read, let s = it.slug { web.goTop("/read/\(s)") } else { m.detail = it }
                     } label: { StoryPill(it: it, m: m, fresh: !seen.contains(it.id)) }
                     .buttonStyle(Press())
                 }
@@ -509,7 +510,7 @@ private struct FlowButtons: View {
 
 // MARK: - A post in the Feed (.postcard)
 
-private struct PostCard: View {
+struct PostCard: View {
     let p: FPost
     @ObservedObject var m: FeedModel
     @ObservedObject var web: WebModel
@@ -525,7 +526,7 @@ private struct PostCard: View {
         // The header — face, name, kind and time — set off by a rule; the writing then runs the card's full width.
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                Button { web.go("/member/\(p.userId)") } label: { Face(person, s: 36) }.buttonStyle(.plain)
+                Button { openMember(p.userId, web) } label: { Face(person, s: 36) }.buttonStyle(.plain)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(person?.name ?? "Member").font(.sans(15, .semibold)).foregroundStyle(T.ink).lineLimit(1)
                     Text(kindLine).font(.sans(13)).foregroundStyle(T.muted).lineLimit(1)
@@ -550,7 +551,7 @@ private struct PostCard: View {
         .padding(.horizontal, 10).padding(.bottom, 10)
         .contentShape(Rectangle())
         // tapping a note opens it with its replies; an article opens on its own page
-        .onTapGesture { if p.article { web.go("/post/\(p.id)?web=1") } else { m.open(p.id, false) } }
+        .onTapGesture { if p.article { web.goTop("/post/\(p.id)?web=1") } else { m.open(p.id, false) } }
     }
 
     @ViewBuilder private var note: some View {
@@ -752,7 +753,7 @@ struct LinkCard: View {
 
 // MARK: - The post's sheet (share, quote, your post's tools)
 
-private struct PostActions: View {
+struct PostActions: View {
     let p: FPost
     @ObservedObject var m: FeedModel
     @ObservedObject var web: WebModel
@@ -763,16 +764,16 @@ private struct PostActions: View {
     var body: some View {
         SheetBody {
             Card14 {
-                GroupRow(icon: "quote", label: "Quote in a post", action: { close(); web.go("/write?quote=\(p.id)") }) { EmptyView() }
+                GroupRow(icon: "quote", label: "Quote in a post", action: { close(); web.goTop("/write?quote=\(p.id)") }) { EmptyView() }
                 GroupLine()
                 ShareLink(item: link) { HStack(spacing: 14) { GlyphView(n: "link", s: 20); Text("Copy or share link").font(.sans(15)).frame(maxWidth: .infinity, alignment: .leading) }.foregroundStyle(T.ink).padding(.horizontal, 16).frame(minHeight: 50) }
             }
             if mine {
                 Card14 {
                     Eyebrow(t: "Your post").frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 4)
-                    GroupRow(icon: "pencil", label: "Edit", action: { close(); web.go("/write/\(p.id)") }) { EmptyView() }; GroupLine()
-                    GroupRow(icon: "plus", label: "Continue this thread", action: { close(); web.go("/write?continue=\(p.id)") }) { EmptyView() }; GroupLine()
-                    GroupRow(icon: "x", label: "Hide a reply…", action: { close(); web.go("/post/\(p.id)?hide=1") }) { EmptyView() }; GroupLine()
+                    GroupRow(icon: "pencil", label: "Edit", action: { close(); web.goTop("/write/\(p.id)") }) { EmptyView() }; GroupLine()
+                    GroupRow(icon: "plus", label: "Continue this thread", action: { close(); web.goTop("/write?continue=\(p.id)") }) { EmptyView() }; GroupLine()
+                    GroupRow(icon: "x", label: "Hide a reply…", action: { close(); web.goTop("/post/\(p.id)?hide=1") }) { EmptyView() }; GroupLine()
                     GroupRow(icon: "reply", label: "Who can reply", action: { Task { await m.setReplies(p, on: !p.canReply) }; close() }) { Text(p.canReply ? "Everyone ›" : "No one ›").font(.sans(15)).foregroundStyle(T.muted) }; GroupLine()
                     GroupRow(icon: "pin", label: pinned == nil ? "Pin for a week" : "Unpin", action: { Task { await togglePin() }; close() }) { EmptyView() }; GroupLine()
                     GroupRow(icon: "trash", label: "Delete", danger: true, action: delete) { EmptyView() }
@@ -780,7 +781,7 @@ private struct PostActions: View {
                 .padding(.top, 10)
             } else {
                 Card14 {
-                    GroupRow(icon: "x", label: "Mute \(m.people[p.userId]?.name.split(separator: " ").first.map(String.init) ?? "")", action: { Task { await m.mute(p) }; close() }) { EmptyView() }; GroupLine()
+                    GroupRow(icon: "x", label: "Block \(m.people[p.userId]?.name.split(separator: " ").first.map(String.init) ?? "")", action: { Task { await m.mute(p) }; close() }) { EmptyView() }; GroupLine()
                     GroupRow(icon: "flag", label: "Report to an admin", danger: true, action: report) { EmptyView() }
                 }
                 .padding(.top, 10)
