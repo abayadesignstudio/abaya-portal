@@ -585,7 +585,7 @@ struct LibraryScreen: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     HStack {
-                        Text("Library").font(.serif(20, .semibold)).foregroundStyle(T.ink)
+                        Text("Library").font(.serif(20, .semibold)).foregroundStyle(T.ink).offset(y: 5.3)   // level with the Notes page's title
                         Spacer()
                         if m.admin && web.libPane == "club" {
                             Button { let c = m.current.first; editing = UpdateDraft(title: c.map { lshort($0.title) } ?? "", author: c?.author ?? "", cover: c?.cover?.absoluteString, bookURL: c?.bookURL, place: c?.place ?? "") } label: {
