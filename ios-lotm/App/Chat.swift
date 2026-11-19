@@ -1022,8 +1022,8 @@ struct ChatScreen: View {
             dragX = x
         }.onEnded { _ in
             if dragId == msg.id && dragX >= 44 { replyTo = msg; typing = true }
-            withAnimation(.snappy(duration: 0.2)) { dragX = 0 }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { if dragX == 0 { dragId = nil } }
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) { dragX = 0 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) { if dragX == 0 { dragId = nil } }
         })
     }
 
@@ -1212,13 +1212,16 @@ private struct PollMaker: View {
 private struct ZoomBox: Identifiable { let img: UIImage; var id: ObjectIdentifier { ObjectIdentifier(img) } }
 private struct ZoomImageView: View {
     let img: UIImage; let done: () -> Void
+    @State private var drop: CGFloat = 0
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
             Image(uiImage: img).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: .infinity)
             Button(action: done) { GlyphView(n: "x", s: 20).foregroundStyle(.white).frame(width: 40, height: 40).background(Circle().fill(.white.opacity(0.15))) }.padding(16)
         }
-        .gesture(DragGesture().onEnded { if abs($0.translation.height) > 80 { done() } })
+        .offset(y: drop).opacity(Double(1 - min(0.5, abs(drop) / 500)))
+        .gesture(DragGesture(minimumDistance: 10).onChanged { drop = $0.translation.height }
+            .onEnded { g in if abs(g.translation.height) > 90 || abs(g.predictedEndTranslation.height) > 320 { done() } else { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { drop = 0 } } })
     }
 }
 

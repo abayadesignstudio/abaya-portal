@@ -170,12 +170,14 @@ struct Eyebrow: View {
 struct Seg: View {
     let options: [String]
     @Binding var value: String
+    @Namespace private var ns
     var body: some View {
         HStack(spacing: 0) {
             ForEach(options, id: \.self) { o in
-                Button { Haptic.tap(); value = o } label: {
+                Button { Haptic.tap(); withAnimation(.snappy(duration: 0.26)) { value = o } } label: {
                     Text(o).font(.sans(13, value == o ? .semibold : .regular)).foregroundStyle(T.ink).frame(maxWidth: .infinity).frame(height: 30)
-                        .background(RoundedRectangle(cornerRadius: 7).fill(value == o ? T.card : .clear).shadow(color: .black.opacity(value == o ? 0.12 : 0), radius: 1.5, y: 1))
+                        .background { if value == o { RoundedRectangle(cornerRadius: 7).fill(T.card).shadow(color: .black.opacity(0.12), radius: 1.5, y: 1).matchedGeometryEffect(id: "on", in: ns) } }
+                        .contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
         }

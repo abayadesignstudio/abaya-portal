@@ -493,7 +493,9 @@ struct PhotoStrip: View {
                                 .frame(width: 220, height: 280).clipShape(RoundedRectangle(cornerRadius: 14)).onTapGesture { openAt = i }
                         }
                     }
+                    .scrollTargetLayout()
                 }
+                .scrollTargetBehavior(.viewAligned)
             }
         }
         .fullScreenCover(item: Binding(get: { openAt.map { PhotoIndex(v: $0) } }, set: { openAt = $0?.v })) { b in Lightbox(urls: urls, start: b.v) }
@@ -551,12 +553,25 @@ final class SlideIn: NSObject, UIViewControllerTransitioningDelegate, UIViewCont
             guard let to = c.view(forKey: .to) else { return c.completeTransition(false) }
             box.addSubview(to); to.frame = box.bounds.offsetBy(dx: w, dy: 0)
             to.layer.shadowColor = UIColor.black.cgColor; to.layer.shadowOpacity = 0.25; to.layer.shadowRadius = 16; to.layer.shadowOffset = CGSize(width: -6, height: 0)
-            UIView.animate(withDuration: transitionDuration(using: c), delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0, options: [.allowUserInteraction]) { to.frame = box.bounds }
-                completion: { _ in c.completeTransition(!c.transitionWasCancelled) }
+            let under = c.viewController(forKey: .from)?.view
+            UIView.animate(withDuration: transitionDuration(using: c), delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
+                to.frame = box.bounds; under?.transform = CGAffineTransform(translationX: -w * 0.22, y: 0)
+            } completion: { _ in
+                let done = !c.transitionWasCancelled
+                if !done { under?.transform = .identity }
+                c.completeTransition(done)
+            }
         } else {
             guard let from = c.view(forKey: .from) else { return c.completeTransition(false) }
-            UIView.animate(withDuration: transitionDuration(using: c), delay: 0, options: interactive ? [.curveLinear] : [.curveEaseIn]) { from.frame = box.bounds.offsetBy(dx: w, dy: 0) }
-                completion: { _ in c.completeTransition(!c.transitionWasCancelled) }
+            let under = c.viewController(forKey: .to)?.view
+            let move = { from.frame = box.bounds.offsetBy(dx: w, dy: 0); under?.transform = .identity }
+            let end: (Bool) -> Void = { _ in
+                let done = !c.transitionWasCancelled
+                if !done { under?.transform = CGAffineTransform(translationX: -w * 0.22, y: 0) }
+                c.completeTransition(done)
+            }
+            if interactive { UIView.animate(withDuration: transitionDuration(using: c), delay: 0, options: [.curveLinear], animations: move, completion: end) }
+            else { UIView.animate(withDuration: 0.34, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0, options: [.allowUserInteraction], animations: move, completion: end) }
         }
     }
 }
@@ -609,6 +624,7 @@ final class PostHandler: NSObject, WKScriptMessageHandler {
         Task { @MainActor in
             // Posts this screen can't show yet (articles, polls, voice notes) open in the web view instead.
             if await m.load(countView: true) == false {
+                vc.presentingViewController?.view.transform = .identity
                 vc.dismiss(animated: false)
                 self.js("window.lotmNativeGo && window.lotmNativeGo('/post/\(id)?web=1')")
             }

@@ -18,6 +18,7 @@ final class SlideHost: UIHostingController<AnyView> {
         case .began: slide.interactive = true; view.endEditing(true); dismiss(animated: true)
         case .changed: slide.interactor.update(p)
         case .ended, .cancelled:
+            slide.interactor.completionSpeed = 0.9
             if (p > 0.35 || g.velocity(in: view).x > 600) && g.state == .ended { slide.interactor.finish() } else { slide.interactor.cancel() }
             slide.interactive = false
         default: break

@@ -407,6 +407,7 @@ struct Shelf: View {
     var start = 0
     var flipNow = 0
     var onCenter: (String) -> Void = { _ in }
+    var onDrag: (Bool) -> Void = { _ in }
     @State private var pos: Double = 0
     @State private var from: Double?
     @State private var axis = 0                     // 0 undecided, 1 sideways (ours), 2 up and down (the page's)
@@ -426,14 +427,14 @@ struct Shelf: View {
                 .contentShape(Rectangle())
                 .simultaneousGesture(DragGesture(minimumDistance: 8)
                     .onChanged { g in
-                        if axis == 0 { axis = abs(g.translation.width) > abs(g.translation.height) ? 1 : 2; if axis == 1 { from = pos; flipped = nil } }
+                        if axis == 0 { axis = abs(g.translation.width) > abs(g.translation.height) ? 1 : 2; if axis == 1 { from = pos; flipped = nil; onDrag(true) } }
                         guard axis == 1, let f = from else { return }
                         var p = f - Double(g.translation.width) / unit
                         if p < 0 { p *= 0.35 }; if p > Double(last) { p = Double(last) + (p - Double(last)) * 0.35 }      // rubber band at the ends
                         pos = p
                     }
                     .onEnded { g in
-                        defer { axis = 0; from = nil }
+                        defer { axis = 0; from = nil; onDrag(false) }
                         guard axis == 1, let f = from else { return }
                         let coast = max(-2.5, min(2.5, -Double(g.predictedEndTranslation.width - g.translation.width) / unit * 0.6))
                         go(Int((max(0, min(Double(last), f - Double(g.translation.width) / unit)) + coast).rounded()))
@@ -568,6 +569,8 @@ struct LibraryScreen: View {
     @ObservedObject var m: LibraryModel
     @ObservedObject var feed: FeedModel
     @ObservedObject var web: WebModel
+    @Namespace private var segNS
+    @State private var shelfDrag = false
     @State private var flipNow = 0
     @State private var searching: Bool?            // nil closed; true = want to read
     @State private var byHand: Bool?
@@ -597,9 +600,9 @@ struct LibraryScreen: View {
                     HStack(spacing: 0) {
                         ForEach([("mine", "My Library"), ("notes", "Notes"), ("club", "LOTM")], id: \.0) { v, t in
                             let on = web.libPane == v
-                            Button { Haptic.tap(); web.setLibPane(v) } label: {
+                            Button { Haptic.tap(); withAnimation(.snappy(duration: 0.26)) { web.setLibPane(v) } } label: {
                                 Text(t).font(.sans(14, on ? .semibold : .regular)).foregroundStyle(T.ink).frame(maxWidth: .infinity).frame(height: 34)
-                                    .background(Capsule().fill(on ? T.card : .clear).shadow(color: .black.opacity(on ? 0.12 : 0), radius: 1.5, y: 1))
+                                    .background { if on { Capsule().fill(T.card).shadow(color: .black.opacity(0.12), radius: 1.5, y: 1).matchedGeometryEffect(id: "on", in: segNS) } }
                                     .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
@@ -607,11 +610,11 @@ struct LibraryScreen: View {
                     }
                     .padding(3).background(RoundedRectangle(cornerRadius: 20).fill(Color(rgb: 0x0c0e08, 0.08)))
                     .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 4)
-                    .animation(.easeOut(duration: 0.2), value: web.libPane)
-                    if web.libPane == "club" { club } else { mine }
+                    if web.libPane == "club" { Group { club }.transition(.opacity) } else { Group { mine }.transition(.opacity) }
                     Color.clear.frame(height: 130)
                 }
             }
+            .scrollDisabled(shelfDrag)
             .refreshable { await m.load() }
         }
         .background(T.paper.ignoresSafeArea())
@@ -646,7 +649,7 @@ struct LibraryScreen: View {
 
     @ViewBuilder private var mine: some View {
         H2(t: "Currently reading", action: m.mine.isEmpty ? nil : "Update") { flipNow += 1 }.padding(.top, -8)
-        Shelf(items: mineItems(), w: 150, start: m.mine.isEmpty && m.clubToAdd.isEmpty ? 0 : 1, flipNow: flipNow)
+        Shelf(items: mineItems(), w: 150, start: m.mine.isEmpty && m.clubToAdd.isEmpty ? 0 : 1, flipNow: flipNow, onDrag: { shelfDrag = $0 })
         goals
         shelf("Want to read", m.want, want: true, ghosts: [])
         shelf("Finished · \(m.finished.count)", m.finished, want: false, ghosts: finishedGhosts())
@@ -711,7 +714,7 @@ struct LibraryScreen: View {
             if list.isEmpty && ghosts.isEmpty {
                 Text("Books you mean to read next.").font(.sans(14)).foregroundStyle(T.muted).padding(.horizontal, 20)
             } else {
-                Shelf(items: shelfItems(list, ghosts))
+                Shelf(items: shelfItems(list, ghosts), onDrag: { shelfDrag = $0 })
             }
         }
     }
@@ -744,7 +747,7 @@ struct LibraryScreen: View {
                     .opacity(frac > 0 ? 1 : 0).animation(.easeOut(duration: 0.8), value: frac)
                 VStack(spacing: 4) {
                     Text("Today’s reading").font(.serif(21, .semibold)).foregroundStyle(T.ink)
-                    Text("\(done)").font(.serif(76, .medium)).foregroundStyle(T.ink).frame(height: 78)
+                    Text("\(done)").font(.serif(76, .medium)).foregroundStyle(T.ink).contentTransition(.numericText()).animation(.snappy, value: done).frame(height: 78)
                     Button { goalSheet = true } label: { (Text("of your \(g)-page goal ").foregroundColor(T.ink) + Text("›").foregroundColor(T.muted)).font(.sans(16)) }.buttonStyle(.plain)
                 }
                 .padding(.top, 58)
@@ -790,7 +793,7 @@ struct LibraryScreen: View {
         if cur.isEmpty && done.isEmpty && !m.admin {
             Text(m.loaded ? "No current reading yet." : "Loading…").font(.sans(15)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(40)
         } else {
-            Shelf(items: clubItems(), w: 150, start: m.admin ? 1 : 0, onCenter: { clubKey = $0 })
+            Shelf(items: clubItems(), w: 150, start: m.admin ? 1 : 0, onCenter: { clubKey = $0 }, onDrag: { shelfDrag = $0 })
         }
         clubCard.animation(.easeOut(duration: 0.25), value: clubKey)
 
@@ -1176,7 +1179,7 @@ private struct GoalSheet: View {
                 Text("Daily goal").font(.serif(22, .semibold)).foregroundStyle(T.ink)
                 HStack(spacing: 22) {
                     Button { step(-5) } label: { Image(systemName: "minus").font(.system(size: 16, weight: .bold)).foregroundStyle(T.ink).frame(width: 44, height: 44).background(Circle().fill(Color(rgb: 0x4d5038))) }.accessibilityLabel("Fewer pages")
-                    VStack(spacing: 0) { Text("\(n)").font(.serif(54)).foregroundStyle(T.ink).monospacedDigit(); Text("pages a day").font(.sans(14)).foregroundStyle(T.muted) }.frame(width: 120)
+                    VStack(spacing: 0) { Text("\(n)").font(.serif(54)).foregroundStyle(T.ink).monospacedDigit().contentTransition(.numericText()).animation(.snappy(duration: 0.2), value: n); Text("pages a day").font(.sans(14)).foregroundStyle(T.muted) }.frame(width: 120)
                     Button { step(5) } label: { Image(systemName: "plus").font(.system(size: 16, weight: .bold)).foregroundStyle(T.ink).frame(width: 44, height: 44).background(Circle().fill(Color(rgb: 0x4d5038))) }.accessibilityLabel("More pages")
                 }
                 .padding(.top, 18).padding(.bottom, 6)
