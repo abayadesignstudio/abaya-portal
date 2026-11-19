@@ -342,7 +342,7 @@ private struct H2: View {
         HStack(alignment: .firstTextBaseline) {
             Text(t).font(.serif(20, .semibold)).foregroundStyle(T.ink)
             Spacer()
-            if let action { Button(action: run) { Text("\(action) ›").font(.sans(14, .semibold)).foregroundStyle(T.ticker) }.buttonStyle(.plain) }
+            if let action { Button(action: run) { Text("\(action) ›").font(.sans(14, .semibold)).foregroundStyle(Color(rgb: 0xd0ceb9)) }.buttonStyle(.plain) }
         }
         .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 8)
     }
@@ -373,56 +373,96 @@ struct ShelfItem: Identifiable {
     var open: () -> Void = {}
 }
 
+private struct FlowX: PreferenceKey { static var defaultValue: CGFloat = 0; static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() } }
+
+/// Cover Flow as the web drew it: the middle book forward, the others stepped back behind it and darker, overlapping
+/// like a Rolodex. A plain horizontal scroll view supplies the touch and the coming-to-rest; each cover is then set
+/// where the web's `place()` put it for its distance from the middle.
 struct Shelf: View {
     let items: [ShelfItem]
     var w: CGFloat = 124
     var start = 0
     var flipNow = 0
     var onCenter: (String) -> Void = { _ in }
-    @State private var centered: String?
+    @State private var pos: Double = 0
+    @State private var target: String?
     @State private var flipped: String?
+    @State private var space = UUID()
+    @State private var placed = false
+    @State private var ready = false
     private var h: CGFloat { (w * 1.5).rounded() }
-    private var mid: ShelfItem? { items.first { $0.id == centered } ?? items.first }
+    private var unit: CGFloat { w * 0.95 }
+    private var active: Int { max(0, min(items.count - 1, Int(pos.rounded()))) }
+    private var mid: ShelfItem? { items.isEmpty ? nil : items[active] }
+    private func place(_ d: Double) -> (x: CGFloat, scale: CGFloat, shade: Double, z: Double) {
+        let a = abs(d), near = min(a, 1), far = max(0, a - 1)
+        let scale = 700 / (700 + 130 * near + 26 * far)
+        return (CGFloat((d < 0 ? -1 : 1) * (near * Double(w) * 0.74 + far * Double(w) * 0.3) * scale), CGFloat(scale), min(a, 2.6) * 0.17, 1000 - a * 10)
+    }
 
     var body: some View {
-        VStack(spacing: 6) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 14) {
-                    ForEach(items) { it in
-                        card(it)
-                            .scrollTransition(.interactive, axis: .horizontal) { c, phase in c.scaleEffect(phase.isIdentity ? 1 : 0.84).brightness(phase.isIdentity ? 0 : -0.16) }
+        VStack(spacing: 0) {
+            GeometryReader { g in
+                let margin = max(0, (g.size.width - unit) / 2)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 0) {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { i, it in
+                            let d = Double(i) - pos, q = place(d)
+                            Color.clear.frame(width: unit, height: h)
+                                .overlay(card(it, i, shade: q.shade).frame(width: w, height: h))
+                                .scaleEffect(q.scale)
+                                .offset(x: q.x - CGFloat(d) * unit)
+                                .zIndex(q.z)
+                                .id(it.id)
+                        }
                     }
+                    .scrollTargetLayout()
+                    .background(GeometryReader { p in Color.clear.preference(key: FlowX.self, value: p.frame(in: .named(space)).minX) })
+                    .padding(.top, 6).frame(height: (h * 1.14).rounded(), alignment: .top)
                 }
-                .scrollTargetLayout()
-                .frame(height: h + 24)
+                .contentMargins(.horizontal, margin, for: .scrollContent)
+                .scrollTargetBehavior(.viewAligned)
+                .scrollPosition(id: $target, anchor: .center)
+                .coordinateSpace(name: space)
+                .onPreferenceChange(FlowX.self) { x in let p = Double((margin - x) / unit); if abs(p - pos) > 0.001 { pos = p } }
             }
-            .contentMargins(.horizontal, max(0, (UIScreen.main.bounds.width - w) / 2), for: .scrollContent)
-            .scrollTargetBehavior(.viewAligned)
-            .scrollPosition(id: $centered)
+            .frame(height: (h * 1.14).rounded())
             VStack(spacing: 1) {
                 Text(mid?.title ?? " ").font(.serif(16, .semibold)).foregroundStyle(T.ink).lineLimit(2).multilineTextAlignment(.center)
                 if let by = mid?.by, !by.isEmpty { Text("by \(by)").font(.serif(14, italic: true)).foregroundStyle(T.muted).lineLimit(1) }
-                if let s = mid?.sub { s.padding(.top, 4) }
+                if let s = mid?.sub { s.padding(.top, 3) }
             }
-            .padding(.horizontal, 24).frame(minHeight: 62, alignment: .top)
+            .padding(.horizontal, 24).frame(maxWidth: .infinity, minHeight: 64, alignment: .top)
         }
-        .onAppear { if centered == nil, !items.isEmpty { centered = items[min(start, items.count - 1)].id } }
-        .onChange(of: centered) { _, c in Haptic.tap(); flipped = nil; if let c { onCenter(c) } }
+        .onAppear { open(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { ready = true } }
+        .onChange(of: items.map(\.id)) { _, _ in open() }
+        .onChange(of: active) { _, _ in
+            guard ready, let m = mid else { return }
+            Haptic.tap(); flipped = nil; onCenter(m.id)
+        }
         .onChange(of: flipNow) { _, _ in
-            guard let it = items.first(where: { $0.back != nil }) else { return }
-            let target = (mid?.back != nil ? mid : it)!
-            withAnimation(.snappy) { centered = target.id }
-            DispatchQueue.main.asyncAfter(deadline: .now() + (centered == target.id ? 0.05 : 0.45)) { withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) { flipped = target.id } }
+            guard !items.isEmpty else { return }
+            var i = active
+            if items[i].back == nil { guard let k = items.firstIndex(where: { $0.back != nil }) else { return }; i = k }
+            let id = items[i].id
+            let turn = { withAnimation(.spring(response: 0.55, dampingFraction: 0.75)) { flipped = id }; Haptic.tap() }
+            if i == active { turn() } else { withAnimation(.snappy) { target = id }; DispatchQueue.main.asyncAfter(deadline: .now() + 0.52, execute: turn) }
         }
-        .onChange(of: items.map(\.id)) { _, ids in if let c = centered, !ids.contains(c) { centered = ids.first } }
+    }
+    /// Until its books have arrived, the shelf stays opened on its starting book.
+    private func open() {
+        guard !items.isEmpty, !placed else { return }
+        let it = items[min(start, items.count - 1)]
+        target = it.id; onCenter(it.id)
+        if items.count > start { placed = items.count > 1 }
     }
 
-    @ViewBuilder private func card(_ it: ShelfItem) -> some View {
+    @ViewBuilder private func card(_ it: ShelfItem, _ i: Int, shade: Double) -> some View {
         let on = flipped == it.id
         ZStack {
-            front(it).opacity(on ? 0 : 1)
+            front(it).overlay(Color(rgb: 0x0d0f08).opacity(shade).clipShape(RoundedRectangle(cornerRadius: 4))).opacity(on ? 0 : 1)
             if on, let back = it.back {
-                back { withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) { flipped = nil } }
+                back { withAnimation(.spring(response: 0.55, dampingFraction: 0.75)) { flipped = nil } }
                     .frame(width: w, height: h)
                     .background(LinearGradient(colors: [Color(rgb: 0xf4f1e2), Color(rgb: 0xdcd8c2)], startPoint: .topLeading, endPoint: .bottomTrailing))
                     .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -430,16 +470,16 @@ struct Shelf: View {
             }
         }
         .frame(width: w, height: h)
-        .shadow(color: .black.opacity(0.35), radius: 12, y: 8)
+        .shadow(color: .black.opacity(0.35), radius: 12, y: 10)
         .rotation3DEffect(.degrees(on ? 180 : 0), axis: (0, 1, 0), perspective: 0.5)
         .contentShape(Rectangle())
         .onTapGesture {
             guard !on else { return }
-            if centered != it.id { withAnimation(.snappy) { centered = it.id }; return }
+            if i != active { withAnimation(.snappy) { target = it.id }; return }
             Haptic.tap()
-            if it.back != nil { withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) { flipped = it.id } } else { it.open() }
+            if it.back != nil { withAnimation(.spring(response: 0.55, dampingFraction: 0.75)) { flipped = it.id } } else { it.open() }
         }
-        .accessibilityLabel(it.title)
+        .accessibilityLabel(it.title).accessibilityAddTraits(.isButton)
     }
 
     @ViewBuilder private func front(_ it: ShelfItem) -> some View {
@@ -536,16 +576,20 @@ struct LibraryScreen: View {
                 }
             }
             .padding(.horizontal, 20).frame(height: 50)
-            HStack(spacing: 8) {
+            HStack(spacing: 0) {
                 ForEach([("mine", "My Library"), ("notes", "Commonplace"), ("club", "LOTM")], id: \.0) { v, t in
+                    let on = web.libPane == v
                     Button { Haptic.tap(); web.setLibPane(v) } label: {
-                        Text(t).font(.sans(14, .semibold)).foregroundStyle(web.libPane == v ? T.paper : T.ink).frame(maxWidth: .infinity).frame(height: 36)
-                            .background(Capsule().fill(web.libPane == v ? T.ink : T.soft)).overlay(Capsule().stroke(web.libPane == v ? .clear : T.softBd))
+                        Text(t).font(.sans(14, on ? .semibold : .regular)).foregroundStyle(T.ink).frame(maxWidth: .infinity).frame(height: 34)
+                            .background(Capsule().fill(on ? T.card : .clear).shadow(color: .black.opacity(on ? 0.12 : 0), radius: 1.5, y: 1))
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 4)
+            .padding(3).background(RoundedRectangle(cornerRadius: 20).fill(Color(rgb: 0x0c0e08, 0.08)))
+            .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 4)
+            .animation(.easeOut(duration: 0.2), value: web.libPane)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if web.libPane == "club" { club } else { mine }

@@ -33,14 +33,6 @@ struct Shell: View {
                 .opacity(showWeb ? 1 : 0).allowsHitTesting(showWeb)
             if !overlay {
                 Dock(web: web, feed: feed).transition(.opacity)
-                // the write button floats in the corner, just above the bar
-                Button { Haptic.tap(); web.composer.present(name: feed.myName, avatar: feed.myAvatar) } label: {
-                    GlyphView(n: "pencil", s: 24).foregroundStyle(T.paper)
-                        .frame(width: 56, height: 56).background(Circle().fill(T.ink)).shadow(color: Color(rgb: 0x0c0e08, 0.35), radius: 10, y: 6)
-                }
-                .buttonStyle(Press(scale: 0.92)).accessibilityLabel("Write a post")
-                .frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, 16).padding(.bottom, 82)
-                .transition(.opacity)
             }
             if let it = feed.detail { DropCard(it: it, m: feed, web: web).zIndex(5) }
             if splash { Splash { splash = false }.zIndex(10) }
@@ -62,6 +54,11 @@ private struct Dock: View {
         HStack(spacing: 0) {
             item(.feed, "feed", "Feed")
             item(.library, "reading", "Library")
+            Button { Haptic.tap(); web.composer.present(name: feed.myName, avatar: feed.myAvatar) } label: {
+                GlyphView(n: "pencil", s: 23).foregroundStyle(T.paper).frame(width: 50, height: 50).background(Circle().fill(T.ink))
+                    .shadow(color: Color(rgb: 0x0c0e08, 0.3), radius: 6, y: 3)
+            }
+            .buttonStyle(Press(scale: 0.92)).frame(maxWidth: .infinity).accessibilityLabel("Write a post")
             // the chat slides in over everything, like a post
             Button { Haptic.tap(); chatCount = 0; openChat(web) } label: {
                 GlyphView(n: "chat", s: 27).foregroundStyle(T.muted)
@@ -76,7 +73,6 @@ private struct Dock: View {
             .buttonStyle(Press(scale: 0.92)).frame(maxWidth: .infinity)
             .accessibilityLabel(chatCount > 0 ? "Chat, \(chatCount) unread" : "Chat")
             item(.people, "members", "Directory")
-            item(.settings, "settings", "Settings")
         }
         .padding(.horizontal, 10)
         .frame(width: min(372, UIScreen.main.bounds.width - 24), height: 66)
@@ -202,13 +198,12 @@ struct Leaves: View {
 /// .mast — search, the title, and the bell with its count, on the tan-to-olive gradient.
 struct Mast: View {
     let unread: Int
-    let search: () -> Void, bell: () -> Void, title: () -> Void
+    let settings: () -> Void, bell: () -> Void, title: () -> Void
     var body: some View {
         HStack(spacing: 8) {
-            ibtn("search", search)
+            ibtn("bell", bell).overlay(alignment: .topTrailing) { badge(unread) }.accessibilityLabel(unread > 0 ? "Notifications, \(unread) unread" : "Notifications")
             Wordmark().frame(maxWidth: .infinity).contentShape(Rectangle()).onTapGesture(perform: title)
-            ibtn("bell", bell).overlay(alignment: .topTrailing) { badge(unread) }
-                .offset(x: -4)
+            ibtn("settings", settings).accessibilityLabel("Settings")
         }
         .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 12)
         .background {
@@ -246,7 +241,7 @@ struct FeedScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             Mast(unread: m.unread,
-                 search: { presentSlide(SearchScreen(feed: m, web: web)) },
+                 settings: { web.select(.settings) },
                  bell: { presentSlide(NotificationsScreen(feed: m, web: web)) },
                  title: { m.scrollTop += 1 })
             ScrollViewReader { proxy in
