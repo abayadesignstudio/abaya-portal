@@ -189,9 +189,8 @@ struct FeedScreen: View {
                         } else if m.posts.isEmpty {
                             Text("Nothing here yet.").font(.serif(17)).foregroundStyle(T.muted).padding(40)
                         }
-                        ForEach(Array(m.posts.enumerated()), id: \.element.id) { k, p in
+                        ForEach(Array(m.posts.enumerated()), id: \.element.id) { _, p in
                             PostCard(p: p, m: m, web: web, more: { acting = p })
-                                .padding(.top, k == 0 ? 10 : 0)
                         }
                         Color.clear.frame(height: 110)
                     }
@@ -506,25 +505,25 @@ private struct PostCard: View {
         return "\(p.kind) · \(ago(p.created))\(p.edited ? " · Edited" : "")"
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                Button { web.go("/member/\(p.userId)") } label: { Face(person, s: 36 * z) }.buttonStyle(.plain)
-                // like the web's .meta: the name, then kind and time, wrapping onto a second line if needed
-                (Text(person?.name ?? "Member").font(.sans(14 * z, .semibold)).foregroundColor(T.ink) + Text(" · \(kindLine)").font(.sans(14 * z)).foregroundColor(T.muted))
-                    .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
-                Button(action: more) { Text("···").font(.sans(15 * z, .bold)).tracking(1).foregroundStyle(T.muted).padding(.horizontal, 2).frame(height: 28) }.buttonStyle(.plain)
-            }
+        // Laid out as X: the face in its own column, everything else beside it; rows split by a hairline, no cards.
+        HStack(alignment: .top, spacing: 10) {
+            Button { web.go("/member/\(p.userId)") } label: { Face(person, s: 40) }.buttonStyle(.plain)
             VStack(alignment: .leading, spacing: 0) {
-                if p.article { article } else { note }
-                actions.padding(.top, 10 * z)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    (Text(person?.name ?? "Member").font(.sans(15, .semibold)).foregroundColor(T.ink) + Text(" · \(kindLine)").font(.sans(15)).foregroundColor(T.muted))
+                        .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                    Button(action: more) { Text("···").font(.sans(15, .bold)).tracking(1).foregroundStyle(T.muted).frame(height: 18) }.buttonStyle(.plain)
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    if p.article { article } else { note }
+                }
+                .padding(.top, 2)
+                actions.padding(.top, 8)
             }
-            .padding(.top, 6 * z)
         }
-        .padding(.horizontal, 16 * z).padding(.vertical, 14 * z)
-        .background(RoundedRectangle(cornerRadius: 20).fill(T.card))
-        .overlay(RoundedRectangle(cornerRadius: 20).stroke(T.rule))
-        .shadow(color: Color(rgb: 0x0c0e08, open ? 0.28 : 0.14), radius: open ? 11 : 5, y: open ? 6 : 2)
-        .padding(.horizontal, 10).padding(.bottom, 10)
+        .padding(.leading, 16).padding(.trailing, 16).padding(.top, 12).padding(.bottom, 8)
+        .background(open ? Color.white.opacity(0.03) : .clear)
+        .overlay(alignment: .bottom) { T.rule.frame(height: 0.5) }
         .contentShape(Rectangle())
         // tapping a note opens it with its replies; an article opens on its own page
         .onTapGesture { if p.article { web.go("/post/\(p.id)?web=1") } else { m.open(p.id, false) } }
@@ -532,15 +531,15 @@ private struct PostCard: View {
 
     @ViewBuilder private var note: some View {
         if p.showTitle {
-            Text(p.title).font(.serif(21 * z, .bold)).foregroundStyle(T.ink).fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 9).overlay(alignment: .bottom) { T.rule.frame(height: 1) }.padding(.vertical, 8)
+            Text(p.title).font(.serif(19, .bold)).foregroundStyle(T.ink).fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 2)
         }
         if !p.body.isEmpty && !(p.audio && p.body.trimmingCharacters(in: .whitespaces) == "Voice note") {
             // a note shows in full (posts are short); only articles are cut to a card
-            Paras(text: p.body, size: 18 * z, gap: 6 * z)
+            Paras(text: p.body, size: 17.5, leading: 1.28, gap: 4)
         }
         if p.audio { Button { m.open(p.id, false) } label: { Label("Voice note", systemImage: "play.fill") }.buttonStyle(PillStyle()).padding(.top, 10) }
-        PhotoRow(urls: p.photos).padding(.top, p.photos.isEmpty ? 0 : 10)
+        PhotoRow(urls: p.photos).padding(.top, p.photos.isEmpty ? 0 : 8)
         if let b = p.book { BookCard(b: b).padding(.top, 8) }
         if let q = p.quoteId { QuoteEmbed(userId: p.quoteUser ?? "", text: p.quoteText ?? "", m: m).onTapGesture { m.open(q, false) }.padding(.top, 8) }
         if let poll = p.poll { PollView(poll: poll, me: m.me) { i in Task { await m.vote(p, i) } }.padding(.top, 10) }
@@ -569,17 +568,29 @@ private struct PostCard: View {
         .padding(.top, 8)
     }
 
+    /// X's row: four plain icons with their counts, spread across the column.
     private var actions: some View {
-        HStack(spacing: 6) {
-            Button { m.open(p.id, true) } label: { HStack(spacing: 5) { GlyphView(n: "reply", s: 20); if p.replies > 0 { Text("\(p.replies)") } } }
-                .buttonStyle(PillStyle()).disabled(!p.canReply).opacity(p.canReply ? 1 : 0.45)
+        HStack(spacing: 0) {
+            Button { m.open(p.id, true) } label: { act("reply", p.replies) }
+                .disabled(!p.canReply).opacity(p.canReply ? 1 : 0.45)
+            Spacer(minLength: 0)
             Button { Task { await m.like(p) } } label: {
-                HStack(spacing: 5) { GlyphView(n: "heart", s: 20, fill: p.liked).symbolPop(p.liked); if p.likes > 0 { Text("\(p.likes)") } }
+                HStack(spacing: 5) { GlyphView(n: "heart", s: 18, w: 1.8, fill: p.liked).symbolPop(p.liked); Text(p.likes > 0 ? "\(p.likes)" : " ").font(.sans(13)).monospacedDigit() }
+                    .foregroundStyle(p.liked ? T.like : T.muted).frame(minWidth: 44, minHeight: 32, alignment: .leading).contentShape(Rectangle())
             }
-            .buttonStyle(PillStyle(liked: p.liked))
-            Button { Task { await m.save(p) } } label: { GlyphView(n: "bookmark", s: 20, fill: p.saved).symbolPop(p.saved) }.buttonStyle(PillStyle())
-            Button(action: more) { GlyphView(n: "share", s: 20) }.buttonStyle(PillStyle())
+            Spacer(minLength: 0)
+            Button { Task { await m.save(p) } } label: {
+                GlyphView(n: "bookmark", s: 18, w: 1.8, fill: p.saved).symbolPop(p.saved).foregroundStyle(p.saved ? T.ink : T.muted).frame(minWidth: 44, minHeight: 32, alignment: .leading).contentShape(Rectangle())
+            }
+            Spacer(minLength: 0)
+            Button(action: more) { GlyphView(n: "share", s: 18, w: 1.8).foregroundStyle(T.muted).frame(minWidth: 32, minHeight: 32, alignment: .trailing).contentShape(Rectangle()) }
         }
+        .buttonStyle(.plain)
+        .padding(.trailing, 4)
+    }
+    private func act(_ g: String, _ n: Int) -> some View {
+        HStack(spacing: 5) { GlyphView(n: g, s: 18, w: 1.8); Text(n > 0 ? "\(n)" : " ").font(.sans(13)).monospacedDigit() }
+            .foregroundStyle(T.muted).frame(minWidth: 44, minHeight: 32, alignment: .leading).contentShape(Rectangle())
     }
 }
 
