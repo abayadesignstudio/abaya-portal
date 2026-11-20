@@ -61,6 +61,8 @@ final class ComposeModel: ObservableObject {
     @Published var tags: [String] = []
     @Published var poll: [String]? = nil
     @Published var pollDays = 3
+    /// Where this goes: out to the feed, or into your private notebook. One composer serves both.
+    @Published var toNotes = false
     var auth: () async -> SupaAuth? = { nil }
     var send: (String, @escaping (String) -> Void) -> Void = { _, done in done("Not connected") }
     var close: () -> Void = {}
@@ -76,12 +78,31 @@ final class ComposeModel: ObservableObject {
         policy = (saved?["policy"] as? String) ?? "everyone"
     }
     var hasContent: Bool { posts.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !$0.images.isEmpty } || !(quote ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
-    var canPost: Bool { hasContent && !busy && !posts.contains { words($0.text) > LIMIT } }
+    var canPost: Bool { hasContent && !busy && (toNotes || !posts.contains { words($0.text) > LIMIT }) }
     func saveDraft() { UserDefaults.standard.set(["texts": posts.map(\.text), "policy": policy], forKey: Self.key) }
     func clearDraft() { UserDefaults.standard.removeObject(forKey: Self.key) }
 
+    /// Kept in the notebook instead: the words as a thought (or, with a passage, a quote), with its photo, book, topics and link.
+    private func saveNote() {
+        busy = true; error = nil
+        var n = NNote(id: "")
+        let qt = (quote ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        n.kind = qt.isEmpty ? "thought" : "quote"; n.quotation = qt
+        n.body = posts.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.joined(separator: "\n\n")
+        n.bookTitle = book?.title ?? ""; n.bookAuthor = book?.author ?? ""; n.bookCover = book?.cover?.absoluteString
+        n.tags = tags; n.source = link.trimmingCharacters(in: .whitespaces)
+        let photo = posts.flatMap(\.images).first
+        Task { @MainActor in
+            let notes = NotesModel.shared
+            if let photo { n.image = await notes.upload(photo) }
+            if await notes.save(n, new: true) { UINotificationFeedbackGenerator().notificationOccurred(.success); self.clearDraft(); self.close() }
+            else { self.error = notes.toast ?? "The note couldn’t be saved." }
+            self.busy = false
+        }
+    }
     func post() {
         guard canPost else { return }
+        if toNotes { saveNote(); return }
         busy = true; error = nil
         let posts = self.posts, policy = self.policy
         var extras: [String: Any] = ["link": link, "quote": quote ?? "", "tags": tags]
@@ -114,7 +135,17 @@ struct ComposeView: View {
         VStack(spacing: 0) {
             // top bar
             ZStack {
-                Text("New post").font(.sans(17, .bold)).foregroundStyle(C.ink)
+                // One composer for both: out to the feed, or into your private notebook.
+                HStack(spacing: 0) {
+                    ForEach([false, true], id: \.self) { notes in
+                        let on = m.toNotes == notes
+                        Button { UISelectionFeedbackGenerator().selectionChanged(); withAnimation(.snappy(duration: 0.22)) { m.toNotes = notes } } label: {
+                            Text(notes ? "Note" : "Post").font(.sans(14, on ? .bold : .regular)).foregroundStyle(C.ink).frame(width: 62, height: 30)
+                                .background(Capsule().fill(on ? Color(hex: 0x50533a) : .clear)).contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                    }
+                }
+                .padding(2).background(Capsule().fill(Color(hex: 0x0c0e08).opacity(0.18)))
                 HStack {
                     Button("Cancel") { if m.hasContent { confirmCancel = true } else { m.close() } }
                         .font(.sans(17)).foregroundStyle(C.ink)
@@ -125,6 +156,7 @@ struct ComposeView: View {
                             .foregroundStyle(C.ink).padding(.horizontal, 12).frame(height: 32)
                             .overlay(Capsule().stroke(Color(hex: 0x50533a), lineWidth: 1))
                     }
+                    .opacity(m.toNotes ? 0 : 1).disabled(m.toNotes)
                 }
             }
             .padding(.horizontal, 16).frame(height: 54)
@@ -143,7 +175,7 @@ struct ComposeView: View {
                                 .id(p.id)
                         }
                         // Like Threads: a faded "Add to thread" under the last post
-                        if !(m.posts.last?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) || (m.posts.last?.images.isEmpty == false) {
+                        if !m.toNotes, !(m.posts.last?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) || (m.posts.last?.images.isEmpty == false) {
                             Button {
                                 let n = DraftPost(); withAnimation(.snappy) { m.posts.append(n) }
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focus = n.id; withAnimation { proxy.scrollTo(n.id, anchor: .bottom) } }
@@ -179,12 +211,14 @@ struct ComposeView: View {
                     .overlay(Capsule().stroke(Color(hex: 0x50533a), lineWidth: 1))
                 }
                 .accessibilityLabel(m.policy == "none" ? "Replies off. Tap to let anyone reply." : "Anyone can reply. Tap to turn replies off.")
+                .opacity(m.toNotes ? 0 : 1).disabled(m.toNotes)
+                .overlay(alignment: .leading) { if m.toNotes { HStack(spacing: 6) { Image(systemName: "lock.fill").font(.system(size: 11)); Text("Only you see this").font(.sans(14, .semibold)) }.foregroundStyle(C.muted).fixedSize() } }
                 Spacer(minLength: 8)
                 let n = words(current.text)
                 Text("\(n)/\(LIMIT)").font(.sans(14).monospacedDigit())
-                    .foregroundStyle(n > LIMIT ? C.red : n > LIMIT - 30 ? C.ink : C.muted)
+                    .foregroundStyle(n > LIMIT ? C.red : n > LIMIT - 30 ? C.ink : C.muted).opacity(m.toNotes ? 0 : 1)
                 Button { focus = nil; m.post() } label: {
-                    Group { if m.busy { ProgressView().tint(C.paper) } else { Text("Post").font(.sans(16, .semibold)) } }
+                    Group { if m.busy { ProgressView().tint(C.paper) } else { Text(m.toNotes ? "Save" : "Post").font(.sans(16, .semibold)) } }
                         .frame(minWidth: 44).padding(.horizontal, 18).frame(height: 38)
                         .foregroundStyle(m.canPost ? C.paper : C.faint)
                         .background(Capsule().fill(m.canPost ? C.ink : .clear))
@@ -206,7 +240,7 @@ struct ComposeView: View {
             Button("Save draft") { m.saveDraft(); m.close() }
             Button("Keep writing", role: .cancel) {}
         }
-        .alert("Couldn’t post", isPresented: Binding(get: { m.error != nil }, set: { if !$0 { m.error = nil } })) {
+        .alert(m.toNotes ? "Couldn’t save" : "Couldn’t post", isPresented: Binding(get: { m.error != nil }, set: { if !$0 { m.error = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(m.error ?? "") }
         .interactiveDismissDisabled(m.hasContent)
@@ -279,7 +313,7 @@ private struct PostRow: View {
                     .padding(.top, 8)
                 }
                 let n = words(post.text)
-                if n > LIMIT {
+                if n > LIMIT && !m.toNotes {
                     Button(action: splitOver) {
                         Text("Over \(LIMIT) words — continue as a thread").font(.sans(15, .semibold)).foregroundStyle(C.red)
                     }.padding(.top, 4)
@@ -549,14 +583,16 @@ final class ComposeHandler: NSObject, WKScriptMessageHandler {
         let name = info["name"] as? String ?? "", avatar = (info["avatar"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }
         DispatchQueue.main.async { self.present(name: name, avatar: avatar) }
     }
-    func present(name: String, avatar: URL?, text: String = "") {
+    func present(name: String, avatar: URL?, text: String = "", toNotes: Bool = false) {
         let root = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first
         var top = root; while let p = top?.presentedViewController { top = p }
         guard let top, !(top is UIHostingController<ComposeView>) else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         let model = ComposeModel(name: name, avatar: avatar)
         if !text.isEmpty, !model.posts.isEmpty { model.posts[0].text = text }
+        model.toNotes = toNotes
         model.auth = { [weak self] in await webAuth(self?.web) }
+        NotesModel.shared.alt = model.auth
         let vc = UIHostingController(rootView: ComposeView(m: model))
         vc.overrideUserInterfaceStyle = .dark
         vc.view.backgroundColor = UIColor(red: 0.255, green: 0.271, blue: 0.188, alpha: 1)

@@ -139,7 +139,7 @@ final class WebModel: NSObject, ObservableObject {
             let rest = path.dropFirst("/notebook".count).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             if rest == "new" || !v("text").isEmpty || !v("url").isEmpty { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { openNote(self, text: v("text"), url: v("url")) } }
             else if !rest.isEmpty && rest != "index" { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { openNote(self, id: rest) } }
-            else if !v("new").isEmpty { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { openNote(self) } }
+            else if !v("new").isEmpty { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.composer.present(name: self.feed?.myName ?? "", avatar: self.feed?.myAvatar, toNotes: true) } }
             return
         }
         go(path + query)

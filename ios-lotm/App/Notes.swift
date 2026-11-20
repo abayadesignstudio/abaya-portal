@@ -71,7 +71,13 @@ final class NotesModel: ObservableObject {
     var undo: (() -> Void)?
     weak var feed: FeedModel?
     private var doomed: [String: Task<Void, Never>] = [:]
-    private func db() async -> Supa? { guard let a = await feed?.auth() else { return nil }; return Supa(a: a) }
+    /// Sign-in for when the notebook is written to before its page has been opened (from the composer).
+    var alt: (() async -> SupaAuth?)?
+    private func db() async -> Supa? {
+        if let a = await feed?.auth() { return Supa(a: a) }
+        if let a = await alt?() { return Supa(a: a) }
+        return nil
+    }
 
     func say(_ s: String, undo u: (() -> Void)? = nil) {
         toast = s; undo = u
@@ -188,7 +194,7 @@ struct NotesPane: View {
                     if !q.isEmpty { Button { q = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(T.muted) } }
                 }
                 .padding(.horizontal, 12).frame(height: 40).background(RoundedRectangle(cornerRadius: 12).fill(Color(rgb: 0x0c0e08, 0.07))).padding(.horizontal, 16).padding(.top, 10)
-                Button { Haptic.tap(); openNote(web) } label: {
+                Button { web.composer.present(name: feed.myName, avatar: feed.myAvatar, toNotes: true) } label: {
                     HStack(spacing: 10) {
                         GlyphView(n: "pencil", s: 20).foregroundStyle(T.muted)
                         Text("New note").font(.serif(20)).foregroundStyle(T.muted)
