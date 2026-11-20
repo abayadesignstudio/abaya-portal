@@ -143,9 +143,11 @@ struct MemberScreen: View {
                             Text("Edit profile").font(.sans(14, .bold)).foregroundStyle(T.ink).padding(.horizontal, 18).frame(height: 40).overlay(Capsule().stroke(Color(rgb: 0x626546)))
                         }
                     } else {
-                        Button { Haptic.tap(); openChat(web, with: id) } label: {
-                            Text("Message").font(.sans(14, .bold)).foregroundStyle(T.paper).padding(.horizontal, 18).frame(height: 40).background(Capsule().fill(T.ink))
-                        }
+                        if chatOpen {
+                            Button { Haptic.tap(); openChat(web, with: id) } label: {
+                                Text("Message").font(.sans(14, .bold)).foregroundStyle(T.paper).padding(.horizontal, 18).frame(height: 40).background(Capsule().fill(T.ink))
+                            }
+                    }
                     }
                 }
                 .padding(.horizontal, 20).padding(.top, -42)

@@ -40,7 +40,7 @@ struct Shell: View {
                     FeedScreen(m: feed, web: web).opacity(web.tab == .feed ? 1 : 0).allowsHitTesting(web.tab == .feed && !overlay)
                         .animation(web.tab == .feed ? .easeOut(duration: 0.18).delay(0.08) : .easeIn(duration: 0.07), value: web.tab)
                     if web.tab == .library { LibraryScreen(m: library, feed: feed, web: web).allowsHitTesting(!overlay).transition(page) }
-                    if web.tab == .chat { ChatListScreen(s: ChatSession.shared, embedded: true).allowsHitTesting(!overlay).transition(page) }
+                    if web.tab == .chat { Group { if chatOpen { ChatListScreen(s: ChatSession.shared, embedded: true) } else { ChatSoon() } }.allowsHitTesting(!overlay).transition(page) }
                     if web.tab == .people { DirectoryScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(page) }
                     if web.tab == .settings { SettingsScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(page) }
                     // The few screens still drawn by the web (the devotion, the article editor) come up over the app.
@@ -59,7 +59,7 @@ struct Shell: View {
         .animation(.easeOut(duration: 0.2), value: web.tab)
         .animation(.easeOut(duration: 0.18), value: showWeb)
         .animation(.easeOut(duration: 0.18), value: overlay)
-        .task { try? await Task.sleep(nanoseconds: 2_500_000_000); await ChatSession.shared.start(web.view) }   // so Chat opens already loaded
+        .task { guard chatOpen else { return }; try? await Task.sleep(nanoseconds: 2_500_000_000); await ChatSession.shared.start(web.view) }   // so Chat opens already loaded
         .onAppear { web.feed = feed; feed.web = web.view; feed.open = { id, reply in web.openPost(id, people: feed.people, reply: reply) } }
         // Back from a web page (an edit, a profile) to the Feed: catch up quietly.
         .onChange(of: path) { old, new in if new == "/native" && old != "/native" { Task { await feed.load(quiet: true) } } }
@@ -105,7 +105,7 @@ private struct Dock: View {
         .shadow(color: Color(rgb: 0x0c0e08, 0.18), radius: 15, y: 10)
         .padding(.bottom, 2)
         .environment(\.colorScheme, .dark)
-        .task { while !Task.isCancelled { if !ChatListScreen.showing && web.tab != .chat { chatCount = await chatUnread(web: web.view) }; try? await Task.sleep(nanoseconds: 30_000_000_000) } }
+        .task { while chatOpen, !Task.isCancelled { if !ChatListScreen.showing && web.tab != .chat { chatCount = await chatUnread(web: web.view) }; try? await Task.sleep(nanoseconds: 30_000_000_000) } }
     }
     private func item(_ t: Tab, _ icon: String, _ label: String) -> some View {
         let on = web.tab == t

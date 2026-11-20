@@ -571,7 +571,24 @@ final class ChatModel: ObservableObject {
 }
 
 /// The chat list slides in (the dock's chat button); a notification or a profile's Message button can go straight to a chat.
+/// Chat is built but not yet opened to members: while this is off its tab reads "Coming soon", nothing of it loads,
+/// and the ways into a conversation lead to that page.
+let chatOpen = false
+
+struct ChatSoon: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            GlyphView(n: "chat", s: 40).foregroundStyle(T.muted)
+            Text("Chat").font(.serif(26, .semibold)).foregroundStyle(T.ink).padding(.top, 6)
+            Text("Coming soon").font(.sans(13, .bold)).tracking(1.4).textCase(.uppercase).foregroundStyle(T.paper).padding(.horizontal, 14).frame(height: 28).background(Capsule().fill(T.ink))
+            Text("Private, end-to-end encrypted messages and group conversations for the club.").font(.sans(15)).foregroundStyle(T.muted).multilineTextAlignment(.center).frame(maxWidth: 280).padding(.top, 6)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity).padding(.bottom, 120).background(T.paper.ignoresSafeArea())
+    }
+}
+
 @MainActor func openChat(_ web: WebModel, conv: String? = nil, with person: String? = nil) {
+    guard chatOpen else { web.select(.chat); return }
     ChatSession.shared.web = web.view
     // The list of chats is a page of the app, under its header; a particular chat slides in over it.
     if conv == nil && person == nil { web.select(.chat); return }
