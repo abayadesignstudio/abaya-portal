@@ -232,7 +232,8 @@ struct ComposeView: View {
         .tint(C.ink)
         .preferredColorScheme(.dark)
         .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focus = m.posts.last?.id } }
-        .onChange(of: m.posts) { _, _ in m.saveDraft() }
+        // The draft is kept a moment after the typing pauses, not on every letter.
+        .task(id: m.posts.map(\.text)) { try? await Task.sleep(nanoseconds: 700_000_000); if !Task.isCancelled { m.saveDraft() } }
         .onChange(of: m.policy) { _, _ in m.saveDraft() }
         .confirmationDialog("", isPresented: $confirmCancel, titleVisibility: .hidden) {
             Button("Delete post", role: .destructive) { m.clearDraft(); m.close() }

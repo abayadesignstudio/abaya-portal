@@ -285,10 +285,16 @@ struct CaretText: UIViewRepresentable {
     func updateUIView(_ v: UITextView, context: Context) {
         context.coordinator.parent = self
         if v.text != text { v.text = text }
-        v.font = font; v.textColor = color
-        let p = NSMutableParagraphStyle(); p.lineSpacing = size * 0.16
-        v.typingAttributes = [.font: font, .foregroundColor: color, .paragraphStyle: p]
-        if let l = v.viewWithTag(7) as? UILabel { l.text = hint; l.font = font; l.isHidden = !text.isEmpty }
+        // Styled once (and again only if the look changes), not on every letter typed.
+        let look = "\(size)|\(italic)|\(semibold)|\(color.hash)"
+        if context.coordinator.look != look {
+            context.coordinator.look = look
+            v.font = font; v.textColor = color
+            let p = NSMutableParagraphStyle(); p.lineSpacing = size * 0.16
+            v.typingAttributes = [.font: font, .foregroundColor: color, .paragraphStyle: p]
+            (v.viewWithTag(7) as? UILabel)?.font = font
+        }
+        if let l = v.viewWithTag(7) as? UILabel { if l.text != hint { l.text = hint }; l.isHidden = !text.isEmpty }
         if focus != context.coordinator.seen { context.coordinator.seen = focus; DispatchQueue.main.async { v.becomeFirstResponder() } }
         if let active {
             if active, !v.isFirstResponder, v.window != nil { DispatchQueue.main.async { if !v.isFirstResponder { v.becomeFirstResponder() } } }
@@ -302,7 +308,7 @@ struct CaretText: UIViewRepresentable {
         return CGSize(width: w, height: max(h, minHeight, font.lineHeight))
     }
     final class Coordinator: NSObject, UITextViewDelegate {
-        var parent: CaretText; var seen = 0
+        var parent: CaretText; var seen = 0; var look = ""
         init(_ p: CaretText) { parent = p }
         func textViewDidChange(_ v: UITextView) {
             parent.text = v.text
