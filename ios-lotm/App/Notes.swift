@@ -361,9 +361,9 @@ private struct NoteQuick: View {
                 Button { if quote == nil { quote = "" }; focus = 1 } label: { tool("quote", quote != nil) }.accessibilityLabel("Quote a passage")
                 Button { picking = true } label: { tool("reading", book != nil) }.accessibilityLabel("Tag a book")
                 Button { tags = tags == nil ? "" : nil } label: { tool("hash", tags != nil) }.accessibilityLabel("Topics")
-                Spacer(minLength: 4)
+                Spacer(minLength: 0)
                 Button { save() } label: {
-                    Text(busy ? "…" : "Save").font(.sans(14, .bold)).foregroundStyle(has ? T.paper : T.muted).padding(.horizontal, 16).frame(height: 34)
+                    Text(busy ? "…" : "Save").font(.sans(14, .bold)).lineLimit(1).fixedSize().foregroundStyle(has ? T.paper : T.muted).padding(.horizontal, 16).frame(height: 34)
                         .background(Capsule().fill(has ? T.ink : .clear)).overlay(Capsule().stroke(has ? .clear : T.softBd))
                 }.disabled(!has || busy)
             }
@@ -381,7 +381,7 @@ private struct NoteQuick: View {
         }
         .onChange(of: m.focusQuick) { _, _ in focus = 0 }
     }
-    private func tool(_ n: String, _ on: Bool) -> some View { GlyphView(n: n, s: 23).foregroundStyle(on ? T.ink : T.muted).frame(width: 40, height: 36).contentShape(Rectangle()) }
+    private func tool(_ n: String, _ on: Bool) -> some View { GlyphView(n: n, s: 22).foregroundStyle(on ? T.ink : T.muted).frame(width: 38, height: 36).contentShape(Rectangle()) }
     private func field(_ b: Binding<String>, _ hint: String) -> some View {
         TextField("", text: b, prompt: Text(hint).foregroundColor(T.muted)).font(.sans(15)).foregroundStyle(T.ink).autocorrectionDisabled()
             .padding(.horizontal, 12).frame(height: 38).background(RoundedRectangle(cornerRadius: 12).fill(T.paper)).overlay(RoundedRectangle(cornerRadius: 12).stroke(T.softBd)).padding(.top, 8)

@@ -49,7 +49,9 @@ struct Shell: View {
                 }
             }
             if !overlay {
-                Dock(web: web, feed: feed).transition(.opacity)
+                // The bar keeps its place at the foot of the screen; the keyboard comes up over it.
+                VStack(spacing: 0) { Spacer(minLength: 0); Dock(web: web, feed: feed) }
+                    .ignoresSafeArea(.keyboard, edges: .bottom).transition(.opacity)
             }
             if let it = feed.detail { DropCard(it: it, m: feed, web: web).zIndex(5) }
             if splash { Splash { splash = false }.zIndex(10) }
