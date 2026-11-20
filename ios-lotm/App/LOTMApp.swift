@@ -13,6 +13,8 @@ let home = URL(string: "https://lotmstudy.org/next/")!
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     static weak var web: WebModel?
     func application(_ app: UIApplication, didFinishLaunchingWithOptions o: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // Covers, faces and photos are kept on the phone, so pages don't fetch them again each time they are opened.
+        URLCache.shared = URLCache(memoryCapacity: 64 << 20, diskCapacity: 512 << 20)
         // The app's own fonts (EB Garamond, Inter), loaded straight from the app, so every native screen is set in them.
         for url in Bundle.main.urls(forResourcesWithExtension: "ttf", subdirectory: nil) ?? [] { CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil) }
         for url in Bundle.main.urls(forResourcesWithExtension: "ttf", subdirectory: "Fonts") ?? [] { CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil) }

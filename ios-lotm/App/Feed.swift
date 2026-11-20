@@ -382,14 +382,10 @@ private struct StoryPill: View {
         .frame(width: 236)
         .background {
             if fresh {
-                // A new item wears a slowly turning ring and a soft breathing glow until it has been opened.
-                TimelineView(.animation) { tl in
-                    let t = tl.date.timeIntervalSinceReferenceDate
-                    let turn = Angle.degrees((t.truncatingRemainder(dividingBy: 6)) / 6 * 360), breathe = 0.35 + 0.55 * (0.5 + 0.5 * sin(t / 2.8 * .pi))
-                    ZStack {
-                        Capsule().fill(AngularGradient(colors: ring, center: .center, angle: turn)).padding(-3).blur(radius: 6).opacity(breathe)
-                        Capsule().fill(AngularGradient(colors: ring, center: .center, angle: turn))
-                    }
+                // A new item wears a still halo until it has been opened.
+                ZStack {
+                    Capsule().fill(AngularGradient(colors: ring, center: .center)).padding(-3).blur(radius: 6).opacity(0.6)
+                    Capsule().fill(AngularGradient(colors: ring, center: .center))
                 }
             } else { Capsule().fill(T.rule) }
         }
