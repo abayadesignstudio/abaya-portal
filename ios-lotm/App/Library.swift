@@ -436,6 +436,11 @@ struct Shelf: View {
     @State private var order: [String]?
     @State private var moving: String?
     @State private var moveFrom = 0
+    @State private var auto = 0                     // places gained by holding the book at an edge
+    @State private var edge = 0                     // -1 held at the left edge, 1 at the right
+    @State private var lastDX = 0.0
+    @GestureState private var swiping = false
+    @GestureState private var held = false
     @State private var pos: Double = 0
     @State private var from: Double?
     @State private var axis = 0                     // 0 undecided, 1 sideways (ours), 2 up and down (the page's)
@@ -459,7 +464,7 @@ struct Shelf: View {
         DragGesture(minimumDistance: 8)
                     .onChanged { g in
                         if moving != nil { return }
-                        if axis == 0 { axis = abs(g.translation.width) > abs(g.translation.height) ? 1 : 2; if axis == 1 { from = pos; flipped = nil; onDrag(true) } }
+                        if axis == 0 { axis = abs(g.translation.width) > abs(g.translation.height) * 1.35 ? 1 : 2; if axis == 1 { from = pos; flipped = nil; onDrag(true) } }
                         guard axis == 1, let f = from else { return }
                         var p = f - Double(g.translation.width) / unit
                         if p < 0 { p *= 0.35 }; if p > Double(last) { p = Double(last) + (p - Double(last)) * 0.35 }      // rubber band at the ends
@@ -472,6 +477,23 @@ struct Shelf: View {
                         let coast = max(-2.5, min(2.5, -Double(g.predictedEndTranslation.width - g.translation.width) / unit * 0.6))
                         go(Int((max(0, min(Double(last), f - Double(g.translation.width) / unit)) + coast).rounded()))
                     }
+                    .updating($swiping) { _, s, _ in s = true }
+    }
+    /// Carry the held book to the place its drag (and any time held at an edge) has reached.
+    private func carry() {
+        guard let id = moving, var ids = order, let cur = ids.firstIndex(of: id) else { return }
+        let ok = live.indices.filter { live[$0].movable }      // it may only travel among the books that can themselves be moved
+        guard let lo = ok.first, let hi = ok.last else { return }
+        let want = moveFrom + auto + Int((lastDX / 64).rounded())
+        let to = max(lo, min(hi, want))
+        if want != to { auto -= want - to }
+        if to != cur { ids.remove(at: cur); ids.insert(id, at: to); Haptic.tap(); withAnimation(.snappy(duration: 0.26)) { order = ids; pos = Double(to) } }
+    }
+    private func drop() {
+        guard moving != nil else { return }
+        let ids = live.filter(\.movable).map(\.id), was = items.filter(\.movable).map(\.id)
+        moving = nil; edge = 0; auto = 0; lastDX = 0; onDrag(false)
+        if ids != was { onReorder(ids) } else { order = nil }
     }
 
     var body: some View {
@@ -487,6 +509,19 @@ struct Shelf: View {
             .padding(.horizontal, 24).frame(maxWidth: .infinity, minHeight: 64, alignment: .top)
         }
         .onAppear { open() }
+        // A touch taken away by the system (a scroll, an alert) never reports its end: put things back regardless.
+        .onChange(of: held) { _, h in if !h { DispatchQueue.main.async { drop() } } }
+        .onChange(of: swiping) { _, on in
+            guard !on, moving == nil else { return }
+            DispatchQueue.main.async { if axis != 0 || from != nil { axis = 0; from = nil; onDrag(false); go(active) } }
+        }
+        // Held at an edge, the book keeps travelling that way.
+        .task(id: moving) {
+            while moving != nil, !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 320_000_000)
+                if moving != nil, edge != 0 { auto += edge; carry() }
+            }
+        }
         .onChange(of: items.map(\.id)) { _, _ in order = nil }
         .onChange(of: live.map(\.id)) { _, _ in if moving != nil { return }; if pos > Double(last) { pos = Double(last) }; open() }
         .onChange(of: active) { _, _ in
@@ -538,28 +573,22 @@ struct Shelf: View {
             Haptic.tap()
             if it.back != nil { withAnimation(.spring(response: 0.55, dampingFraction: 0.75)) { flipped = it.id } } else { it.open() }
         }
-        .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).sequenced(before: DragGesture(minimumDistance: 0))
+        .simultaneousGesture(LongPressGesture(minimumDuration: 0.45).sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
+            .updating($held) { v, st, _ in if case .second(true, _) = v { st = true } }
             .onChanged { v in
                 guard it.movable, !on, case .second(true, let drag) = v else { return }
                 if moving == nil {
                     guard let at = live.firstIndex(where: { $0.id == it.id }) else { return }
-                    order = live.map(\.id); moving = it.id; moveFrom = at; flipped = nil; onDrag(true)
+                    order = live.map(\.id); moving = it.id; moveFrom = at; auto = 0; edge = 0; lastDX = 0; flipped = nil; onDrag(true)
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     withAnimation(settle) { pos = Double(at) }
                 }
-                guard moving == it.id, let drag, var ids = order, let cur = ids.firstIndex(of: it.id) else { return }
-                // It may only travel among the books that can themselves be moved.
-                let ok = live.indices.filter { live[$0].movable }
-                guard let lo = ok.first, let hi = ok.last else { return }
-                let to = max(lo, min(hi, moveFrom + Int((Double(drag.translation.width) / unit).rounded())))
-                if to != cur { ids.remove(at: cur); ids.insert(it.id, at: to); Haptic.tap(); withAnimation(.snappy(duration: 0.28)) { order = ids; pos = Double(to) } }
+                guard moving == it.id, let drag else { return }
+                let W = UIScreen.main.bounds.width
+                edge = drag.location.x < 64 ? -1 : drag.location.x > W - 64 ? 1 : 0
+                lastDX = Double(drag.translation.width); carry()
             }
-            .onEnded { _ in
-                guard moving == it.id else { return }
-                let ids = live.filter(\.movable).map(\.id), was = items.filter(\.movable).map(\.id)
-                moving = nil; onDrag(false)
-                if ids != was { onReorder(ids) } else { order = nil }
-            })
+            .onEnded { _ in if moving == it.id { drop() } })
         .accessibilityLabel(it.title).accessibilityAddTraits(.isButton)
     }
 

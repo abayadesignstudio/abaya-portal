@@ -406,7 +406,7 @@ struct DevotionScreen: View {
             Text("ADVENT").font(.serif(13, .medium)).tracking(4).foregroundStyle(Color(rgb: 0xe2c37a))
             // the days, as a sideways wheel
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 0) {
+                HStack(spacing: 0) {
                     ForEach(m.days) { d in
                         let dt = dayDate(d.lines[0])
                         VStack(spacing: 4) {
@@ -430,7 +430,7 @@ struct DevotionScreen: View {
             mut.opacity(0.6).frame(width: 44, height: 1).padding(.top, 14).padding(.bottom, 10)
             // the three offices, as a wheel: the one in the middle is chosen
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 0) {
+                VStack(spacing: 0) {
                     ForEach(OFFICES, id: \.self) { o in
                         Text(o).font(.serif(30)).foregroundStyle(fg).frame(width: 260, height: 64).contentShape(Rectangle())
                             .scrollTransition(.interactive, axis: .vertical) { c, ph in c.scaleEffect(1 - min(1, abs(ph.value)) * 0.12).opacity(max(0.18, 1 - abs(ph.value) * 0.72)).rotation3DEffect(.degrees(-ph.value * 28), axis: (1, 0, 0), perspective: 0.6) }
