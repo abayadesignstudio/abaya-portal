@@ -149,7 +149,7 @@ final class CropBox { weak var view: CropView? }
 final class CropView: UIView, UIScrollViewDelegate {
     private let scroll = UIScrollView(), picture = UIImageView(), shade = CAShapeLayer(), ring = CAShapeLayer()
     private let image: UIImage, banner: Bool
-    private var window = CGRect.zero, laid = CGSize.zero
+    private var pane = CGRect.zero, laid = CGSize.zero
     init(image: UIImage, banner: Bool) {
         self.image = image; self.banner = banner
         super.init(frame: .zero)
@@ -171,20 +171,20 @@ final class CropView: UIView, UIScrollViewDelegate {
         laid = bounds.size
         scroll.frame = bounds
         let w = bounds.width - (banner ? 0 : 32), h = banner ? w / 3 : w
-        window = CGRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h)
-        // The picture can be moved anywhere so long as it still covers the window.
-        scroll.contentInset = UIEdgeInsets(top: window.minY, left: window.minX, bottom: bounds.height - window.maxY, right: bounds.width - window.maxX)
+        pane = CGRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h)
+        // The picture can be moved anywhere so long as it still covers the pane.
+        scroll.contentInset = UIEdgeInsets(top: pane.minY, left: pane.minX, bottom: bounds.height - pane.maxY, right: bounds.width - pane.maxX)
         let fit = max(w / image.size.width, h / image.size.height)
         scroll.minimumZoomScale = fit; scroll.maximumZoomScale = max(fit * 6, 1); scroll.zoomScale = fit
-        scroll.contentOffset = CGPoint(x: (image.size.width * fit - w) / 2 - window.minX, y: (image.size.height * fit - h) / 2 - window.minY)
-        let p = UIBezierPath(rect: bounds), hole = banner ? UIBezierPath(rect: window) : UIBezierPath(ovalIn: window)
+        scroll.contentOffset = CGPoint(x: (image.size.width * fit - w) / 2 - pane.minX, y: (image.size.height * fit - h) / 2 - pane.minY)
+        let p = UIBezierPath(rect: bounds), hole = banner ? UIBezierPath(rect: pane) : UIBezierPath(ovalIn: pane)
         p.append(hole); shade.path = p.cgPath; shade.frame = bounds
         ring.path = hole.cgPath; ring.frame = bounds
     }
-    /// What shows in the window, as a picture of its own.
+    /// What shows in the pane, as a picture of its own.
     func result() -> UIImage? {
         let z = scroll.zoomScale; guard z > 0 else { return nil }
-        let r = CGRect(x: (scroll.contentOffset.x + window.minX) / z, y: (scroll.contentOffset.y + window.minY) / z, width: window.width / z, height: window.height / z)
+        let r = CGRect(x: (scroll.contentOffset.x + pane.minX) / z, y: (scroll.contentOffset.y + pane.minY) / z, width: pane.width / z, height: pane.height / z)
         let longest: CGFloat = banner ? 1800 : 800, k = min(1, longest / max(r.width, r.height))
         let out = CGSize(width: (r.width * k).rounded(), height: (r.height * k).rounded())
         guard out.width > 1, out.height > 1 else { return nil }
