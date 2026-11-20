@@ -244,6 +244,28 @@ final class LibraryModel: ObservableObject {
         } catch { ghost[k] = nil; say(error.localizedDescription.lowercased().contains("duplicate") ? "Already in your library" : error.localizedDescription) }
     }
 
+    /// The order you set by carrying a cover along the shelf.
+    func reorderReads(_ ids: [String]) async {
+        let base = reads.filter { ids.contains($0.id) }.map(\.sort).min() ?? 0
+        for (i, id) in ids.enumerated() { if let k = reads.firstIndex(where: { $0.id == id }) { reads[k].sort = base + i } }
+        reads = reads.enumerated().sorted { a, b in a.element.sort != b.element.sort ? a.element.sort < b.element.sort : a.offset < b.offset }.map { $0.element }
+        guard let db = await db() else { return }
+        await withTaskGroup(of: Void.self) { g in
+            for (i, id) in ids.enumerated() { g.addTask { _ = try? await db.req("PATCH", "/rest/v1/current_reads?id=eq.\(id)", json: ["sort_order": base + i]) } }
+        }
+    }
+    func reorderClub(_ ids: [String]) async {
+        let titles: [String] = ids.compactMap { id in
+            if let b = current.first(where: { $0.id == id }) { return lnorm(b.title) }
+            if let b = past.first(where: { "done" + $0.id == id }) { return lnorm(b.title) }
+            return nil
+        }
+        shelfOrder = titles
+        guard let db = await db() else { return }
+        do { _ = try await db.req("POST", "/rest/v1/club_shelf_order?on_conflict=year", json: ["year": year, "titles": titles, "updated_by": db.a.me, "updated_at": liso()], prefer: "resolution=merge-duplicates,return=minimal") }
+        catch { say(error.localizedDescription) }
+    }
+
     // MARK: goals, events, links, club updates
 
     func saveGoal(_ n: Int, remind r: Bool, at: String) async {
@@ -368,6 +390,7 @@ struct ShelfItem: Identifiable {
     let id: String
     var title: String, by: String? = nil, cover: URL? = nil, shade: Color = Color(rgb: 0x55583d)
     var plus = false, ghost: String? = nil
+    var movable = false
     var sub: AnyView? = nil
     var back: ((@escaping () -> Void) -> AnyView)? = nil
     var open: () -> Void = {}
@@ -408,25 +431,37 @@ struct Shelf: View {
     var flipNow = 0
     var onCenter: (String) -> Void = { _ in }
     var onDrag: (Bool) -> Void = { _ in }
+    /// Hold a cover, then drag: it is carried along the shelf and set down where it is let go.
+    var onReorder: ([String]) -> Void = { _ in }
+    @State private var order: [String]?
+    @State private var moving: String?
+    @State private var moveFrom = 0
     @State private var pos: Double = 0
     @State private var from: Double?
     @State private var axis = 0                     // 0 undecided, 1 sideways (ours), 2 up and down (the page's)
     @State private var flipped: String?
     @State private var placed = false
+    private var live: [ShelfItem] {
+        guard let order, order.count == items.count else { return items }
+        let by = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let out = order.compactMap { by[$0] }
+        return out.count == items.count ? out : items
+    }
     private var h: CGFloat { (w * 1.5).rounded() }
     private var unit: Double { Double(w) * 0.95 }
-    private var last: Int { max(0, items.count - 1) }
+    private var last: Int { max(0, live.count - 1) }
     private var active: Int { max(0, min(last, Int(pos.rounded()))) }
-    private var mid: ShelfItem? { items.isEmpty ? nil : items[active] }
+    private var mid: ShelfItem? { live.isEmpty ? nil : live[active] }
     private let settle = Animation.spring(response: 0.5, dampingFraction: 0.82)
     private func go(_ i: Int) { withAnimation(settle) { pos = Double(max(0, min(last, i))) } }
 
     var body: some View {
         VStack(spacing: 0) {
-            Flow(pos: pos, items: items, w: w, h: h) { it, i, shade in AnyView(card(it, i, shade: shade)) }
+            Flow(pos: pos, live: live, w: w, h: h) { it, i, shade in AnyView(card(it, i, shade: shade)) }
                 .contentShape(Rectangle())
                 .simultaneousGesture(DragGesture(minimumDistance: 8)
                     .onChanged { g in
+                        if moving != nil { return }
                         if axis == 0 { axis = abs(g.translation.width) > abs(g.translation.height) ? 1 : 2; if axis == 1 { from = pos; flipped = nil; onDrag(true) } }
                         guard axis == 1, let f = from else { return }
                         var p = f - Double(g.translation.width) / unit
@@ -434,6 +469,7 @@ struct Shelf: View {
                         pos = p
                     }
                     .onEnded { g in
+                        if moving != nil { axis = 0; from = nil; return }
                         defer { axis = 0; from = nil; onDrag(false) }
                         guard axis == 1, let f = from else { return }
                         let coast = max(-2.5, min(2.5, -Double(g.predictedEndTranslation.width - g.translation.width) / unit * 0.6))
@@ -447,26 +483,27 @@ struct Shelf: View {
             .padding(.horizontal, 24).frame(maxWidth: .infinity, minHeight: 64, alignment: .top)
         }
         .onAppear { open() }
-        .onChange(of: items.map(\.id)) { _, _ in if pos > Double(last) { pos = Double(last) }; open() }
+        .onChange(of: items.map(\.id)) { _, _ in order = nil }
+        .onChange(of: live.map(\.id)) { _, _ in if moving != nil { return }; if pos > Double(last) { pos = Double(last) }; open() }
         .onChange(of: active) { _, _ in
             guard placed, let m = mid else { return }
             Haptic.tap(); flipped = nil; onCenter(m.id)
         }
         .onChange(of: flipNow) { _, _ in
-            guard !items.isEmpty else { return }
+            guard !live.isEmpty else { return }
             var i = active
-            if items[i].back == nil { guard let k = items.firstIndex(where: { $0.back != nil }) else { return }; i = k }
-            let id = items[i].id
+            if live[i].back == nil { guard let k = live.firstIndex(where: { $0.back != nil }) else { return }; i = k }
+            let id = live[i].id
             let turn = { withAnimation(.spring(response: 0.55, dampingFraction: 0.75)) { flipped = id }; Haptic.tap() }
             if i == active { turn() } else { go(i); DispatchQueue.main.asyncAfter(deadline: .now() + 0.52, execute: turn) }
         }
     }
     /// Until its books have arrived, the shelf stays opened on its starting book.
     private func open() {
-        guard !items.isEmpty, !placed else { return }
+        guard !live.isEmpty, !placed else { return }
         let i = min(start, last)
-        pos = Double(i); onCenter(items[i].id)
-        if items.count > max(1, start) { DispatchQueue.main.async { placed = true } }
+        pos = Double(i); onCenter(live[i].id)
+        if live.count > max(1, start) { DispatchQueue.main.async { placed = true } }
     }
 
     @ViewBuilder private func card(_ it: ShelfItem, _ i: Int, shade: Double) -> some View {
@@ -487,7 +524,8 @@ struct Shelf: View {
             }
         }
         .frame(width: w, height: h)
-        .shadow(color: .black.opacity(0.35), radius: 12, y: 10)
+        .scaleEffect(moving == it.id ? 1.08 : 1).animation(.spring(response: 0.3, dampingFraction: 0.7), value: moving)
+        .shadow(color: .black.opacity(moving == it.id ? 0.55 : 0.35), radius: moving == it.id ? 20 : 12, y: 10)
         .rotation3DEffect(.degrees(on ? 180 : 0), axis: (0, 1, 0), perspective: 0.5)
         .contentShape(Rectangle())
         .onTapGesture {
@@ -496,6 +534,28 @@ struct Shelf: View {
             Haptic.tap()
             if it.back != nil { withAnimation(.spring(response: 0.55, dampingFraction: 0.75)) { flipped = it.id } } else { it.open() }
         }
+        .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).sequenced(before: DragGesture(minimumDistance: 0))
+            .onChanged { v in
+                guard it.movable, !on, case .second(true, let drag) = v else { return }
+                if moving == nil {
+                    guard let at = live.firstIndex(where: { $0.id == it.id }) else { return }
+                    order = live.map(\.id); moving = it.id; moveFrom = at; flipped = nil; onDrag(true)
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    withAnimation(settle) { pos = Double(at) }
+                }
+                guard moving == it.id, let drag, var ids = order, let cur = ids.firstIndex(of: it.id) else { return }
+                // It may only travel among the books that can themselves be moved.
+                let ok = live.indices.filter { live[$0].movable }
+                guard let lo = ok.first, let hi = ok.last else { return }
+                let to = max(lo, min(hi, moveFrom + Int((Double(drag.translation.width) / unit).rounded())))
+                if to != cur { ids.remove(at: cur); ids.insert(it.id, at: to); Haptic.tap(); withAnimation(.snappy(duration: 0.28)) { order = ids; pos = Double(to) } }
+            }
+            .onEnded { _ in
+                guard moving == it.id else { return }
+                let ids = live.filter(\.movable).map(\.id), was = items.filter(\.movable).map(\.id)
+                moving = nil; onDrag(false)
+                if ids != was { onReorder(ids) } else { order = nil }
+            })
         .accessibilityLabel(it.title).accessibilityAddTraits(.isButton)
     }
 
@@ -657,7 +717,7 @@ struct LibraryScreen: View {
 
     @ViewBuilder private var mine: some View {
         H2(t: "Currently reading", action: m.mine.isEmpty ? nil : "Update") { flipNow += 1 }.padding(.top, -8)
-        Shelf(items: mineItems(), w: 150, start: m.mine.isEmpty && m.clubToAdd.isEmpty ? 0 : 1, flipNow: flipNow, onDrag: { shelfDrag = $0 })
+        Shelf(items: mineItems(), w: 150, start: m.mine.isEmpty && m.clubToAdd.isEmpty ? 0 : 1, flipNow: flipNow, onDrag: { shelfDrag = $0 }, onReorder: { ids in Task { await m.reorderReads(ids) } })
         goals
         shelf("Want to read", m.want, want: true, ghosts: [])
         shelf("Finished · \(m.finished.count)", m.finished, want: false, ghosts: finishedGhosts())
@@ -674,7 +734,7 @@ struct LibraryScreen: View {
         }
         for (i, r) in m.mine.enumerated() {
             out.append(ShelfItem(id: r.id, title: lshort(r.title), by: r.author, cover: r.cover, shade: SHADES[(i + 2) % SHADES.count], sub: AnyView(Bar(pct: pct(r))),
-                                 back: { close in AnyView(CoverBack(r: r, m: m, close: close)) }))
+                                 movable: true, back: { close in AnyView(CoverBack(r: r, m: m, close: close)) }))
         }
         return out
     }
@@ -690,7 +750,7 @@ struct LibraryScreen: View {
             let n = m.notes[lnorm(r.title)]
             out.append(ShelfItem(id: r.id, title: lshort(r.title), by: r.author, cover: r.cover, shade: SHADES[(i + 5) % SHADES.count],
                                  sub: n.map { AnyView(Text("\($0) in commonplace").font(.sans(12)).foregroundStyle(T.muted)) },
-                                 back: { close in AnyView(CoverBack(r: r, m: m, close: close)) }))
+                                 movable: true, back: { close in AnyView(CoverBack(r: r, m: m, close: close)) }))
         }
         return out
     }
@@ -700,13 +760,13 @@ struct LibraryScreen: View {
             let p = pct(m.myFor(b))
             let pos = (b.position ?? "TBD") != "TBD" && !(b.position ?? "").isEmpty ? " · Read: \(b.position!)" : ""
             let label = (i == 0 ? "Current club read" : "Also reading") + pos
-            let item = ShelfItem(id: b.id, title: lshort(b.title), by: b.author, cover: b.cover, shade: SHADES[i % 2],
+            let item = ShelfItem(id: b.id, title: lshort(b.title), by: b.author, cover: b.cover, shade: SHADES[i % 2], movable: m.admin,
                                  sub: AnyView(VStack(spacing: 3) { Bar(pct: p); Text(label).font(.sans(12)).foregroundStyle(T.muted).lineLimit(1) }), open: { clubBook = b })
             books.append((rank(b.title, done: false), item))
         }
         for (i, b) in m.doneThisYear.enumerated() {
             let month = b.created.formatted(.dateTime.month(.wide))
-            let item = ShelfItem(id: "done" + b.id, title: lshort(b.title), cover: b.cover, shade: SHADES[(i + 4) % SHADES.count],
+            let item = ShelfItem(id: "done" + b.id, title: lshort(b.title), cover: b.cover, shade: SHADES[(i + 4) % SHADES.count], movable: m.admin,
                                  sub: AnyView(Text("Read · \(month)").font(.sans(12)).foregroundStyle(T.muted)), open: { UIApplication.shared.open(amazon(b.title, b.author, b.bookURL)) })
             books.append((rank(b.title, done: true), item))
         }
@@ -722,7 +782,7 @@ struct LibraryScreen: View {
             if list.isEmpty && ghosts.isEmpty {
                 Text("Books you mean to read next.").font(.sans(14)).foregroundStyle(T.muted).padding(.horizontal, 20)
             } else {
-                Shelf(items: shelfItems(list, ghosts), onDrag: { shelfDrag = $0 })
+                Shelf(items: shelfItems(list, ghosts), onDrag: { shelfDrag = $0 }, onReorder: { ids in Task { await m.reorderReads(ids) } })
             }
         }
     }
@@ -811,7 +871,7 @@ struct LibraryScreen: View {
         if cur.isEmpty && done.isEmpty && !m.admin {
             Text(m.loaded ? "No current reading yet." : "Loading…").font(.sans(15)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(40)
         } else {
-            Shelf(items: clubItems(), w: 150, start: m.admin ? 1 : 0, onCenter: { clubKey = $0 }, onDrag: { shelfDrag = $0 })
+            Shelf(items: clubItems(), w: 150, start: m.admin ? 1 : 0, onCenter: { clubKey = $0 }, onDrag: { shelfDrag = $0 }, onReorder: { ids in Task { await m.reorderClub(ids) } })
         }
         clubCard.animation(.easeOut(duration: 0.25), value: clubKey)
 
