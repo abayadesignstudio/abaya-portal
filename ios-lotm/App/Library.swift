@@ -312,7 +312,7 @@ final class LibHandler: NSObject, WKScriptMessageHandler {
 extension WebModel {
     func setLibPane(_ v: String, tellWeb: Bool = true) {
         if libPane != v { libPane = v; UserDefaults.standard.set(v, forKey: "lotm.libPane") }
-        if tellWeb { view.evaluateJavaScript("try{localStorage.setItem('lotm.library','\(v)');dispatchEvent(new Event('lotm:library'))}catch(e){}", completionHandler: nil) }
+        if false, tellWeb { view.evaluateJavaScript("try{localStorage.setItem('lotm.library','\(v)');dispatchEvent(new Event('lotm:library'))}catch(e){}", completionHandler: nil) }
     }
 }
 
@@ -611,6 +611,7 @@ struct LibraryScreen: View {
             // (the screen's own width, so arriving on this tab never sets the panes moving)
             ZStack {
                 page { mine }.offset(x: (0 - Self.paneIndex(web.libPane)) * UIScreen.main.bounds.width)
+                NotesPane(m: NotesModel.shared, feed: feed, web: web).offset(x: (1 - Self.paneIndex(web.libPane)) * UIScreen.main.bounds.width)
                 page { club }.offset(x: (2 - Self.paneIndex(web.libPane)) * UIScreen.main.bounds.width)
             }
             .clipped()

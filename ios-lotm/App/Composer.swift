@@ -549,12 +549,13 @@ final class ComposeHandler: NSObject, WKScriptMessageHandler {
         let name = info["name"] as? String ?? "", avatar = (info["avatar"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }
         DispatchQueue.main.async { self.present(name: name, avatar: avatar) }
     }
-    func present(name: String, avatar: URL?) {
+    func present(name: String, avatar: URL?, text: String = "") {
         let root = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first
         var top = root; while let p = top?.presentedViewController { top = p }
         guard let top, !(top is UIHostingController<ComposeView>) else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         let model = ComposeModel(name: name, avatar: avatar)
+        if !text.isEmpty, !model.posts.isEmpty { model.posts[0].text = text }
         model.auth = { [weak self] in await webAuth(self?.web) }
         let vc = UIHostingController(rootView: ComposeView(m: model))
         vc.overrideUserInterfaceStyle = .dark

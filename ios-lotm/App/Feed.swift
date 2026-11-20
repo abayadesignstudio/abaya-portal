@@ -6,7 +6,7 @@ import WebKit
 // Screens not yet native are the web app, shown in place; the web tells the app which screen it is on.
 
 enum Tab: String { case feed, library, chat, people, settings
-    var route: String { switch self { case .feed, .settings, .people, .chat: "/native"; case .library: "/reading" } }
+    var route: String { switch self { case .feed, .settings, .people, .chat, .library: "/native" } }
 }
 
 // MARK: - Shell
@@ -20,9 +20,7 @@ struct Shell: View {
     private static let webTabs: Set<String> = ["/native", "/reading", "/people", "/settings", "/notebook/index", "/chat", "/loading", ""]
     private var path: String { String(web.route.split(separator: "?", maxSplits: 1).first ?? "") }
     private var overlay: Bool { !Self.webTabs.contains(path) && !path.hasPrefix("/post/") }
-    private var showWeb: Bool { web.tab == .library || overlay }
-    /// On the Library tab the web page is the middle pane (Notes), under the app's tabs.
-    private var asPane: Bool { web.tab == .library && !overlay }
+    private var showWeb: Bool { overlay }
     private var W: CGFloat { UIScreen.main.bounds.width }
     /// Leaving, a page is gone at once; arriving, it fades up after a beat. Two pages never show through each other.
     private var page: AnyTransition { .asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.18).delay(0.08)), removal: .opacity.animation(.easeIn(duration: 0.07))) }
@@ -45,15 +43,9 @@ struct Shell: View {
                     if web.tab == .chat { ChatListScreen(s: ChatSession.shared, embedded: true).allowsHitTesting(!overlay).transition(page) }
                     if web.tab == .people { DirectoryScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(page) }
                     if web.tab == .settings { SettingsScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(page) }
+                    // The few screens still drawn by the web (the devotion, the article editor) come up over the app.
                     WebView(model: web).ignoresSafeArea()
-                        // Under the Library's tabs as its middle pane. It keeps that place on every tab (unseen), so coming
-                        // to the Library never moves it sideways; only a web page over the app takes the whole screen.
-                        .padding(.top, overlay ? 0 : LibraryScreen.tabsHeight)
-                        .offset(x: overlay ? 0 : (1 - LibraryScreen.paneIndex(web.libPane)) * W)
-                        .animation(nil, value: overlay)
-                        .animation(nil, value: web.tab)
-                        .animation(LibraryScreen.slide, value: web.libPane)
-                        .opacity(showWeb ? 1 : 0).allowsHitTesting(overlay || (asPane && web.libPane == "notes"))
+                        .opacity(overlay ? 1 : 0).allowsHitTesting(overlay)
                 }
             }
             if !overlay {

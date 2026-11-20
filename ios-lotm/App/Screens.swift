@@ -238,7 +238,7 @@ struct SearchScreen: View {
                     if show("Commonplace") && !notes.isEmpty {
                         label("From your commonplace")
                         ForEach(scope == "Top" ? Array(notes.prefix(3)) : notes) { n in
-                            Button { close { web.go("/notebook/\(n.id)") } } label: {
+                            Button { close { openNote(web, id: n.id) } } label: {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(n.text).font(.serif(16)).foregroundStyle(T.ink).lineLimit(3).multilineTextAlignment(.leading)
                                     if !n.book.isEmpty { Text(n.book).font(.serif(14, italic: true)).foregroundStyle(T.muted) }

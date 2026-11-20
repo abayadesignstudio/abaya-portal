@@ -129,6 +129,17 @@ final class WebModel: NSObject, ObservableObject {
         guard url.scheme == "lotm" else { return }
         let path = (url.host.map { "/" + $0 } ?? "") + url.path
         let query = url.query.map { "?" + $0 } ?? ""
+        // The notebook is the app's own: open it (or a new entry holding what was shared) natively.
+        if path.hasPrefix("/notebook") {
+            let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            func v(_ k: String) -> String { q.first { $0.name == k }?.value ?? "" }
+            select(.library); setLibPane("notes")
+            let rest = path.dropFirst("/notebook".count).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if rest == "new" || !v("text").isEmpty || !v("url").isEmpty { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { openNote(self, text: v("text"), url: v("url")) } }
+            else if !rest.isEmpty && rest != "index" { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { openNote(self, id: rest) } }
+            else if !v("new").isEmpty { DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { NotesModel.shared.focusQuick += 1 } }
+            return
+        }
         go(path + query)
     }
     /// Give the web app this phone's push token (it saves it once a member is signed in).
@@ -136,7 +147,7 @@ final class WebModel: NSObject, ObservableObject {
         guard let t = UserDefaults.standard.string(forKey: "apnsToken") else { return }
         view.evaluateJavaScript("window.lotmDeviceToken='\(t)';window.dispatchEvent(new Event('lotm:device'))")
     }
-    func select(_ t: Tab) { tab = t; go(t.route); if t == .library { setLibPane(libPane) } }
+    func select(_ t: Tab) { tab = t; go(t.route) }
     func openPost(_ id: String, people: [String: Person], reply: Bool) { poster.open(id: id, people: people, reply: reply) }
     func go(_ route: String) {
         let js = "location.hash = '#\(route.replacingOccurrences(of: "'", with: "%27"))'"
@@ -152,8 +163,7 @@ final class WebModel: NSObject, ObservableObject {
     /// Passages saved from Safari's share sheet open as new Commonplace entries.
     func drainInbox() {
         guard let item = Inbox.popAll().last else { return }
-        var c = URLComponents(); c.queryItems = [URLQueryItem(name: "text", value: item.text)] + (item.url.map { [URLQueryItem(name: "url", value: $0)] } ?? [])
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.go("/notebook/new" + (c.percentEncodedQuery.map { "?" + $0 } ?? "")) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.select(.library); self.setLibPane("notes"); openNote(self, text: item.text, url: item.url ?? "") }
     }
 }
 
