@@ -458,7 +458,7 @@ struct DevotionScreen: View {
         .onChange(of: dayId) { _, _ in Haptic.tap() }.onChange(of: office) { _, _ in Haptic.tap() }
         // A wheel placed before it is laid out is not placed at all: once it is on screen, turn each to what is chosen.
         .onAppear { let o = off, d = day?.id; for t in [0.05, 0.35] { DispatchQueue.main.asyncAfter(deadline: .now() + t) { wheels.scrollTo(o, anchor: .center); if let d { wheels.scrollTo(d, anchor: .center) }; if office != o { office = o }; if dayId != d { dayId = d } } } }
-        } }
+        }
     }
     /// Where the day's prayers and hymns come from: each section's source, to be scrolled through before beginning.
     private func sourcesBox(_ mut: Color) -> some View {
