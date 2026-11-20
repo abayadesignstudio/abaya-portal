@@ -291,6 +291,7 @@ private struct PostRow: View {
                 // Apple's own text view: as the writing grows, the page keeps the cursor's line above the keyboard.
                 CaretText(text: $post.text, hint: index == 0 ? (m.toNotes ? "A thought worth keeping…" : "What’s on your mind?") : "Say more…", size: 22, active: focus == post.id, bar: false,
                           onFocus: { on in let id = post.id; DispatchQueue.main.async { if on { focus = id } else if focus == id { focus = nil } } })
+                    .padding(.trailing, 14)      // room between the words and the edge of the screen
                 if index == 0 { extras }
                 if !post.images.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
