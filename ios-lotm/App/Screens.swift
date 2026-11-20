@@ -49,6 +49,12 @@ private struct NItem: Identifiable {
     var read: Bool
     var mention: Bool { kind == "mention" || title.range(of: "mention|tagged", options: [.regularExpression, .caseInsensitive]) != nil }
 }
+/// The server's older wording for two kinds of notice, put plainly.
+private func plainTitle(_ n: NItem) -> String {
+    if n.title == "New Going On" { return "New event" }
+    if n.title == "Membership request", n.message.range(of: "joined", options: .caseInsensitive) != nil { return "New member" }
+    return n.title
+}
 private let clubKinds: Set<String> = ["book", "event", "membership_request", "membership_approved", "membership_rejected", "report"]
 private let unreadBg = Color(rgb: 0x424530), blue = Color(rgb: 0x2f6fb0)
 
@@ -59,6 +65,7 @@ struct NotificationsScreen: View {
     @State private var items: [NItem] = []
     @State private var loaded = false
     @State private var tab = "All"
+    @State private var event: LEvent?
 
     private var shown: [NItem] { items.filter { tab == "All" || (tab == "Mentions" ? $0.mention : clubKinds.contains($0.kind)) } }
     var body: some View {
@@ -80,6 +87,7 @@ struct NotificationsScreen: View {
             .refreshable { await load() }
         }
         .background(T.paper.ignoresSafeArea())
+        .sheet(item: $event) { e in EventSheet(e: e).presentationDetents([.medium, .large]).presentationDragIndicator(.visible) }
         .preferredColorScheme(.dark)
         .task { await load() }
     }
@@ -112,7 +120,7 @@ struct NotificationsScreen: View {
                     .frame(width: 20, height: 20).overlay(Circle().stroke(n.read ? T.paper : unreadBg, lineWidth: 2)).offset(x: 3, y: 3)
                 }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(n.title).font(.sans(14, .semibold)).foregroundStyle(T.ink).lineSpacing(2).multilineTextAlignment(.leading)
+                    Text(plainTitle(n)).font(.sans(14, .semibold)).foregroundStyle(T.ink).lineSpacing(2).multilineTextAlignment(.leading)
                     if !n.message.isEmpty { Text(n.message).font(.serif(16)).foregroundStyle(T.sub).lineLimit(1) }
                     Text(ago(n.created)).font(.sans(12)).foregroundStyle(T.muted)
                 }
@@ -153,7 +161,18 @@ struct NotificationsScreen: View {
             if let c = try? await db.rows("/rest/v1/comments?id=eq.\(ref)&select=aside_id").first, let id = c["aside_id"] as? String { return feed.open(id, false) }
         }
         if n.kind == "message" { return close { web.go("/chat/\(ref)") } }
-        if n.kind == "book" || n.kind == "event" { return close { web.select(.library) } }
+        if n.kind == "event" {
+            // The event itself, on a card over the notifications.
+            let cols = "id,title,description,location,location_url,starts_at,external_url"
+            var row = try? await db.rows("/rest/v1/club_events?id=eq.\(ref)&select=\(cols)").first
+            if row == nil, !n.message.isEmpty, let t = n.message.addingPercentEncoding(withAllowedCharacters: .alphanumerics) { row = try? await db.rows("/rest/v1/club_events?title=eq.\(t)&select=\(cols)&order=starts_at.desc&limit=1").first }
+            if let x = row, let id = x["id"] as? String {
+                event = LEvent(id: id, title: x["title"] as? String ?? "", details: x["description"] as? String, place: x["location"] as? String, placeURL: x["location_url"] as? String, starts: parseDate(x["starts_at"]), link: (x["external_url"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+                return
+            }
+            return close { web.select(.library); web.setLibPane("club") }
+        }
+        if n.kind == "book" { return close { web.select(.library); web.setLibPane("club") } }
         if n.kind.hasPrefix("membership") || n.kind == "report" { return close { web.select(.settings) } }
     }
 }

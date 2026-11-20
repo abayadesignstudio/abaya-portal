@@ -759,16 +759,23 @@ private struct PollView: View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(poll.options.enumerated()), id: \.offset) { i, o in
                 let n = poll.votes.values.filter { $0 == i }.count, pct = total > 0 ? Double(n) / Double(total) : 0
-                Button { vote(i) } label: {
-                    HStack { Text(o + (mine == i ? " ✓" : "")); Spacer(); if show { Text("\(Int((pct * 100).rounded()))%") } }
-                        .font(.sans(14)).foregroundStyle(T.ink).padding(.horizontal, 12).frame(height: 36)
-                        .background(alignment: .leading) { GeometryReader { g in Rectangle().fill(mine == i ? Color(rgb: 0x4d5038) : Color(rgb: 0x434530)).frame(width: show ? g.size.width * pct : 0) } }
-                        .background(T.card).clipShape(RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(T.border))
+                Button { withAnimation(.snappy(duration: 0.28)) { vote(i) } } label: {
+                    HStack(spacing: 8) {
+                        if mine == i { Image(systemName: "checkmark.circle.fill").font(.system(size: 15)).transition(.scale.combined(with: .opacity)) }
+                        Text(o).font(.sans(15, mine == i ? .semibold : .regular)).lineLimit(2).multilineTextAlignment(.leading)
+                        Spacer(minLength: 6)
+                        if show { Text("\(Int((pct * 100).rounded()))%").font(.sans(14, .semibold)).monospacedDigit().contentTransition(.numericText()).transition(.opacity) }
+                    }
+                    .foregroundStyle(T.ink).padding(.horizontal, 14).frame(minHeight: 42)
+                    .background(alignment: .leading) { GeometryReader { g in Rectangle().fill(mine == i ? Color(rgb: 0x5a5e42) : Color(rgb: 0x484b34)).frame(width: show ? g.size.width * pct : 0) } }
+                    .background(T.card).clipShape(Capsule()).overlay(Capsule().stroke(mine == i ? T.ink.opacity(0.55) : T.border, lineWidth: mine == i ? 1.5 : 1))
+                    .contentShape(Capsule())
                 }
-                .buttonStyle(.plain).disabled(closed)
+                .buttonStyle(Press(scale: 0.97)).disabled(closed)
             }
             Text("\(total) vote\(total == 1 ? "" : "s")\(poll.closes.map { $0 < Date() ? " · Final results" : " · " + left($0) } ?? "")").font(.sans(13)).foregroundStyle(T.muted)
         }
+        .animation(.snappy(duration: 0.28), value: poll.votes)
     }
     private func left(_ d: Date) -> String { let h = d.timeIntervalSinceNow / 3600; return h < 1 ? "Closing soon" : h < 24 ? "\(Int(h.rounded())) hours left" : "\(Int((h / 24).rounded())) days left" }
 }

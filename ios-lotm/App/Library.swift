@@ -1156,6 +1156,25 @@ private struct BookBio: View {
     }
 }
 
+/// One event on a card of its own (opened from a notification): its picture, when and where, what it is, and the calendar.
+struct EventSheet: View {
+    let e: LEvent
+    var body: some View {
+        SheetBody {
+            VStack(alignment: .leading, spacing: 12) {
+                EventCard(e: e)
+                if let d = e.details, !d.isEmpty { Text(d).font(.serif(17)).foregroundStyle(T.ink).lineSpacing(3).fixedSize(horizontal: false, vertical: true).padding(.horizontal, 4) }
+                if e.starts > Date() { Button("Add to calendar") { calendar(title: e.title, start: e.starts, place: e.place, uid: "event-\(e.id)") }.buttonStyle(LBtn()) }
+                if let p = e.place, !p.isEmpty {
+                    Button("Directions") { if let u = e.placeURL.flatMap(URL.init(string:)) ?? URL(string: "https://maps.apple.com/?q=\(p.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")") { UIApplication.shared.open(u) } }.buttonStyle(LBtn(ghost: true))
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+        .background(T.card.ignoresSafeArea()).preferredColorScheme(.dark)
+    }
+}
+
 private struct EventCard: View {
     let e: LEvent
     var onRemove: (() -> Void)?

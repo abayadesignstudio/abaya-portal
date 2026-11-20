@@ -189,8 +189,13 @@ final class FeedModel: ObservableObject {
         if mine == i { poll.votes[me] = nil } else { poll.votes[me] = i }
         posts[k].poll = poll; UISelectionFeedbackGenerator().selectionChanged()
         guard let a = await auth() else { return }; let db = Supa(a: a)
-        if mine != nil { _ = try? await db.req("DELETE", "/rest/v1/poll_votes?poll_id=eq.\(poll.id)&user_id=eq.\(a.me)") }
-        if mine != i { _ = try? await db.req("POST", "/rest/v1/poll_votes", json: ["poll_id": poll.id, "user_id": a.me, "option_index": i]) }
+        // The choice shows at once; if the server refuses it, it is put back as it was.
+        do {
+            if mine != nil { _ = try await db.req("DELETE", "/rest/v1/poll_votes?poll_id=eq.\(poll.id)&user_id=eq.\(a.me)") }
+            if mine != i { _ = try await db.req("POST", "/rest/v1/poll_votes", json: ["poll_id": poll.id, "user_id": a.me, "option_index": i]) }
+        } catch {
+            if let k2 = posts.firstIndex(where: { $0.id == p.id }), var back = posts[k2].poll { back.votes[me] = mine; posts[k2].poll = back }
+        }
     }
     @MainActor func delete(_ p: FPost) async {
         posts.removeAll { $0.id == p.id }

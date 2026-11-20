@@ -103,6 +103,7 @@ struct NQuote { let id: String, userId: String, text: String }
 struct NReply: Identifiable, Equatable {
     let id: String, userId: String, body: String, created: Date, parent: String?
     var hidden: Bool, attachment: URL?, likes: Int, liked: Bool
+    var saved = false
 }
 
 final class PostModel: ObservableObject {
@@ -169,14 +170,18 @@ final class PostModel: ObservableObject {
             }
             let cids = C.compactMap { $0["id"] as? String }
             var CL: [[String: Any]] = []
-            if !cids.isEmpty { CL = try await db.rows("/rest/v1/comment_likes?comment_id=in.(\(cids.joined(separator: ",")))&select=comment_id,user_id") }
+            var SC = Set<String>()
+            if !cids.isEmpty {
+                CL = try await db.rows("/rest/v1/comment_likes?comment_id=in.(\(cids.joined(separator: ",")))&select=comment_id,user_id")
+                SC = Set(((try? await db.rows("/rest/v1/saved_comments?user_id=eq.\(a.me)&comment_id=in.(\(cids.joined(separator: ",")))&select=comment_id")) ?? []).compactMap { $0["comment_id"] as? String })
+            }
             replies = C.map { c in
                 let cid = c["id"] as? String ?? ""
                 return NReply(id: cid, userId: c["user_id"] as? String ?? "", body: c["body"] as? String ?? "", created: parseDate(c["created_at"]),
                               parent: c["parent_comment_id"] as? String, hidden: c["hidden_by_author"] as? Bool ?? false,
                               attachment: (c["attachment_url"] as? String).flatMap(URL.init(string:)),
                               likes: CL.filter { $0["comment_id"] as? String == cid }.count,
-                              liked: CL.contains { $0["comment_id"] as? String == cid && $0["user_id"] as? String == a.me })
+                              liked: CL.contains { $0["comment_id"] as? String == cid && $0["user_id"] as? String == a.me }, saved: SC.contains(cid))
             }
             replyCount = replies.count
             post = p; parts = ps; failed = nil
@@ -213,6 +218,26 @@ final class PostModel: ObservableObject {
         guard let a = await auth() else { return }; let db = Supa(a: a)
         if on { _ = try? await db.req("POST", "/rest/v1/comment_likes", json: ["comment_id": r.id, "user_id": a.me]) }
         else { _ = try? await db.req("DELETE", "/rest/v1/comment_likes?comment_id=eq.\(r.id)&user_id=eq.\(a.me)") }
+    }
+    @MainActor func saveReply(_ r: NReply) async {
+        guard let k = replies.firstIndex(where: { $0.id == r.id }) else { return }
+        replies[k].saved.toggle(); let on = replies[k].saved; UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        guard let a = await auth() else { return }; let db = Supa(a: a)
+        if on { _ = try? await db.req("POST", "/rest/v1/saved_comments", json: ["comment_id": r.id, "user_id": a.me]) }
+        else { _ = try? await db.req("DELETE", "/rest/v1/saved_comments?comment_id=eq.\(r.id)&user_id=eq.\(a.me)") }
+    }
+    /// A report goes to the administrators, who review it within a day.
+    @MainActor func reportReply(_ r: NReply, _ reason: String) async {
+        guard let a = await auth() else { return }
+        _ = try? await Supa(a: a).req("POST", "/rest/v1/reports", json: ["reporter_id": a.me, "comment_id": r.id, "reason": reason])
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+    /// Blocking a member hides everything of theirs from you.
+    @MainActor func block(_ userId: String) async {
+        ChatSession.shared.blocked.insert(userId); objectWillChange.send()
+        guard let a = await auth() else { return }
+        _ = try? await Supa(a: a).req("POST", "/rest/v1/member_mutes", json: ["user_id": a.me, "muted_user_id": userId])
+        notifyWeb()
     }
     @MainActor func delete(_ r: NReply) async {
         replies.removeAll { $0.id == r.id }; replyCount = replies.count
@@ -262,6 +287,15 @@ struct PostScreen: View {
     private var isAuthor: Bool { m.post?.userId == m.me }
     private var shown: [NReply] { m.replies.filter { (showHidden || !$0.hidden || isAuthor) && !ChatSession.shared.blocked.contains($0.userId) } }
     private var hiddenCount: Int { m.replies.filter(\.hidden).count }
+    /// The replies as a thread: each answer under the one it answers, a step in.
+    private var threaded: [(r: NReply, depth: Int)] {
+        let all = shown, ids = Set(all.map(\.id))
+        var kids: [String: [NReply]] = [:], out: [(r: NReply, depth: Int)] = []
+        for r in all { if let p = r.parent, ids.contains(p) { kids[p, default: []].append(r) } }
+        func walk(_ r: NReply, _ d: Int) { out.append((r, d)); for c in kids[r.id] ?? [] { walk(c, d + 1) } }
+        for r in all where r.parent == nil || !ids.contains(r.parent!) { walk(r, 0) }
+        return out
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -274,10 +308,14 @@ struct PostScreen: View {
                             ForEach(m.parts) { PostBody(p: $0, m: m, first: false, onReply: { typing = true }) }
                             if !shown.isEmpty {
                                 VStack(spacing: 8) {
-                                    ForEach(shown) { r in
-                                        ReplyCard(r: r, m: m, parent: r.parent.flatMap { pid in m.replies.first { $0.id == pid } },
+                                    ForEach(threaded, id: \.r.id) { t in
+                                        let r = t.r, step = CGFloat(min(t.depth, 3)) * 22
+                                        // an orphaned answer (its parent hidden) still says whom it answers
+                                        ReplyCard(r: r, m: m, parent: t.depth == 0 ? r.parent.flatMap { pid in m.replies.first { $0.id == pid } } : nil,
                                                   canHide: isAuthor && r.userId != m.me,
                                                   onReply: m.canReply ? ({ m.replyTo = r; typing = true } as () -> Void) : nil)
+                                            .padding(.leading, step)
+                                            .overlay(alignment: .topLeading) { if t.depth > 0 { Elbow().stroke(T.softBd, style: StrokeStyle(lineWidth: 1.5, lineCap: .round)).frame(width: 14, height: 34).offset(x: step - 17, y: -6) } }
                                             .id(r.id)
                                     }
                                 }
@@ -309,7 +347,6 @@ struct PostScreen: View {
         .tint(T.ink)
         .preferredColorScheme(.dark)
         .environment(\.openURL, OpenURLAction { url in openInApp(url); return .handled })
-        .task { if m.focusReply { try? await Task.sleep(nanoseconds: 450_000_000); typing = true } }
         .alert("Couldn’t send", isPresented: Binding(get: { sendError != nil }, set: { if !$0 { sendError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(sendError ?? "") }
     }
 
@@ -420,6 +457,18 @@ private struct PostBody: View {
 }
 
 /// A reply, as the web's ReplyRow: its own card; name and time, "Replying to @name", the writing, heart and reply.
+/// The line from a reply down and round to its answer.
+private struct Elbow: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.minX, y: r.maxY - 10))
+        p.addQuadCurve(to: CGPoint(x: r.minX + 10, y: r.maxY), control: CGPoint(x: r.minX, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+        return p
+    }
+}
+
 private struct ReplyCard: View {
     let r: NReply
     @ObservedObject var m: PostModel
@@ -427,6 +476,9 @@ private struct ReplyCard: View {
     let canHide: Bool
     let onReply: (() -> Void)?
     @State private var confirmDelete = false
+    @State private var reporting = false
+    @State private var reported = false
+    @State private var confirmBlock = false
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Button { m.close(); m.webGo("/member/\(r.userId)") } label: { Face(name: m.person(r.userId).name, url: m.person(r.userId).avatar, s: 36) }.buttonStyle(.plain)
@@ -436,19 +488,22 @@ private struct ReplyCard: View {
                     Text(ago(r.created)).font(.sans(14)).foregroundStyle(T.muted)
                     if r.hidden { Text("· hidden").font(.sans(12)).foregroundStyle(T.muted) }
                     Spacer(minLength: 0)
-                    if r.userId == m.me || canHide {
-                        Menu {
-                            if canHide { Button(r.hidden ? "Unhide reply" : "Hide reply") { Task { await m.hide(r) } } }
-                            if r.userId == m.me { Button("Delete reply", role: .destructive) { confirmDelete = true } }
-                        } label: { Text("···").font(.sans(15, .bold)).tracking(1).foregroundStyle(T.muted).frame(height: 20) }
-                    }
+                    Menu {
+                        if canHide { Button(r.hidden ? "Unhide reply" : "Hide reply") { Task { await m.hide(r) } } }
+                        if r.userId == m.me { Button("Delete reply", role: .destructive) { confirmDelete = true } }
+                        else {
+                            Button { reporting = true } label: { Label("Report", systemImage: "flag") }
+                            Button(role: .destructive) { confirmBlock = true } label: { Label("Block \(m.person(r.userId).name.split(separator: " ").first.map(String.init) ?? "member")", systemImage: "hand.raised") }
+                        }
+                    } label: { Text("···").font(.sans(15, .bold)).tracking(1).foregroundStyle(T.muted).frame(width: 34, height: 22, alignment: .trailing).contentShape(Rectangle()) }
+                    .accessibilityLabel("More")
                 }
                 .frame(minHeight: 20)
                 if let parent {
                     (Text("Replying to ").foregroundColor(T.muted) + Text("@\(m.person(parent.userId).name.split(separator: " ").first.map(String.init) ?? "")").foregroundColor(T.ticker)).font(.sans(13)).padding(.top, 1)
                 }
                 if !r.body.isEmpty {
-                    Text(linked(r.body)).font(.serif(20)).foregroundStyle(T.ink).lineSpacing(max(0, 20 * 1.36 - 20 * 1.305)).textSelection(.enabled)
+                    Text(linked(r.body)).font(.serif(18.5, .medium)).foregroundStyle(T.ink).lineSpacing(max(0, 18.5 * 1.36 - 18.5 * 1.305)).textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true).padding(.top, 3)
                 }
                 if let u = r.attachment {
@@ -460,7 +515,9 @@ private struct ReplyCard: View {
                         HStack(spacing: 5) { GlyphView(n: "heart", s: 19, w: 1.9, fill: r.liked).symbolPop(r.liked); if r.likes > 0 { Text("\(r.likes)") } }
                             .foregroundStyle(r.liked ? T.like : T.muted).font(.sans(14)).padding(.vertical, 2)
                     }.buttonStyle(.plain)
-                    if let onReply { Button(action: onReply) { GlyphView(n: "chat", s: 19, w: 1.9).foregroundStyle(T.muted).padding(.vertical, 2) }.buttonStyle(.plain) }
+                    if let onReply { Button(action: onReply) { GlyphView(n: "chat", s: 19, w: 1.9).foregroundStyle(T.muted).padding(.vertical, 2) }.buttonStyle(.plain).accessibilityLabel("Reply") }
+                    Button { Task { await m.saveReply(r) } } label: { GlyphView(n: "bookmark", s: 19, w: 1.9, fill: r.saved).symbolPop(r.saved).foregroundStyle(r.saved ? T.ink : T.muted).padding(.vertical, 2) }
+                        .buttonStyle(.plain).accessibilityLabel(r.saved ? "Remove from saved" : "Save")
                 }
                 .padding(.top, 8)
             }
@@ -472,6 +529,13 @@ private struct ReplyCard: View {
         .opacity(r.hidden ? 0.55 : 1)
         .confirmationDialog("Delete this reply?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { Task { await m.delete(r) } }
+        }
+        .confirmationDialog("Why are you reporting this reply?", isPresented: $reporting, titleVisibility: .visible) {
+            ForEach(["Harassment or abuse", "Hateful or offensive", "Spam", "Something else"], id: \.self) { why in Button(why) { Task { await m.reportReply(r, why); reported = true } } }
+        }
+        .alert("Thank you", isPresented: $reported) { Button("OK", role: .cancel) {} } message: { Text("The administrators will review this within 24 hours.") }
+        .confirmationDialog("Block this member? You won’t see their posts or replies.", isPresented: $confirmBlock, titleVisibility: .visible) {
+            Button("Block", role: .destructive) { Task { await m.block(r.userId) } }
         }
     }
 }

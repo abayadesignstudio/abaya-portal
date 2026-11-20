@@ -457,7 +457,7 @@ private struct ReportsSheet: View {
 
 // MARK: - Saved posts
 
-private struct SavedHit: Identifiable { let id: String, userId: String, title: String, text: String, created: Date }
+private struct SavedHit: Identifiable { let id: String, userId: String, title: String, text: String, created: Date; var key = ""; var uid: String { key.isEmpty ? id : key } }
 
 struct SavedScreen: View {
     @ObservedObject var feed: FeedModel
@@ -469,7 +469,7 @@ struct SavedScreen: View {
             PageBar(title: "Saved posts", back: "Settings") { close() }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(items) { h in HitRow(person: feed.people[h.userId], title: h.title, text: h.text, created: h.created) { feed.open(h.id, false) } }
+                    ForEach(items, id: \.uid) { h in HitRow(person: feed.people[h.userId], title: h.title, text: h.text, created: h.created) { feed.open(h.id, false) } }
                     if loaded && items.isEmpty { Text("Nothing saved yet.").font(.serif(17)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(40) }
                     if !loaded { Text("Loading…").font(.sans(15)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(40) }
                 }
@@ -483,12 +483,17 @@ struct SavedScreen: View {
     @MainActor private func load() async {
         guard let a = await feed.auth() else { loaded = true; return }; let db = Supa(a: a)
         let ids = ((try? await db.rows("/rest/v1/saved_posts?user_id=eq.\(a.me)&select=aside_id")) ?? []).compactMap { $0["aside_id"] as? String }
-        if ids.isEmpty { items = []; loaded = true; return }
+        let saved = (try? await db.rows("/rest/v1/saved_comments?user_id=eq.\(a.me)&select=comments(id,aside_id,user_id,body,created_at)&order=created_at.desc")) ?? []
+        let comments: [SavedHit] = saved.compactMap { $0["comments"] as? [String: Any] }.map { c in
+            SavedHit(id: c["aside_id"] as? String ?? "", userId: c["user_id"] as? String ?? "", title: "Reply", text: c["body"] as? String ?? "", created: parseDate(c["created_at"]), key: "c" + (c["id"] as? String ?? ""))
+        }
+        if ids.isEmpty { items = comments; loaded = true; return }
         let rows = (try? await db.rows("/rest/v1/asides?id=in.(\(ids.joined(separator: ",")))&select=id,user_id,title,body,created_at&order=created_at.desc")) ?? []
-        items = rows.map { r in
+        items = comments + rows.map { r in
             let title = r["title"] as? String ?? "", body = r["body"] as? String ?? ""
             return SavedHit(id: r["id"] as? String ?? "", userId: r["user_id"] as? String ?? "", title: body.lowercased().hasPrefix(title.lowercased().prefix(20)) ? "" : title, text: body, created: parseDate(r["created_at"]))
         }
+        items.sort { $0.created > $1.created }
         loaded = true
     }
 }
