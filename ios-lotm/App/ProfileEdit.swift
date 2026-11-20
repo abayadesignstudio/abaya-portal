@@ -45,14 +45,11 @@ struct ProfileEditScreen: View {
                 VStack(alignment: .leading, spacing: 0) {
                     // the banner, three wide to one high
                     Button { menuFor = true } label: {
-                        ZStack {
-                            LinearGradient(colors: [Color(rgb: 0x2d301f), Color(rgb: 0x4b4e36)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            if let i = newBanner { Image(uiImage: i).resizable().scaledToFill() }
-                            else if let u = bannerURL { AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear } }
-                            Color.black.opacity(0.28)
-                            badge
-                        }
-                        .frame(maxWidth: .infinity).aspectRatio(3, contentMode: .fit).clipped().contentShape(Rectangle())
+                        // The box is sized first and the picture drawn inside it, so a picture of any shape can't widen the page.
+                        LinearGradient(colors: [Color(rgb: 0x2d301f), Color(rgb: 0x4b4e36)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                            .frame(maxWidth: .infinity).aspectRatio(3, contentMode: .fit)
+                            .overlay { if let i = newBanner { Image(uiImage: i).resizable().scaledToFill() } else if let u = bannerURL { AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear } } }
+                            .clipped().overlay(Color.black.opacity(0.28)).overlay(badge).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain).accessibilityLabel("Change banner")
                     Button { menuFor = false } label: {
@@ -74,6 +71,7 @@ struct ProfileEditScreen: View {
                     .padding(.horizontal, 20).padding(.top, 18)
                     Color.clear.frame(height: 80)
                 }
+                .frame(width: UIScreen.main.bounds.width)
             }
             .scrollDismissesKeyboard(.interactively)
         }

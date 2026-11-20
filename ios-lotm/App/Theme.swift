@@ -266,6 +266,8 @@ struct CaretText: UIViewRepresentable {
     var active: Bool? = nil
     /// The put-away bar over the keyboard (off where the screen has its own bar there).
     var bar = true
+    /// Room kept between the cursor's line and whatever sits over the bottom of the page.
+    var below: CGFloat = 30
     var onFocus: (Bool) -> Void = { _ in }
 
     private var font: UIFont { UIFont(name: italic ? "EBGaramond-Italic" : semibold ? "EBGaramond-SemiBold" : "EBGaramond-Regular", size: size) ?? .systemFont(ofSize: size) }
@@ -345,31 +347,50 @@ struct CaretText: UIViewRepresentable {
                 follow(v)
             }
         }
-        func textViewDidChangeSelection(_ v: UITextView) { if v.isFirstResponder { follow(v) } }
-        func textViewDidBeginEditing(_ v: UITextView) { parent.onFocus(true); DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.follow(v) } }
+        // The page chases the cursor only when something is typed (as in X and Notes): never because the page was
+        // scrolled or the cursor was placed by hand, so a finger moving the page is left alone.
+        func textViewDidBeginEditing(_ v: UITextView) { parent.onFocus(true); follow(v, after: [0.45]) }
         func textViewDidEndEditing(_ v: UITextView) { flush(); parent.onFocus(false) }
-        /// Bring the cursor's line into view in the page it sits in: one small, direct move (never a jump away and back),
-        /// taken once the typing and the page's own layout have settled for a moment.
-        private var following: DispatchWorkItem?
-        private func follow(_ v: UITextView) {
-            following?.cancel()
-            let w = DispatchWorkItem { [weak v] in
-                guard let v, v.isFirstResponder, let r = v.selectedTextRange else { return }
-                var s: UIView? = v.superview
-                while let x = s, !(x is UIScrollView) { s = x.superview }
-                guard let scroll = s as? UIScrollView, !scroll.isDragging, !scroll.isDecelerating else { return }
-                let caret = v.convert(v.caretRect(for: r.end), to: scroll)
-                guard caret.origin.y.isFinite, caret.height.isFinite, caret.height < 200 else { return }
-                let top = scroll.contentOffset.y + scroll.adjustedContentInset.top + 10
-                let bottom = scroll.contentOffset.y + scroll.bounds.height - scroll.adjustedContentInset.bottom - 26
-                var y = scroll.contentOffset.y
-                if caret.maxY > bottom { y += caret.maxY - bottom } else if caret.minY < top { y -= top - caret.minY } else { return }
-                let lo = -scroll.adjustedContentInset.top, hi = max(lo, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
-                y = max(lo, min(hi, y))
-                if abs(y - scroll.contentOffset.y) > 1 { UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) { scroll.contentOffset.y = y } }
+        private var following: [DispatchWorkItem] = []
+        /// Where the cursor's line is, in the text view's own space. At the very end of the writing (where typing nearly
+        /// always is) the system's answer can be empty or sit at the top just after Return, so the end is measured instead.
+        private func caret(_ v: UITextView) -> CGRect? {
+            guard let r = v.selectedTextRange else { return nil }
+            let line = (v.font?.lineHeight ?? 24) + 4
+            if v.compare(r.end, to: v.endOfDocument) == .orderedSame {
+                let h = v.sizeThatFits(CGSize(width: max(1, v.bounds.width), height: .greatestFiniteMagnitude)).height
+                return CGRect(x: 0, y: max(0, h - line), width: 2, height: line)
             }
-            following = w
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.09, execute: w)
+            let c = v.caretRect(for: r.end)
+            guard c.origin.y.isFinite, c.height.isFinite, c.height > 0, c.height < 200 else { return nil }
+            if c.minY <= 0.5, v.offset(from: v.beginningOfDocument, to: r.end) > 0, !(v.text ?? "").prefix(v.offset(from: v.beginningOfDocument, to: r.end)).contains("\n"), v.bounds.height > line * 1.6 {
+                // claimed to be on the first line: believe it only if the first line really reaches that far
+                let first = v.firstRect(for: v.textRange(from: v.beginningOfDocument, to: r.end) ?? r)
+                if !first.minY.isFinite || first.height > line * 1.5 { return nil }
+            }
+            return c
+        }
+        /// Bring the cursor's line into view with one small move. Tried a few times over a third of a second, since the
+        /// page takes a moment to make room for a new line; each try does nothing if the line is already in view.
+        private func follow(_ v: UITextView, after: [Double] = [0.02, 0.12, 0.32]) {
+            following.forEach { $0.cancel() }; following = []
+            for t in after {
+                let w = DispatchWorkItem { [weak self, weak v] in
+                    guard let self, let v, v.isFirstResponder, let c = self.caret(v) else { return }
+                    var s: UIView? = v.superview
+                    while let x = s, !(x is UIScrollView) { s = x.superview }
+                    guard let scroll = s as? UIScrollView, !scroll.isTracking, !scroll.isDragging, !scroll.isDecelerating else { return }
+                    let at = v.convert(c, to: scroll)
+                    let top = scroll.contentOffset.y + scroll.adjustedContentInset.top + 12
+                    let bottom = scroll.contentOffset.y + scroll.bounds.height - scroll.adjustedContentInset.bottom - self.parent.below
+                    var y = scroll.contentOffset.y
+                    if at.maxY > bottom { y += at.maxY - bottom } else if at.minY < top { y -= top - at.minY } else { return }
+                    let lo = -scroll.adjustedContentInset.top, hi = max(lo, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
+                    y = max(lo, min(hi, y))
+                    if abs(y - scroll.contentOffset.y) > 1 { UIView.animate(withDuration: 0.16, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) { scroll.contentOffset.y = y } }
+                }
+                following.append(w); DispatchQueue.main.asyncAfter(deadline: .now() + t, execute: w)
+            }
         }
     }
 }
@@ -437,6 +458,44 @@ struct PullWatch: UIViewRepresentable {
                 if over > self.distance { self.fired = true; DispatchQueue.main.async { self.top() } }
                 else if under > self.distance { self.fired = true; DispatchQueue.main.async { self.bottom() } }
             }
+        }
+    }
+}
+
+
+// MARK: - Tagging a member with @
+
+/// The members' names, for @ tags (kept from the last time the feed loaded).
+enum Roster {
+    static var names: [String] = (UserDefaults.standard.dictionary(forKey: "lotm.people") as? [String: [String: String]])?.values.compactMap { $0["name"] }.filter { !$0.isEmpty } ?? []
+}
+/// What has been typed after an @ at the end of the writing ("" just after the @), or nil when no tag is being typed.
+func mentionQuery(_ s: String) -> String? {
+    guard let at = s.lastIndex(of: "@") else { return nil }
+    if at > s.startIndex, let b = s[s.index(before: at)].unicodeScalars.first, !CharacterSet.whitespacesAndNewlines.contains(b) { return nil }
+    let q = String(s[s.index(after: at)...])
+    if q.count > 30 || q.contains("\n") || q.hasSuffix("  ") || q.split(separator: " ", omittingEmptySubsequences: false).count > 3 { return nil }
+    return q
+}
+/// The members whose names match what is being typed after an @: tap one to write the name in.
+struct MentionBar: View {
+    @Binding var text: String
+    var body: some View {
+        let q = mentionQuery(text), low = (q ?? "").lowercased()
+        let hits = q == nil ? [] : Roster.names.filter { n in let l = n.lowercased(); return low.isEmpty || l.hasPrefix(low) || l.split(separator: " ").contains { $0.hasPrefix(low) } }.filter { $0.lowercased() != low.trimmingCharacters(in: .whitespaces) }.sorted()
+        if !hits.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(hits.prefix(14), id: \.self) { n in
+                        Button {
+                            flushTyping(); let t = text
+                            if let cur = mentionQuery(t) { text = String(t.dropLast(cur.count)) + n + " "; Haptic.tap() }
+                        } label: { Text("@" + n).font(.sans(14, .semibold)).foregroundStyle(T.ink).padding(.horizontal, 12).frame(height: 32).background(Capsule().fill(T.ink.opacity(0.1))) }
+                        .buttonStyle(.plain)
+                    }
+                }.padding(.horizontal, 12)
+            }
+            .frame(height: 40)
         }
     }
 }

@@ -352,10 +352,11 @@ struct PostScreen: View {
 
     /// The web's ReplyBar: a floating pill with your face, the reply, a photo button, and send (or ↗ for the full composer).
     private var replyBar: some View {
-        let to = m.replyTo.map { m.person($0.userId).name } ?? m.post.map { m.person($0.userId).name } ?? ""
+        let to = m.replyTo.map { m.person($0.userId).name } ?? ""
         let first = to.split(separator: " ").first.map(String.init) ?? to
         let ok = !(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && image == nil) && !m.sending
         return VStack(alignment: .leading, spacing: 8) {
+            MentionBar(text: $text)
             if let r = m.replyTo {
                 HStack(spacing: 6) {
                     (Text("Replying to ").foregroundColor(T.muted) + Text("@\(m.person(r.userId).name.split(separator: " ").first.map(String.init) ?? "")").foregroundColor(T.ticker)).font(.sans(13))
@@ -370,7 +371,7 @@ struct PostScreen: View {
             }
             HStack(alignment: .bottom, spacing: 4) {
                 Face(name: m.person(m.me).name, url: m.person(m.me).avatar, s: 36).padding(.bottom, 1)
-                TextField("", text: $text, prompt: Text("Reply to \(first)…").foregroundColor(T.muted), axis: .vertical)
+                TextField("", text: $text, prompt: Text(first.isEmpty ? "Add a comment…" : "Reply to \(first)…").foregroundColor(T.muted), axis: .vertical)
                     .font(.serif(20)).foregroundStyle(T.ink).lineLimit(1...6).focused($typing)
                     .padding(.horizontal, 4).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 38)
                 PhotosPicker(selection: $pick, matching: .images) { GlyphView(n: "image", s: 23, w: 1.9).foregroundStyle(T.ink).frame(width: 38, height: 38) }
@@ -587,6 +588,16 @@ func linked(_ s: String) -> AttributedString {
         guard let url = match.url, let r = Range(match.range, in: s),
               let lo = AttributedString.Index(r.lowerBound, within: out), let hi = AttributedString.Index(r.upperBound, within: out) else { continue }
         out[lo..<hi].link = url; out[lo..<hi].underlineStyle = .single
+    }
+    // a member tagged with @ stands out
+    if s.contains("@") {
+        for name in Roster.names {
+            var from = s.startIndex
+            while let r = s.range(of: "@" + name, range: from..<s.endIndex) {
+                if let lo = AttributedString.Index(r.lowerBound, within: out), let hi = AttributedString.Index(r.upperBound, within: out) { out[lo..<hi].foregroundColor = Color(rgb: 0xe2c37a) }
+                from = r.upperBound
+            }
+        }
     }
     return out
 }

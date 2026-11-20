@@ -264,7 +264,7 @@ final class DevotionModel: ObservableObject {
     /// What is read: the office, with the confession that was chosen, and a painting lifted above its section's heading.
     func shown(_ dayId: String, _ o: String) -> [DBlock] {
         var bs = office(dayId, o)
-        if let at = bs.firstIndex(where: { $0.kind == "head" && plainHead($0.lines[0]) == "confession of sin" }), !prayers.isEmpty {
+        if false, let at = bs.firstIndex(where: { $0.kind == "head" && plainHead($0.lines[0]) == "confession of sin" }), !prayers.isEmpty {
             let end = bs.indices.first { $0 > at && bs[$0].kind == "head" } ?? bs.count
             var k = at + 1; while k < end && bs[k].kind == "rubric" { k += 1 }
             let sec = Array(bs[k..<end]), arts = sec.filter { $0.kind == "art" }, rest = sec.filter { $0.kind != "art" }
@@ -291,6 +291,9 @@ final class DevotionModel: ObservableObject {
         Task { do { try await TunePlayer.shared.play(u) { [weak self] in if self?.playing == name { self?.playing = "" } } } catch { playing = ""; say("That tune couldn’t be played.") } }
     }
 }
+
+/// The devotion's spacings, in ems of the reading size: between lines, after a paragraph, before a section's heading.
+enum DS { static let line: CGFloat = 0.24, para: CGFloat = 0.7, section: CGFloat = 1.7 }
 
 /// Open the devotion over the app.
 @MainActor func openDevotion(_ web: WebModel, slug: String, office: String? = nil) {
@@ -323,6 +326,7 @@ struct DevotionScreen: View {
     @State private var sheet = ""                 // "", toc, search, type, reminders
     @State private var armed = true
     @State private var hint = false
+    @State private var moved = false
     @State private var q = ""
 
     init(m: DevotionModel, web: WebModel, office: String?, close: @escaping ((() -> Void)?) -> Void) {
@@ -401,7 +405,7 @@ struct DevotionScreen: View {
     private var picker: some View {
         let fg = Color(rgb: 0xf4f1e2), mut = Color(rgb: 0xd6d1b8), W = UIScreen.main.bounds.width
         let desc = ["Morning": "The full liturgy", "Noon": "A shorter liturgy for midday", "Evening": "Confession, intercession and blessing"][off] ?? ""
-        return VStack(spacing: 0) {
+        return ScrollViewReader { wheels in VStack(spacing: 0) {
             Spacer()
             Text("ADVENT").font(.serif(13, .medium)).tracking(4).foregroundStyle(Color(rgb: 0xe2c37a))
             // the days, as a sideways wheel
@@ -444,13 +448,31 @@ struct DevotionScreen: View {
             .scrollTargetBehavior(.viewAligned).scrollPosition(id: $office, anchor: .center)
             .frame(width: 260, height: 192)
             .overlay { VStack(spacing: 0) { mut.opacity(0.33).frame(height: 1); Spacer().frame(height: 62); mut.opacity(0.33).frame(height: 1) }.allowsHitTesting(false) }
-            Text("\(desc) · about \(day.map { m.minutes($0.id, off) } ?? 1) min").font(.serif(17, italic: true)).foregroundStyle(mut).padding(.top, 10)
+            Text("\(desc) · about \(day.map { m.minutes($0.id, off) } ?? 1) min").font(.serif(17, italic: true)).foregroundStyle(mut).padding(.top, 10).id("desc")
             Button { begin() } label: { Text("Begin").font(.sans(16, .bold)).foregroundStyle(Color(rgb: 0x1d1f14)).padding(.horizontal, 34).frame(height: 46).background(Capsule().fill(fg)) }.buttonStyle(Press(scale: 0.96)).padding(.top, 22)
-            Spacer()
+            sourcesBox(mut).padding(.top, 18)
+            Spacer(minLength: 8)
             Text("Adoration of the Magi, Beuronese mural by the monks of Conception Abbey, 1896. Basilica of the Immaculate Conception, Conception, Missouri.").font(.serif(12, italic: true)).foregroundStyle(mut.opacity(0.75)).multilineTextAlignment(.center).padding(.horizontal, 24).padding(.bottom, 30)
         }
         .shadow(color: .black.opacity(0.65), radius: 7, y: 1)
         .onChange(of: dayId) { _, _ in Haptic.tap() }.onChange(of: office) { _, _ in Haptic.tap() }
+        // A wheel placed before it is laid out is not placed at all: once it is on screen, turn each to what is chosen.
+        .onAppear { let o = off, d = day?.id; for t in [0.05, 0.35] { DispatchQueue.main.asyncAfter(deadline: .now() + t) { wheels.scrollTo(o, anchor: .center); if let d { wheels.scrollTo(d, anchor: .center) }; if office != o { office = o }; if dayId != d { dayId = d } } } }
+        } }
+    }
+    /// Where the day's prayers and hymns come from: each section's source, to be scrolled through before beginning.
+    private func sourcesBox(_ mut: Color) -> some View {
+        var out: [(String, String)] = [], head = ""
+        for b in day.map({ m.shown($0.id, off) }) ?? [] { if b.kind == "head" { head = b.lines[0].replacingOccurrences(of: "*", with: "") } else if b.kind == "attr", let l = b.lines.first { out.append((head, l.replacingOccurrences(of: "^(—|--)\\s*", with: "", options: .regularExpression).replacingOccurrences(of: "*", with: ""))) } }
+        return ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 5) {
+                ForEach(Array(out.enumerated()), id: \.offset) { _, s in
+                    (Text(s.0.isEmpty ? "" : s.0 + ": ").font(.serif(13, .medium)) + Text(s.1).font(.serif(13, italic: true))).foregroundStyle(mut.opacity(0.9)).multilineTextAlignment(.center).frame(maxWidth: .infinity)
+                }
+            }.padding(.vertical, 8)
+        }
+        .frame(height: out.isEmpty ? 0 : 74).padding(.horizontal, 30)
+        .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.14), .init(color: .black, location: 0.8), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
     }
 
     // MARK: the reading
@@ -462,6 +484,7 @@ struct DevotionScreen: View {
             T.bg.ignoresSafeArea()
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    GeometryReader { g in Color.clear.onChange(of: g.frame(in: .named("devotion")).minY < -24) { _, v in moved = v } }.frame(height: 0)
                     if let h = hero {
                         Painting(src: h.lines[0], caption: h.lines[1], frame: DFrame(h.lines[3]), T: T, size: size, hero: true)
                             .overlay(alignment: .top) { title(size).padding(.horizontal, 24).padding(.top, max(54, SH * CGFloat(m.date.y) / 100 * 0.56 + 44)).shadow(color: .black.opacity(0.75), radius: 11, y: 2) }
@@ -486,7 +509,7 @@ struct DevotionScreen: View {
             .scrollIndicators(.hidden)
             .ignoresSafeArea(edges: .top)
             // Nothing is read under the clock: the page fades out beneath it.
-            .overlay(alignment: .top) { LinearGradient(colors: [T.bg.opacity(0.92), T.bg.opacity(0.8), T.bg.opacity(0)], startPoint: .top, endPoint: .bottom).frame(height: 10).ignoresSafeArea(edges: .top).allowsHitTesting(false) }
+            .overlay(alignment: .top) { VStack(spacing: 0) { T.bg.frame(height: 0).background(T.bg.ignoresSafeArea(edges: .top)); LinearGradient(colors: [T.bg, T.bg.opacity(0)], startPoint: .top, endPoint: .bottom).frame(height: 18) }.opacity(moved ? 1 : 0).animation(.easeOut(duration: 0.2), value: moved).allowsHitTesting(false) }
             .onTapGesture { withAnimation(.easeOut(duration: 0.25)) { chrome.toggle() } }
             // The reading rises out of the dark below and sinks into it above, as by candlelight.
             VStack { Spacer(); LinearGradient(stops: [.init(color: T.bg.opacity(0), location: 0), .init(color: T.bg.opacity(0.6), location: 0.45), .init(color: T.bg.opacity(0.9), location: 0.8), .init(color: T.bg, location: 1)], startPoint: .top, endPoint: .bottom).frame(height: SH * 0.3) }.ignoresSafeArea().allowsHitTesting(false)
@@ -535,20 +558,20 @@ struct DevotionScreen: View {
         .buttonStyle(.plain).frame(maxWidth: .infinity).padding(.bottom, size * 0.7)
     }
     private func lines(_ b: DBlock, _ size: CGFloat) -> some View {
-        return VStack(alignment: .leading, spacing: size * 0.12) {
+        return VStack(alignment: .leading, spacing: size * DS.line) {
             ForEach(Array(b.lines.enumerated()), id: \.offset) { _, l in
                 let ind = l.prefix { $0.isWhitespace }.count
-                dinline(l.trimmingCharacters(in: .whitespaces), face: m.face, size: size, red: T.red).foregroundStyle(T.fg).lineSpacing(size * 0.3)
+                dinline(l.trimmingCharacters(in: .whitespaces), face: m.face, size: size, red: T.red).foregroundStyle(T.fg).lineSpacing(size * DS.line)
                     .padding(.leading, CGFloat(ind > 0 ? min(4, (ind + 1) / 2) : 0) * size * 1.2).fixedSize(horizontal: false, vertical: true)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, size * 0.6)
+        .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, size * DS.para)
     }
     @ViewBuilder private func block(_ b: DBlock, _ i: Int, _ bs: [DBlock], _ size: CGFloat) -> some View {
         switch b.kind {
-        case "head": dinline(b.lines[0], face: m.face, size: size, red: T.red, bold: true, italic: true).foregroundStyle(T.fg).multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.top, size * 1.6)
-        case "rubric": dinline(b.lines[0], face: m.face, size: size, red: T.red, italic: true).foregroundStyle(T.red).multilineTextAlignment(.center).lineSpacing(size * 0.25).frame(maxWidth: .infinity).padding(.bottom, size * 0.7)
-        case "attr": dinline(b.lines[0], face: m.face, size: size, red: T.red, italic: true).foregroundStyle(T.fg.opacity(0.9)).multilineTextAlignment(.trailing).frame(maxWidth: .infinity, alignment: .trailing).padding(.top, -size * 0.3).padding(.bottom, size * 0.6)
+        case "head": dinline(b.lines[0], face: m.face, size: size, red: T.red, bold: true, italic: true).foregroundStyle(T.fg).multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.top, size * DS.section)
+        case "rubric": dinline(b.lines[0], face: m.face, size: size, red: T.red, italic: true).foregroundStyle(T.red).multilineTextAlignment(.center).lineSpacing(size * DS.line).frame(maxWidth: .infinity).padding(.bottom, size * DS.para)
+        case "attr": dinline(b.lines[0], face: m.face, size: size, red: T.red, italic: true).foregroundStyle(T.fg.opacity(0.9)).multilineTextAlignment(.trailing).frame(maxWidth: .infinity, alignment: .trailing).padding(.bottom, size * DS.para)
         case "art": Painting(src: b.lines[0], caption: b.lines[1], frame: DFrame(b.lines[3]), T: T, size: size, hero: false).padding(.top, size * 2.4).padding(.bottom, size * 1.6)
         case "tune": let s = section(i, bs); chip(s.tune ?? tuneOf(b.lines[0]), size)
         case "choice":

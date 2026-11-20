@@ -191,12 +191,15 @@ struct ComposeView: View {
                     }
                     .padding(.top, 16)
                 }
-                .scrollDismissesKeyboard(.interactively)
+                // The keyboard stays while the page is scrolled, as in X: Cancel or Post puts it away.
+                .scrollDismissesKeyboard(.never)
             }
         }
         .background(C.card.ignoresSafeArea())
         // The bottom bar sits on the keyboard and moves with it, as in X and Threads.
         .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+            MentionBar(text: Binding(get: { current.text }, set: { v in if let k = m.posts.firstIndex(where: { $0.id == current.id }) { m.posts[k].text = v } })).background(C.card)
             HStack(spacing: 12) {
                 // Who can reply: one tap switches between Anyone and No one.
                 Button { UISelectionFeedbackGenerator().selectionChanged(); withAnimation(.snappy(duration: 0.2)) { m.policy = m.policy == "none" ? "everyone" : "none" } } label: {
@@ -227,7 +230,7 @@ struct ComposeView: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
             .background(C.card)
-            .overlay(alignment: .top) { C.rule.frame(height: 0.5) }
+            .overlay(alignment: .top) { C.rule.frame(height: 0.5) }            }
         }
         .tint(C.ink)
         .preferredColorScheme(.dark)
@@ -290,7 +293,7 @@ private struct PostRow: View {
                     if let remove { Button(action: remove) { Text("×").font(.sans(20)).foregroundStyle(C.muted).frame(width: 28, height: 28) } }
                 }
                 // Apple's own text view: as the writing grows, the page keeps the cursor's line above the keyboard.
-                CaretText(text: $post.text, hint: index == 0 ? (m.toNotes ? "A thought worth keeping…" : "What’s on your mind?") : "Say more…", size: 22, active: focus == post.id, bar: false,
+                CaretText(text: $post.text, hint: index == 0 ? (m.toNotes ? "A thought worth keeping…" : "What’s on your mind?") : "Say more…", size: 22, active: focus == post.id, bar: false, below: 84,
                           onFocus: { on in let id = post.id; DispatchQueue.main.async { if on { focus = id } else if focus == id { focus = nil } } })
                     .padding(.trailing, 14)      // room between the words and the edge of the screen
                 if index == 0 { extras }
