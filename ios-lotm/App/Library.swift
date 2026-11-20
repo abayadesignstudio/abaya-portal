@@ -476,7 +476,7 @@ struct Shelf: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Flow(pos: pos, live: live, w: w, h: h) { it, i, shade in AnyView(card(it, i, shade: shade)) }
+            Flow(pos: pos, items: live, w: w, h: h) { it, i, shade in AnyView(card(it, i, shade: shade)) }
                 .contentShape(Rectangle())
                 .simultaneousGesture(swipe)
             VStack(spacing: 1) {
