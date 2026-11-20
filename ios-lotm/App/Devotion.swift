@@ -209,6 +209,8 @@ final class DevotionModel: ObservableObject {
     @Published var esv: [String: (canonical: String, text: String)?] = [:]
     @Published var admin = false
     init(slug: String) { self.slug = slug }
+    /// The published works prayers are drawn from (lowercased), as kept in the editor's list of sources.
+    @Published var works: [String] = []
     var T: DTheme { DTHEMES[theme] ?? DTHEMES["black"]! }
     var face: DFace { DFace(family: family) }
     var days: [DBlock] { blocks.filter { $0.kind == "day" } }
@@ -220,9 +222,11 @@ final class DevotionModel: ObservableObject {
         async let D = db.rows("/rest/v1/devotionals?slug=eq.\(slug)&select=title,body")
         async let V = db.rows("/rest/v1/devotionals?slug=eq.valley-of-vision&select=body")
         async let L = db.rows("/rest/v1/devotion_prayers?select=id,body,source")
+        async let S = db.rows("/rest/v1/devotion_sources?select=name")
         async let H = db.rows("/rest/v1/hymn_tunes?select=name,url")
         async let P = db.rows("/rest/v1/profiles?id=eq.\(db.a.me)&select=role")
         let lib = (try? await L) ?? []
+        works = ((try? await S) ?? []).compactMap { ($0["name"] as? String)?.lowercased() }.filter { $0.range(of: #"\d+:\d+"#, options: .regularExpression) == nil }
         if let d = (try? await D)?.first { title = d["title"] as? String ?? ""; let body = Self.expand(d["body"] as? String ?? "", lib); blocks = dparse(body); date = DDate(body) }
         var out: [(title: String, blocks: [DBlock])] = []
         for b in dparse(((try? await V)?.first?["body"] as? String) ?? "") {
@@ -303,6 +307,18 @@ final class DevotionModel: ObservableObject {
         guard !u.isEmpty else { say("The music for \(name) isn’t added yet."); return }
         playing = name; Haptic.tap()
         Task { do { try await TunePlayer.shared.play(u) { [weak self] in if self?.playing == name { self?.playing = "" } } } catch { playing = ""; say("That tune couldn’t be played.") } }
+    }
+}
+
+/// The Jerusalem cross that closes an office: a cross potent with a small cross in each quarter (the web's own drawing).
+struct JerusalemCross: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path(); let k = min(r.width, r.height) / 50
+        func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) { p.addRect(CGRect(x: r.midX + x * k, y: r.midY + y * k, width: w * k, height: h * k)) }
+        rect(-3, -24.3, 6, 48.6); rect(-25.2, -3, 50.4, 6)                                   // the two beams
+        rect(-6.6, -24.3, 13.2, 4.5); rect(-6.6, 19.8, 13.2, 4.5); rect(-25.2, -6.6, 4.6, 13.2); rect(20.6, -6.6, 4.6, 13.2)   // their bars
+        for (x, y) in [(-11.6, -12.6), (11.8, -12.6), (-11.6, 13.3), (11.8, 13.3)] as [(CGFloat, CGFloat)] { rect(x - 1.6, y - 4.8, 3.2, 9.6); rect(x - 4.8, y - 1.6, 9.6, 3.2) }
+        return p
     }
 }
 
@@ -477,7 +493,7 @@ struct DevotionScreen: View {
     /// Where the day's prayers and hymns come from: each section's source, to be scrolled through before beginning.
     private func sourcesBox(_ mut: Color) -> some View {
         var out: [(String, String)] = [], head = ""
-        for b in day.map({ m.shown($0.id, off) }) ?? [] { if b.kind == "head" { head = b.lines[0].replacingOccurrences(of: "*", with: "") } else if b.kind == "attr", let l = b.lines.first { out.append((head, l.replacingOccurrences(of: "^(—|--)\\s*", with: "", options: .regularExpression).replacingOccurrences(of: "*", with: ""))) } }
+        for b in day.map({ m.shown($0.id, off) }) ?? [] { if b.kind == "head" { head = b.lines[0].replacingOccurrences(of: "*", with: "") } else if b.kind == "attr", let l = b.lines.first { let s = l.replacingOccurrences(of: "^(—|--)\\s*", with: "", options: .regularExpression).replacingOccurrences(of: "*", with: ""), low = s.lowercased(); if m.works.contains(where: { low.hasPrefix($0) || $0.hasPrefix(low) }) { out.append((head, s)) } } }
         return ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 5) {
                 ForEach(Array(out.enumerated()), id: \.offset) { _, s in
@@ -510,7 +526,7 @@ struct DevotionScreen: View {
                     ForEach(Array(bs.enumerated()), id: \.element.id) { i, b in
                         if !(i == 0 && hero != nil) { block(b, i, bs, size).padding(.horizontal, b.kind == "art" ? 0 : 28) }
                     }
-                    Text("☩").font(.system(size: size * 1.5)).foregroundStyle(T.red).frame(maxWidth: .infinity).padding(.top, size * 2.2).padding(.bottom, size)
+                    JerusalemCross().fill(T.red).frame(width: size * 1.25, height: size * 1.25).frame(maxWidth: .infinity).padding(.top, size * 2.2).padding(.bottom, size)
                     Text("Swipe up to close").font(.sans(11)).tracking(0.9).foregroundStyle(T.mut.opacity(0.55)).frame(maxWidth: .infinity).padding(.top, 14)
                     Color.clear.frame(height: SH * 0.3)
                 }

@@ -96,6 +96,7 @@ struct DirectoryScreen: View {
 
 // MARK: - A member's page
 
+private struct MRead: Identifiable { let id: String, title: String, author: String, cover: URL?, page: Int, total: Int }
 private struct MReply: Identifiable { let id: String, post: String, body: String, created: Date }
 
 struct MemberScreen: View {
@@ -110,7 +111,8 @@ struct MemberScreen: View {
     @State private var role = "member"
     @State private var since: Date?
     @State private var cover: URL?
-    @State private var reading: (title: String, cover: URL?, page: Int?)?
+    @State private var reads: [MRead] = []
+    @State private var bookAt: String?
     @State private var replies: [MReply] = []
     @State private var finished = 0
     @State private var tab = "Posts"
@@ -156,19 +158,7 @@ struct MemberScreen: View {
                     Text([since.map { "Member since \($0.formatted(.dateTime.month(.wide).year()))" }, role == "member" ? nil : role.capitalized].compactMap { $0 }.joined(separator: " · "))
                         .font(.sans(14)).foregroundStyle(T.muted)
                     if !bio.isEmpty { Text(bio).font(.serif(17)).foregroundStyle(T.ink).lineSpacing(3).fixedSize(horizontal: false, vertical: true).padding(.top, 10) }
-                    if let r = reading {
-                        HStack(spacing: 10) {
-                            AsyncImage(url: r.cover) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0xc9c7af) }.frame(width: 26, height: 38).clipShape(RoundedRectangle(cornerRadius: 3))
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text("CURRENTLY READING").font(.sans(11, .bold)).tracking(0.9).foregroundStyle(T.muted)
-                                Text(r.title).font(.serif(15, italic: true)).foregroundStyle(T.ink).lineLimit(1)
-                            }
-                            Spacer(minLength: 0)
-                            if let p = r.page, p > 0 { Text("p. \(p)").font(.sans(13)).foregroundStyle(T.muted) }
-                        }
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 12).stroke(T.border)).padding(.top, 10)
-                    }
+                    if !reads.isEmpty { shelf.padding(.top, 14) }
                     HStack(spacing: 16) { stat(mine.posts.count, "posts"); stat(replies.count, "replies"); stat(finished, "books read") }.padding(.top, 10)
                 }
                 .padding(.horizontal, 20).padding(.top, 10)
@@ -246,12 +236,51 @@ struct MemberScreen: View {
         (Text("\(n)").font(.sans(14, .bold)).foregroundColor(T.ink) + Text(" \(l)").font(.sans(14)).foregroundColor(T.muted))
     }
 
-    private var banner: some View {
-        ZStack(alignment: .top) {
-            LinearGradient(colors: [Color(rgb: 0x9c5463), Color(rgb: 0xcdcbb4)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            if let cover { AsyncImage(url: cover) { $0.resizable().scaledToFill() } placeholder: { Color.clear } }
+    /// What they are reading now: a small shelf of covers to swipe through, with the book in the middle named below
+    /// and how far through it they are.
+    private var shelf: some View {
+        let W = UIScreen.main.bounds.width - 40, cur = reads.first { $0.id == bookAt } ?? reads[0]
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("CURRENTLY READING").font(.sans(11, .bold)).tracking(0.9).foregroundStyle(T.muted)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(reads) { r in
+                        Color(rgb: 0x2a2d1d).frame(width: 64, height: 96)
+                            .overlay { if let c = r.cover { AsyncImage(url: c) { $0.resizable().scaledToFill() } placeholder: { Color.clear } } else { Text(r.title).font(.serif(10, .medium)).foregroundStyle(T.ink).multilineTextAlignment(.center).padding(4) } }
+                            .clipShape(RoundedRectangle(cornerRadius: 5)).shadow(color: .black.opacity(0.35), radius: 6, y: 4)
+                            .scrollTransition(.interactive, axis: .horizontal) { c, ph in c.scaleEffect(1 - min(1, abs(ph.value)) * 0.2).opacity(1 - min(1, abs(ph.value)) * 0.45) }
+                            .onTapGesture { withAnimation(.snappy) { bookAt = r.id } }
+                            .id(r.id)
+                    }
+                }
+                .scrollTargetLayout().padding(.vertical, 8)
+            }
+            .contentMargins(.horizontal, max(0, (W - 64) / 2), for: .scrollContent)
+            .scrollTargetBehavior(.viewAligned).scrollPosition(id: $bookAt, anchor: .center)
+            .frame(width: W, height: 112)
+            VStack(spacing: 3) {
+                Text(cur.title).font(.serif(17, italic: true)).foregroundStyle(T.ink).lineLimit(1)
+                if !cur.author.isEmpty { Text(cur.author).font(.sans(13)).foregroundStyle(T.muted).lineLimit(1) }
+                if cur.page > 0 {
+                    if cur.total > 0 {
+                        Capsule().fill(T.ink.opacity(0.14)).frame(width: 150, height: 4).overlay(alignment: .leading) { Capsule().fill(T.ink).frame(width: 150 * min(1, CGFloat(cur.page) / CGFloat(cur.total)), height: 4) }.padding(.top, 5)
+                        Text("p. \(cur.page) of \(cur.total) · \(Int((Double(cur.page) / Double(cur.total) * 100).rounded()))%").font(.sans(12)).foregroundStyle(T.muted).padding(.top, 2)
+                    } else { Text("p. \(cur.page)").font(.sans(12)).foregroundStyle(T.muted) }
+                }
+            }
+            .frame(maxWidth: .infinity).animation(.snappy(duration: 0.2), value: cur.id)
         }
-        .frame(height: 150 + safeTop).frame(maxWidth: .infinity).clipped()
+    }
+
+    /// The banner, three wide to one high, exactly as it was framed in Edit profile, below the clock.
+    private var banner: some View {
+        VStack(spacing: 0) {
+            T.paper.frame(height: safeTop)
+            LinearGradient(colors: [Color(rgb: 0x2d301f), Color(rgb: 0x4b4e36)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                .frame(maxWidth: .infinity).aspectRatio(3, contentMode: .fit)
+                .overlay { if let cover { AsyncImage(url: cover) { $0.resizable().scaledToFill() } placeholder: { Color.clear } } }
+                .clipped()
+        }
         .overlay(alignment: .top) {
             HStack {
                 Button { close() } label: { GlyphView(n: "back", s: 22).foregroundStyle(.white).frame(width: 36, height: 36).background(Circle().fill(Color(rgb: 0x0a0c06, 0.45))) }
@@ -277,21 +306,26 @@ struct MemberScreen: View {
         let db = Supa(a: a)
         async let P = db.rows("/rest/v1/profiles?id=eq.\(id)&select=bio,role,background_url,current_read_title,current_read_cover_url,created_at")
         async let C = db.rows("/rest/v1/comments?user_id=eq.\(id)&select=id,aside_id,body,created_at&order=created_at.desc&limit=50")
-        async let R = db.rows("/rest/v1/current_reads?user_id=eq.\(id)&select=status,current_page,custom_title,custom_cover_url,editions(title,cover_url)")
+        async let R = db.rows("/rest/v1/current_reads?user_id=eq.\(id)&select=id,status,current_page,sort_order,custom_title,custom_author,custom_cover_url,custom_total_pages,editions(title,author,cover_url,total_pages)&order=sort_order")
         let p = (try? await P)?.first, cs = (try? await C) ?? [], rs = (try? await R) ?? []
         bio = p?["bio"] as? String ?? ""; role = p?["role"] as? String ?? "member"
         since = (p?["created_at"] as? String).map { parseDate($0) }
         cover = (p?["background_url"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }
         replies = cs.compactMap { c in (c["id"] as? String).map { MReply(id: $0, post: c["aside_id"] as? String ?? "", body: c["body"] as? String ?? "", created: parseDate(c["created_at"])) } }
         finished = rs.filter { $0["status"] as? String == "finished" }.count
-        if let cur = rs.first(where: { $0["status"] as? String == "reading" }) {
-            let e = cur["editions"] as? [String: Any]
-            let t = (e?["title"] as? String) ?? (cur["custom_title"] as? String) ?? ""
-            let c = ((e?["cover_url"] as? String) ?? (cur["custom_cover_url"] as? String)).flatMap { $0.isEmpty ? nil : URL(string: $0) }
-            if !t.isEmpty { reading = (t, c, cur["current_page"] as? Int) }
-        } else if let t = p?["current_read_title"] as? String, !t.isEmpty {
-            reading = (t, (p?["current_read_cover_url"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }, nil)
+        var out: [MRead] = []
+        for x in rs where x["status"] as? String == "reading" {
+            let e = x["editions"] as? [String: Any]
+            let t = (e?["title"] as? String) ?? (x["custom_title"] as? String) ?? ""
+            guard !t.isEmpty else { continue }
+            let c = ((e?["cover_url"] as? String) ?? (x["custom_cover_url"] as? String)).flatMap { $0.isEmpty ? nil : URL(string: $0) }
+            out.append(MRead(id: x["id"] as? String ?? t, title: t, author: (e?["author"] as? String) ?? (x["custom_author"] as? String) ?? "", cover: c,
+                             page: x["current_page"] as? Int ?? 0, total: (e?["total_pages"] as? Int) ?? (x["custom_total_pages"] as? Int) ?? 0))
         }
+        if out.isEmpty, let t = p?["current_read_title"] as? String, !t.isEmpty {
+            out = [MRead(id: "profile", title: t, author: "", cover: (p?["current_read_cover_url"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }, page: 0, total: 0)]
+        }
+        reads = out
     }
 
     private func reportMember() async {
