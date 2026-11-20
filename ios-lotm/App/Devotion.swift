@@ -620,22 +620,34 @@ private struct Painting: View {
     @State private var img: UIImage?
     @State private var seen = false
     private static let cache = NSCache<NSString, UIImage>()
-    var body: some View {
+    /// Where the painting sits: the frame's size, the painting's size inside it, and how far it is moved up and left.
+    private var box: (fw: CGFloat, fh: CGFloat, iw: CGFloat, ih: CGFloat, dx: CGFloat, dy: CGFloat) {
         let W = Double(UIScreen.main.bounds.width), SH = Double(UIScreen.main.bounds.height)
-        let r: Double = img.map { Double($0.size.height) / max(1, Double($0.size.width)) } ?? 0.7
+        var r = 0.7
+        if let img, img.size.width > 0 { r = Double(img.size.height) / Double(img.size.width) }
         // Without a set frame: the whole painting, up to most of a screen.
         let H: Double = frame.h > 0 ? frame.h / 100 : min(r, SH * (hero ? 0.7 : 0.88) / W)
-        let w: Double = frame.z * max(1, H / r), h: Double = w * r, on = seen && img != nil
-        VStack(spacing: 0) {
-            ZStack(alignment: .topLeading) {
-                if let img {
-                    Image(uiImage: img).resizable().frame(width: CGFloat(W * w), height: CGFloat(W * h)).offset(x: CGFloat(-W * (w - 1) * frame.x / 100), y: CGFloat(-W * (h - H) * frame.y / 100))
-                        .opacity(on ? 1 : 0).scaleEffect(on ? 1 : 1.06).brightness(on ? 0 : -0.5).animation(.easeOut(duration: 2), value: on)
-                }
+        let w: Double = frame.z * max(1, H / r)
+        let h: Double = w * r
+        return (CGFloat(W), CGFloat(W * H), CGFloat(W * w), CGFloat(W * h), CGFloat(-W * (w - 1) * frame.x / 100), CGFloat(-W * (h - H) * frame.y / 100))
+    }
+    private var shade: LinearGradient {
+        LinearGradient(stops: [.init(color: T.bg.opacity(hero ? 0.33 : 1), location: 0), .init(color: T.bg.opacity(0), location: 0.15), .init(color: T.bg.opacity(0), location: 0.74), .init(color: T.bg, location: 1)], startPoint: .top, endPoint: .bottom)
+    }
+    @ViewBuilder private var picture: some View {
+        let b = box, on = seen && img != nil
+        ZStack(alignment: .topLeading) {
+            if let img {
+                Image(uiImage: img).resizable().frame(width: b.iw, height: b.ih).offset(x: b.dx, y: b.dy)
+                    .opacity(on ? 1 : 0).scaleEffect(on ? 1 : 1.06).brightness(on ? 0 : -0.5).animation(.easeOut(duration: 2), value: on)
             }
-            .frame(width: CGFloat(W), height: CGFloat(W * H), alignment: .topLeading).clipped()
-            .overlay(LinearGradient(stops: [.init(color: T.bg.opacity(hero ? 0.33 : 1), location: 0), .init(color: T.bg.opacity(0), location: 0.15), .init(color: T.bg.opacity(0), location: 0.74), .init(color: T.bg, location: 1)], startPoint: .top, endPoint: .bottom).padding(-1))
-            .overlay(alignment: .bottom) { if hero && !caption.isEmpty { cap.padding(.bottom, size * 0.6) } }
+        }
+        .frame(width: b.fw, height: b.fh, alignment: .topLeading).clipped()
+    }
+    var body: some View {
+        VStack(spacing: 0) {
+            picture.overlay(shade.padding(-1))
+                .overlay(alignment: .bottom) { if hero && !caption.isEmpty { cap.padding(.bottom, size * 0.6) } }
             if !hero && !caption.isEmpty { cap.padding(.top, size * 0.5) }
         }
         .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + (hero ? 0.9 : 0.2)) { seen = true } }
@@ -701,14 +713,19 @@ private struct Flow: Layout {
         return out
     }
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let w = proposal.width ?? 320, r = rows(w, subviews)
-        return CGSize(width: w, height: r.reduce(0) { $0 + ($1.map { $0.1.height }.max() ?? 0) } + spacing * CGFloat(max(0, r.count - 1)))
+        let w: CGFloat = proposal.width ?? 320
+        let r = rows(w, subviews)
+        var total: CGFloat = 0
+        for row in r { var h: CGFloat = 0; for it in row { h = max(h, it.1.height) }; total += h }
+        total += spacing * CGFloat(max(0, r.count - 1))
+        return CGSize(width: w, height: total)
     }
     func placeSubviews(in b: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var y = b.minY
         for row in rows(b.width, subviews) {
-            let rw = row.reduce(0) { $0 + $1.1.width } + spacing * CGFloat(max(0, row.count - 1)), h = row.map { $0.1.height }.max() ?? 0
-            var x = b.minX + (b.width - rw) / 2
+            var rw: CGFloat = spacing * CGFloat(max(0, row.count - 1)), h: CGFloat = 0
+            for it in row { rw += it.1.width; h = max(h, it.1.height) }
+            var x: CGFloat = b.minX + (b.width - rw) / 2
             for (i, z) in row { subviews[i].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(z)); x += z.width + spacing }
             y += h + spacing
         }
