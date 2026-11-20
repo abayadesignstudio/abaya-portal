@@ -147,11 +147,11 @@ struct ComposeView: View {
                 }
                 .padding(2).background(Capsule().fill(Color(hex: 0x0c0e08).opacity(0.18)))
                 HStack {
-                    Button("Cancel") { if m.hasContent { confirmCancel = true } else { m.close() } }
+                    Button("Cancel") { flushTyping(); if m.hasContent { confirmCancel = true } else { m.close() } }
                         .font(.sans(17)).foregroundStyle(C.ink)
                     Spacer()
                     // Longer writing — title, headings, cover — goes to the article editor.
-                    Button { m.saveDraft(); m.article() } label: {
+                    Button { flushTyping(); m.saveDraft(); m.article() } label: {
                         HStack(spacing: 6) { GlyphView(n: "pencil", s: 15, w: 2); Text("Article").font(.sans(15, .semibold)) }
                             .foregroundStyle(C.ink).padding(.horizontal, 12).frame(height: 32)
                             .overlay(Capsule().stroke(Color(hex: 0x50533a), lineWidth: 1))
@@ -169,7 +169,7 @@ struct ComposeView: View {
                             let i = m.posts.firstIndex(where: { $0.id == p.id }) ?? 0
                             PostRow(post: $p, index: i, name: m.name, avatar: m.avatar, showLine: true, focus: $focus,
                                     remove: i > 0 ? { withAnimation(.snappy) { m.posts.removeAll { $0.id == p.id } } } : nil,
-                                    splitOver: { let (a, b) = split(p.text, after: LIMIT); p.text = a
+                                    splitOver: { flushTyping(); let (a, b) = split(p.text, after: LIMIT); p.text = a
                                                  let n = DraftPost(text: b); m.posts.insert(n, at: i + 1); focus = n.id },
                                     m: m, openSheet: { focus = nil; sheet = $0 }, camera: { cameraFor = p.id })
                                 .id(p.id)
@@ -216,7 +216,7 @@ struct ComposeView: View {
                 let n = words(current.text)
                 Text("\(n)/\(LIMIT)").font(.sans(14).monospacedDigit())
                     .foregroundStyle(n > LIMIT ? C.red : n > LIMIT - 30 ? C.ink : C.muted).opacity(m.toNotes ? 0 : 1)
-                Button { focus = nil; m.post() } label: {
+                Button { flushTyping(); focus = nil; m.post() } label: {
                     Group { if m.busy { ProgressView().tint(C.paper) } else { Text(m.toNotes ? "Save" : "Post").font(.sans(16, .semibold)) } }
                         .frame(minWidth: 44).padding(.horizontal, 18).frame(height: 38)
                         .foregroundStyle(m.canPost ? C.paper : C.faint)

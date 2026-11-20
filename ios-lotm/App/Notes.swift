@@ -378,7 +378,7 @@ struct NoteEntry: View {
                         HStack(spacing: 8) {
                             PhotosPicker(selection: $photo, matching: .images) { Text("Photo") }.buttonStyle(PillStyle())
                             Button("Camera") { camera = true }.buttonStyle(PillStyle())
-                            Button("Paste") { if let s = UIPasteboard.general.string, !s.isEmpty { if n.kind == "quote" { n.quotation += (n.quotation.isEmpty ? "" : " ") + s } else { n.body += (n.body.isEmpty ? "" : "\n") + s } } }.buttonStyle(PillStyle())
+                            Button("Paste") { flushTyping(); if let s = UIPasteboard.general.string, !s.isEmpty { if n.kind == "quote" { n.quotation += (n.quotation.isEmpty ? "" : " ") + s } else { n.body += (n.body.isEmpty ? "" : "\n") + s } } }.buttonStyle(PillStyle())
                         }.padding(.top, 10)
                     }
                     .padding(.horizontal, 16).padding(.vertical, 14).frame(maxWidth: .infinity, alignment: .leading)
@@ -468,6 +468,7 @@ struct NoteEntry: View {
         .background(T.card.ignoresSafeArea()).preferredColorScheme(.dark)
     }
     private func save() {
+        flushTyping()
         let empty = [n.quotation, n.body, n.title].allSatisfy { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !empty else { m.say("Write something first"); close(); return }
         var x = n
@@ -477,6 +478,7 @@ struct NoteEntry: View {
         Task { if await m.save(x, new: id == nil) { close() }; busy = false }
     }
     private func share() {
+        flushTyping()
         let t = n.kind == "quote" ? "“\(n.quotation)”" + (n.bookTitle.isEmpty ? "" : " — \(n.bookTitle)" + (n.page.isEmpty ? "" : ", p. \(n.page)")) + (n.body.isEmpty ? "" : "\n\n\(n.body)") : n.body
         let name = web.feed?.myName ?? "", avatar = web.feed?.myAvatar
         close { web.composer.present(name: name, avatar: avatar, text: t) }

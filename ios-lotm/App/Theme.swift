@@ -248,6 +248,10 @@ func quoteMarked(_ body: String, _ html: String?) -> String {
 /// A text field that grows with what is written and, as in Notes, keeps the line being typed in view: when the cursor
 /// moves under the keyboard or off the top, the page scrolls to it. The keyboard has a button to put it away, and a
 /// drag down the page takes it along.
+/// Hand every text field's latest words to its page now (before posting, saving or leaving).
+@MainActor func flushTyping() { NotificationCenter.default.post(name: .lotmFlushTyping, object: nil) }
+extension Notification.Name { static let lotmFlushTyping = Notification.Name("lotm.flushTyping") }
+
 struct CaretText: UIViewRepresentable {
     @Binding var text: String
     var hint = ""
@@ -284,7 +288,8 @@ struct CaretText: UIViewRepresentable {
     }
     func updateUIView(_ v: UITextView, context: Context) {
         context.coordinator.parent = self
-        if v.text != text { v.text = text }
+        // While words typed here are still on their way to the page, the page's older copy must not overwrite them.
+        if context.coordinator.local == nil, v.text != text { v.text = text }
         // Styled once (and again only if the look changes), not on every letter typed.
         let look = "\(size)|\(italic)|\(semibold)|\(color.hash)"
         if context.coordinator.look != look {
@@ -309,15 +314,41 @@ struct CaretText: UIViewRepresentable {
     }
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: CaretText; var seen = 0; var look = ""
-        init(_ p: CaretText) { parent = p }
+        /// The words as typed, not yet handed to the page. Like iMessage, the field owns its text while you type: the page
+        /// (counters, buttons, the draft) hears about it when you pause, or at once when the field grows a line.
+        var local: String?
+        private var lastHeight: CGFloat = 0
+        private var pending: DispatchWorkItem?
+        private var watch: NSObjectProtocol?
+        init(_ p: CaretText) {
+            parent = p; super.init()
+            watch = NotificationCenter.default.addObserver(forName: .lotmFlushTyping, object: nil, queue: nil) { [weak self] _ in MainActor.assumeIsolated { self?.flush() } }
+        }
+        deinit { if let watch { NotificationCenter.default.removeObserver(watch) } }
+        func flush() {
+            pending?.cancel(); pending = nil
+            guard let t = local else { return }
+            local = nil
+            if parent.text != t { parent.text = t }
+        }
         func textViewDidChange(_ v: UITextView) {
-            parent.text = v.text
+            local = v.text
             (v.viewWithTag(7) as? UILabel)?.isHidden = !v.text.isEmpty
-            v.invalidateIntrinsicContentSize(); follow(v)
+            let h = v.sizeThatFits(CGSize(width: v.bounds.width, height: .greatestFiniteMagnitude)).height
+            if h != lastHeight {
+                // A new line: the page has to make room now.
+                lastHeight = h; flush(); v.invalidateIntrinsicContentSize()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self.follow(v) }
+            } else {
+                pending?.cancel()
+                let w = DispatchWorkItem { [weak self] in self?.flush() }
+                pending = w; DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: w)
+                follow(v)
+            }
         }
         func textViewDidChangeSelection(_ v: UITextView) { if v.isFirstResponder { follow(v) } }
         func textViewDidBeginEditing(_ v: UITextView) { parent.onFocus(true); DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self.follow(v) } }
-        func textViewDidEndEditing(_ v: UITextView) { parent.onFocus(false) }
+        func textViewDidEndEditing(_ v: UITextView) { flush(); parent.onFocus(false) }
         /// Bring the cursor's line into view in the page it sits in, with a little room above and below.
         private func follow(_ v: UITextView) {
             DispatchQueue.main.async {
