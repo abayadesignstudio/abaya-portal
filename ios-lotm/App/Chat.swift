@@ -581,7 +581,7 @@ struct ChatSoon: View {
             GlyphView(n: "chat", s: 40).foregroundStyle(T.muted)
             Text("Chat").font(.serif(26, .semibold)).foregroundStyle(T.ink).padding(.top, 6)
             Text("Coming soon").font(.sans(13, .bold)).tracking(1.4).textCase(.uppercase).foregroundStyle(T.paper).padding(.horizontal, 14).frame(height: 28).background(Capsule().fill(T.ink))
-            Text("Private, end-to-end encrypted messages and group conversations for the club.").font(.sans(15)).foregroundStyle(T.muted).multilineTextAlignment(.center).frame(maxWidth: 280).padding(.top, 6)
+            Text("Private, end-to-end encrypted messages and group conversations for LOTM.").font(.sans(15)).foregroundStyle(T.muted).multilineTextAlignment(.center).frame(maxWidth: 280).padding(.top, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity).padding(.bottom, 120).background(T.paper.ignoresSafeArea())
     }

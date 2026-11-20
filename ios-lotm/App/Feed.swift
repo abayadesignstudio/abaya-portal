@@ -625,7 +625,7 @@ struct PostCard: View {
         }
         if !p.body.isEmpty && !(p.audio && p.body.trimmingCharacters(in: .whitespaces) == "Voice note") {
             // a note shows in full (posts are short); only articles are cut to a card
-            Paras(text: p.body, size: 20, leading: 1.26, gap: 5)
+            Paras(text: p.body, size: 18.5, leading: 1.3, gap: 5, weight: .medium)
         }
         if p.audio { Button { m.open(p.id, false) } label: { Label("Voice note", systemImage: "play.fill") }.buttonStyle(PillStyle()).padding(.top, 10) }
         PhotoRow(urls: p.photos).padding(.top, p.photos.isEmpty ? 0 : 14)

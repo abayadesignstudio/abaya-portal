@@ -268,6 +268,13 @@ final class LibraryModel: ObservableObject {
 
     // MARK: goals, events, links, club updates
 
+    /// Set by hand how many pages were read on a day (pages logged on books later that day add to it).
+    func setDay(_ d: Date, _ pages: Int) async {
+        let k = lday(d), was = days[k]
+        days[k] = pages
+        do { _ = try await db()?.req("POST", "/rest/v1/rpc/set_reading_day", json: ["p_day": k, "p_pages": pages]); Haptic.tap() }
+        catch { days[k] = was; say(error.localizedDescription) }
+    }
     func saveGoal(_ n: Int, remind r: Bool, at: String) async {
         goal = n; remind = r; remindAt = at
         _ = try? await db()?.req("PATCH", "/rest/v1/reading_goals?user_id=eq.\(me)", json: ["pages_per_day": n, "remind": r, "remind_at": at, "last_reminded": NSNull(), "updated_at": liso()])
@@ -666,13 +673,32 @@ private struct CoverBack: View {
     init(r: LRead, m: LibraryModel, close: @escaping () -> Void) { self.r = r; self.m = m; self.close = close; _n = State(initialValue: r.page) }
     private var maxPage: Int { r.total ?? max(1000, r.page + 500) }
     private let dark = Color(rgb: 0x20231a)
+    private let green = Color(rgb: 0x3f7d4f)
     var body: some View {
         VStack(spacing: 0) {
+            Menu {
+                if r.status != "finished" { Button { close(); Task { await m.setStatus(r, "finished") } } label: { Label("Mark complete", systemImage: "checkmark") } }
+                Button { UIApplication.shared.open(amazon(r.title, r.author, r.bookURL)) } label: { Label("Amazon", systemImage: "arrow.up.right") }
+                Button(role: .destructive) { confirmRemove = true } label: { Label("Remove", systemImage: "trash") }
+            } label: { Image(systemName: "ellipsis").font(.system(size: 16, weight: .bold)).foregroundStyle(dark.opacity(0.7)).frame(width: 56, height: 32).contentShape(Rectangle()) }
+            .padding(.top, 4).accessibilityLabel("More for this book")
             if r.status == "reading" || r.status == "paused" {
                 Spacer(minLength: 0)
-                Picker("Page", selection: $n) { ForEach(0...maxPage, id: \.self) { Text("\($0)").font(.serif(21, .semibold)).foregroundStyle(dark) } }
-                    .pickerStyle(.wheel).frame(width: 100, height: 124).clipped().environment(\.colorScheme, .light)
+                // The page you last logged is marked on the wheel with a ribbon, in green.
+                Picker("Page", selection: $n) {
+                    ForEach(0...maxPage, id: \.self) { p in
+                        HStack(spacing: 4) {
+                            if p == r.page && p > 0 { Image(systemName: "bookmark.fill").font(.system(size: 10)).foregroundStyle(green) }
+                            Text("\(p)").font(.serif(21, .semibold)).foregroundStyle(p == r.page && p > 0 ? green : dark)
+                        }
+                    }
+                }
+                .pickerStyle(.wheel).frame(width: 110, height: 124).clipped().environment(\.colorScheme, .light)
                 Text(r.total.map { "of \($0)" } ?? "page").font(.sans(12)).foregroundStyle(Color(rgb: 0x6b6e55)).padding(.top, 2)
+                Button { withAnimation { n = r.page } } label: {
+                    HStack(spacing: 4) { Image(systemName: "bookmark.fill").font(.system(size: 9)); Text("Last read: p. \(r.page)").font(.sans(11.5, .semibold)) }.foregroundStyle(green).padding(.horizontal, 8).frame(height: 24)
+                }
+                .buttonStyle(.plain).opacity(n != r.page && r.page > 0 ? 1 : 0).animation(.easeOut(duration: 0.2), value: n != r.page)
                 Spacer(minLength: 0)
             } else {
                 Spacer(minLength: 0)
@@ -681,13 +707,8 @@ private struct CoverBack: View {
                 }
                 .padding(.horizontal, 14)
                 Spacer(minLength: 0)
+                Color.clear.frame(height: 32)
             }
-            Menu {
-                if r.status != "finished" { Button { close(); Task { await m.setStatus(r, "finished") } } label: { Label("Mark complete", systemImage: "checkmark") } }
-                Button { UIApplication.shared.open(amazon(r.title, r.author, r.bookURL)) } label: { Label("Amazon", systemImage: "arrow.up.right") }
-                Button(role: .destructive) { confirmRemove = true } label: { Label("Remove", systemImage: "trash") }
-            } label: { Image(systemName: "ellipsis").font(.system(size: 16, weight: .bold)).foregroundStyle(dark.opacity(0.7)).frame(width: 56, height: 34).contentShape(Rectangle()) }
-            .padding(.bottom, 6).accessibilityLabel("More for this book")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
@@ -719,6 +740,7 @@ struct LibraryScreen: View {
     @State private var editing: UpdateDraft?
     @State private var clubSearch = false
     @State private var goalSheet = false
+    @State private var editDay: DayPick?
     @State private var eventForm = false
     @State private var linkForm = false
     @State private var pastOpen = false
@@ -775,6 +797,7 @@ struct LibraryScreen: View {
             }
         }
         .sheet(item: $editing) { d in UpdateSheet(d: d, m: m, find: { cur in editing = nil; pending = cur; DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { clubSearch = true } }) { editing = nil } }
+        .sheet(item: $editDay) { d in DaySheet(m: m, day: d.date) { editDay = nil }.presentationDetents([.height(330)]) }
         .sheet(isPresented: $goalSheet) { GoalSheet(m: m) { goalSheet = false }.presentationDetents([.medium]) }
         .sheet(isPresented: $eventForm) { EventForm(m: m) { eventForm = false } }
         .sheet(isPresented: $linkForm) { LinkForm(m: m) { linkForm = false } }
@@ -908,9 +931,14 @@ struct LibraryScreen: View {
             HStack(spacing: 0) {
                 ForEach(0..<7, id: \.self) { i in
                     let on = met(week[i]), isToday = i == wd, future = week[i] > today && !isToday
-                    Text(["S", "M", "T", "W", "T", "F", "S"][i]).font(.sans(15, .bold)).foregroundStyle(on ? .white : future ? Color(rgb: 0x7d8063) : T.ink)
-                        .frame(width: 36, height: 36).background(Circle().fill(on ? Color(rgb: 0x5d9b6b) : .clear))
-                        .overlay(Circle().stroke(on ? .clear : isToday ? T.ticker : Color(rgb: 0x5a5d41), lineWidth: 2))
+                    Button { Haptic.tap(); editDay = DayPick(date: week[i]) } label: {
+                        Text(["S", "M", "T", "W", "T", "F", "S"][i]).font(.sans(15, .bold)).foregroundStyle(on ? .white : future ? Color(rgb: 0x7d8063) : T.ink)
+                            .frame(width: 36, height: 36).background(Circle().fill(on ? Color(rgb: 0x5d9b6b) : .clear))
+                            .overlay(Circle().stroke(on ? .clear : isToday ? T.ticker : Color(rgb: 0x5a5d41), lineWidth: 2))
+                            .contentShape(Rectangle().inset(by: -5))
+                    }
+                    .buttonStyle(.plain).disabled(future)
+                    .accessibilityLabel("\(week[i].formatted(.dateTime.weekday(.wide))), \(m.days[lday(week[i])] ?? 0) pages")
                     if i < 6 { Rectangle().fill(on && met(week[i + 1]) && week[i + 1] <= today ? Color(rgb: 0x5d9b6b) : .clear).frame(height: 3).frame(maxWidth: .infinity) }
                 }
             }
@@ -1009,7 +1037,7 @@ struct LibraryScreen: View {
                 ForEach(m.links) { l in
                     Button { m.openLink(l) } label: {
                         VStack(alignment: .leading, spacing: 0) {
-                            ZStack { Color(rgb: 0x626546); if let u = l.image { AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear } } }.frame(width: 220, height: 96).clipped()
+                            LinkThumb(l: l).frame(width: 220, height: 96).clipped()
                             VStack(alignment: .leading, spacing: 2) {
                                 Text((l.publication ?? URL(string: l.url)?.host?.replacingOccurrences(of: "www.", with: "") ?? "").uppercased()).font(.sans(11, .bold)).tracking(0.6).foregroundStyle(T.muted).lineLimit(1)
                                 Text(l.title).font(.serif(16, .semibold)).foregroundStyle(T.ink).lineLimit(2).multilineTextAlignment(.leading)
@@ -1041,12 +1069,12 @@ struct LibraryScreen: View {
                         let gone = d < Date()
                         HStack(spacing: 12) {
                             VStack(spacing: 0) {
-                                Text(d.formatted(.dateTime.weekday(.abbreviated)).uppercased()).font(.sans(10, .bold)).foregroundStyle(T.cream).frame(maxWidth: .infinity).padding(.vertical, 2).background(T.tan)
+                                Text(d.formatted(.dateTime.month(.abbreviated)).uppercased()).font(.sans(10, .bold)).foregroundStyle(T.cream).frame(maxWidth: .infinity).padding(.vertical, 2).background(T.tan)
                                 Text("\(Calendar.current.component(.day, from: d))").font(.sans(18, .semibold)).foregroundStyle(T.ink).padding(.top, 2).padding(.bottom, 4)
                             }
                             .frame(width: 46).background(T.card).clipShape(RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(T.softBd)).opacity(gone ? 0.5 : 1)
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(gone ? "Met \(d.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))" : "Next study · \(d.formatted(.dateTime.weekday(.wide))) \(d.formatted(date: .omitted, time: .shortened))").font(.sans(14, .semibold)).foregroundStyle(T.ink)
+                                Text(gone ? "Met \(d.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))" : "Next study · \(d.formatted(.dateTime.weekday(.wide).month(.wide).day())) · \(d.formatted(date: .omitted, time: .shortened))").font(.sans(14, .semibold)).foregroundStyle(T.ink)
                                 Text(lshort(b.title) + ((b.position ?? "TBD") != "TBD" && !(b.position ?? "").isEmpty ? " · \(b.position!)" : "")).font(.sans(13)).foregroundStyle(T.muted)
                                 if let p = b.place, !p.isEmpty {
                                     Button { if let u = b.placeURL.flatMap(URL.init(string:)) ?? URL(string: "https://maps.apple.com/?q=\(p.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")") { UIApplication.shared.open(u) } } label: { Text(p).font(.sans(13)).foregroundStyle(T.muted).multilineTextAlignment(.leading) }.buttonStyle(.plain)
@@ -1071,6 +1099,27 @@ private func calendar(title: String, start: Date, place: String?, uid: String) {
     c.queryItems = [URLQueryItem(name: "title", value: title), URLQueryItem(name: "start", value: f.string(from: start)), URLQueryItem(name: "end", value: f.string(from: start.addingTimeInterval(7200))), URLQueryItem(name: "uid", value: uid)]
         + (place.map { [URLQueryItem(name: "location", value: $0)] } ?? [])
     if let u = c.url { UIApplication.shared.open(u) }
+}
+
+/// A shared link's picture: the one saved with it, else the one its page offers, else the site's name.
+private struct LinkThumb: View {
+    let l: LLink
+    @State private var found: URL?
+    @State private var looked = false
+    private static var cache: [String: URL] = [:]
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(rgb: 0x565a3f), Color(rgb: 0x6a6e4e)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            if let u = l.image ?? found { AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear } }
+            else if looked { Text(l.publication ?? URL(string: l.url)?.host?.replacingOccurrences(of: "www.", with: "") ?? "").font(.serif(19, .semibold)).foregroundStyle(T.ink.opacity(0.8)).lineLimit(2).multilineTextAlignment(.center).padding(.horizontal, 14) }
+        }
+        .task {
+            guard l.image == nil, found == nil else { return }
+            if let c = Self.cache[l.url] { found = c; return }
+            if let u = lurl((await site("fetch-metadata", ["url": l.url]))?["image"]) { Self.cache[l.url] = u; found = u }
+            looked = true
+        }
+    }
 }
 
 /// A book's description: the club's own notes if there are any, else what the site's book service knows.
@@ -1317,6 +1366,42 @@ private struct UpdateSheet: View {
             .padding(.horizontal, 20)
         }
         .background(T.card.ignoresSafeArea()).preferredColorScheme(.dark)
+    }
+}
+
+struct DayPick: Identifiable { let date: Date; var id: String { lday(date) } }
+/// How many pages were read on one day, set by hand.
+private struct DaySheet: View {
+    @ObservedObject var m: LibraryModel
+    let day: Date
+    let close: () -> Void
+    @State private var n = 0
+    private func step(_ d: Int) { n = max(0, min(2000, n + d)); Haptic.tap() }
+    var body: some View {
+        SheetBody {
+            VStack(spacing: 0) {
+                Text(Calendar.current.isDateInToday(day) ? "Today" : day.formatted(.dateTime.weekday(.wide).month(.wide).day())).font(.serif(22, .semibold)).foregroundStyle(T.ink)
+                HStack(spacing: 22) {
+                    Button { step(-5) } label: { Image(systemName: "minus").font(.system(size: 16, weight: .bold)).foregroundStyle(T.ink).frame(width: 44, height: 44).background(Circle().fill(Color(rgb: 0x4d5038))) }.accessibilityLabel("Fewer pages")
+                    VStack(spacing: 0) {
+                        TextField("", value: $n, format: .number).keyboardType(.numberPad).multilineTextAlignment(.center).font(.serif(54)).foregroundStyle(T.ink).monospacedDigit().frame(width: 130)
+                        Text(n == 1 ? "page read" : "pages read").font(.sans(14)).foregroundStyle(T.muted)
+                    }
+                    Button { step(5) } label: { Image(systemName: "plus").font(.system(size: 16, weight: .bold)).foregroundStyle(T.ink).frame(width: 44, height: 44).background(Circle().fill(Color(rgb: 0x4d5038))) }.accessibilityLabel("More pages")
+                }
+                .padding(.top, 14)
+                HStack(spacing: 8) {
+                    ForEach([0, m.goal, m.goal * 2], id: \.self) { v in
+                        Button { n = v; Haptic.tap() } label: { Text(v == 0 ? "None" : "\(v)").font(.sans(14, .semibold)).foregroundStyle(n == v ? T.paper : T.ink).padding(.horizontal, 14).frame(height: 32).background(Capsule().fill(n == v ? T.ink : Color(rgb: 0x4d5038))) }.buttonStyle(.plain)
+                    }
+                }
+                .padding(.top, 14)
+                Button("Save") { let v = max(0, min(2000, n)); close(); Task { await m.setDay(day, v) } }.buttonStyle(LBtn(h: 48)).padding(.top, 20)
+            }
+            .padding(.horizontal, 20)
+        }
+        .background(T.card.ignoresSafeArea()).preferredColorScheme(.dark)
+        .onAppear { n = m.days[lday(day)] ?? 0 }
     }
 }
 

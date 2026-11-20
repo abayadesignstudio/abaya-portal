@@ -208,12 +208,12 @@ struct SheetBody<Content: View>: View {
 /// Writing laid out as the web app's .body: paragraphs (separated by a blank line) with a small gap between them, line
 /// breaks kept, web addresses tappable.
 /// A post's writing, paragraph by paragraph. A quoted passage (marked when the post is loaded) keeps its line down the left.
-struct Paras: View { let text: String; var size: CGFloat = 18; var leading: CGFloat = 1.4; var gap: CGFloat = 6
+struct Paras: View { let text: String; var size: CGFloat = 18; var leading: CGFloat = 1.4; var gap: CGFloat = 6; var weight: Font.Weight = .regular
     var body: some View {
         let ps = text.replacingOccurrences(of: "\r", with: "").split(separator: #/\n[ \t]*\n+/#).map { String($0).trimmingCharacters(in: .newlines) }.filter { !$0.isEmpty }
         VStack(alignment: .leading, spacing: gap) { ForEach(Array(ps.enumerated()), id: \.offset) { _, p in
             let quote = p.hasPrefix(quoteMark)
-            Text(linked(quote ? String(p.dropFirst()) : p)).font(.serif(size, italic: quote)).foregroundStyle(T.ink).lineSpacing(max(0, size * leading - size * 1.305))
+            Text(linked(quote ? String(p.dropFirst()) : p)).font(quote ? .serif(size, italic: true) : .serif(size, weight)).foregroundStyle(T.ink).lineSpacing(max(0, size * leading - size * 1.305))
                 .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, quote ? 12 : 0)
                 .overlay(alignment: .leading) { if quote { T.ink.frame(width: 3) } }
@@ -337,8 +337,7 @@ struct CaretText: UIViewRepresentable {
             let h = v.sizeThatFits(CGSize(width: v.bounds.width, height: .greatestFiniteMagnitude)).height
             if h != lastHeight {
                 // A new line: the page has to make room now.
-                lastHeight = h; flush(); v.invalidateIntrinsicContentSize()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self.follow(v) }
+                lastHeight = h; flush(); v.invalidateIntrinsicContentSize(); follow(v)
             } else {
                 pending?.cancel()
                 let w = DispatchWorkItem { [weak self] in self?.flush() }
@@ -347,19 +346,96 @@ struct CaretText: UIViewRepresentable {
             }
         }
         func textViewDidChangeSelection(_ v: UITextView) { if v.isFirstResponder { follow(v) } }
-        func textViewDidBeginEditing(_ v: UITextView) { parent.onFocus(true); DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self.follow(v) } }
+        func textViewDidBeginEditing(_ v: UITextView) { parent.onFocus(true); DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.follow(v) } }
         func textViewDidEndEditing(_ v: UITextView) { flush(); parent.onFocus(false) }
-        /// Bring the cursor's line into view in the page it sits in, with a little room above and below.
+        /// Bring the cursor's line into view in the page it sits in: one small, direct move (never a jump away and back),
+        /// taken once the typing and the page's own layout have settled for a moment.
+        private var following: DispatchWorkItem?
         private func follow(_ v: UITextView) {
-            DispatchQueue.main.async {
-                guard let r = v.selectedTextRange else { return }
+            following?.cancel()
+            let w = DispatchWorkItem { [weak v] in
+                guard let v, v.isFirstResponder, let r = v.selectedTextRange else { return }
                 var s: UIView? = v.superview
                 while let x = s, !(x is UIScrollView) { s = x.superview }
-                guard let scroll = s as? UIScrollView else { return }
-                let caret = v.convert(v.caretRect(for: r.end), to: scroll).insetBy(dx: 0, dy: -34)
-                guard caret.origin.y.isFinite, caret.height.isFinite else { return }
-                let top = scroll.contentOffset.y + scroll.adjustedContentInset.top, bottom = scroll.contentOffset.y + scroll.bounds.height - scroll.adjustedContentInset.bottom
-                if caret.minY < top || caret.maxY > bottom { scroll.scrollRectToVisible(caret, animated: true) }
+                guard let scroll = s as? UIScrollView, !scroll.isDragging, !scroll.isDecelerating else { return }
+                let caret = v.convert(v.caretRect(for: r.end), to: scroll)
+                guard caret.origin.y.isFinite, caret.height.isFinite, caret.height < 200 else { return }
+                let top = scroll.contentOffset.y + scroll.adjustedContentInset.top + 10
+                let bottom = scroll.contentOffset.y + scroll.bounds.height - scroll.adjustedContentInset.bottom - 26
+                var y = scroll.contentOffset.y
+                if caret.maxY > bottom { y += caret.maxY - bottom } else if caret.minY < top { y -= top - caret.minY } else { return }
+                let lo = -scroll.adjustedContentInset.top, hi = max(lo, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
+                y = max(lo, min(hi, y))
+                if abs(y - scroll.contentOffset.y) > 1 { UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) { scroll.contentOffset.y = y } }
+            }
+            following = w
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.09, execute: w)
+        }
+    }
+}
+
+
+/// Chips (or anything) that wrap onto as many lines as they need.
+struct Wrap: Layout {
+    var spacing: CGFloat = 6
+    var centered = false
+    private func rows(_ w: CGFloat, _ subs: Subviews) -> [[(Int, CGSize)]] {
+        var out: [[(Int, CGSize)]] = [[]], x: CGFloat = 0
+        for (i, s) in subs.enumerated() {
+            let z = s.sizeThatFits(ProposedViewSize(width: w, height: nil))
+            if x + z.width > w, !out[out.count - 1].isEmpty { out.append([]); x = 0 }
+            out[out.count - 1].append((i, z)); x += z.width + spacing
+        }
+        return out
+    }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let w: CGFloat = proposal.width ?? 320
+        let r = rows(w, subviews)
+        var total: CGFloat = spacing * CGFloat(max(0, r.count - 1))
+        for row in r { var h: CGFloat = 0; for it in row { h = max(h, it.1.height) }; total += h }
+        return CGSize(width: w, height: total)
+    }
+    func placeSubviews(in b: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = b.minY
+        for row in rows(b.width, subviews) {
+            var rw: CGFloat = spacing * CGFloat(max(0, row.count - 1)), h: CGFloat = 0
+            for it in row { rw += it.1.width; h = max(h, it.1.height) }
+            var x: CGFloat = centered ? b.minX + (b.width - rw) / 2 : b.minX
+            for (i, z) in row { subviews[i].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(z)); x += z.width + spacing }
+            y += h + spacing
+        }
+    }
+}
+
+/// Watches the scroll view it sits in for a pull past either end (put it in the scrolling content's background).
+struct PullWatch: UIViewRepresentable {
+    var distance: CGFloat = 90
+    var top: () -> Void = {}
+    var bottom: () -> Void = {}
+    func makeUIView(context: Context) -> Probe { let v = Probe(); v.set(distance, top, bottom); return v }
+    func updateUIView(_ v: Probe, context: Context) { v.set(distance, top, bottom) }
+    final class Probe: UIView {
+        private var distance: CGFloat = 90, top: () -> Void = {}, bottom: () -> Void = {}
+        private var watch: NSKeyValueObservation?
+        private var fired = false
+        func set(_ d: CGFloat, _ t: @escaping () -> Void, _ b: @escaping () -> Void) { distance = d; top = t; bottom = b }
+        override init(frame: CGRect) { super.init(frame: frame); isUserInteractionEnabled = false; backgroundColor = .clear }
+        required init?(coder: NSCoder) { fatalError() }
+        override func didMoveToWindow() {
+            super.didMoveToWindow(); watch = nil
+            guard window != nil else { return }
+            var s: UIView? = superview
+            while let x = s, !(x is UIScrollView) { s = x.superview }
+            guard let scroll = s as? UIScrollView else { return }
+            scroll.alwaysBounceVertical = true
+            watch = scroll.observe(\.contentOffset) { [weak self] sc, _ in
+                guard let self else { return }
+                let over = -(sc.contentOffset.y + sc.adjustedContentInset.top)
+                let under = sc.contentOffset.y + sc.bounds.height - sc.adjustedContentInset.bottom - max(sc.contentSize.height, sc.bounds.height - sc.adjustedContentInset.top - sc.adjustedContentInset.bottom)
+                if !sc.isTracking && over < 4 && under < 4 { self.fired = false }
+                guard sc.isTracking, !self.fired else { return }
+                if over > self.distance { self.fired = true; DispatchQueue.main.async { self.top() } }
+                else if under > self.distance { self.fired = true; DispatchQueue.main.async { self.bottom() } }
             }
         }
     }

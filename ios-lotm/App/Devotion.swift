@@ -462,7 +462,6 @@ struct DevotionScreen: View {
             T.bg.ignoresSafeArea()
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    GeometryReader { p in Color.clear.preference(key: TopY.self, value: p.frame(in: .named("devotion")).minY) }.frame(height: 0)
                     if let h = hero {
                         Painting(src: h.lines[0], caption: h.lines[1], frame: DFrame(h.lines[3]), T: T, size: size, hero: true)
                             .overlay(alignment: .top) { title(size).padding(.horizontal, 24).padding(.top, max(54, SH * CGFloat(m.date.y) / 100 * 0.56 + 44)).shadow(color: .black.opacity(0.75), radius: 11, y: 2) }
@@ -475,17 +474,19 @@ struct DevotionScreen: View {
                         if !(i == 0 && hero != nil) { block(b, i, bs, size).padding(.horizontal, b.kind == "art" ? 0 : 28) }
                     }
                     Text("☩").font(.system(size: size * 1.5)).foregroundStyle(T.red).frame(maxWidth: .infinity).padding(.top, size * 2.2).padding(.bottom, size)
-                    Button { toMenu() } label: { Text("Back to the devotion menu").font(.sans(13, .semibold)).foregroundStyle(T.mut).padding(.horizontal, 16).frame(height: 36).overlay(Capsule().stroke(T.mut.opacity(0.4))) }.frame(maxWidth: .infinity).padding(.top, 10)
+                    Text("Swipe up to close").font(.sans(11)).tracking(0.9).foregroundStyle(T.mut.opacity(0.55)).frame(maxWidth: .infinity).padding(.top, 14)
                     Color.clear.frame(height: SH * 0.3)
                 }
                 .frame(width: W)
+                // A pull down past the top, or up past the end, brings back the devotion menu.
+                .background(PullWatch(distance: 80, top: { if armed, stage == "read" { armed = false; toMenu() } }, bottom: { if armed, stage == "read" { armed = false; toMenu() } }))
             }
             .id(entry)
             .coordinateSpace(name: "devotion")
             .scrollIndicators(.hidden)
             .ignoresSafeArea(edges: .top)
-            // A pull down from the top brings back the devotion menu.
-            .onPreferenceChange(TopY.self) { y in if armed, stage == "read", y > 120 { armed = false; toMenu() } }
+            // Nothing is read under the clock: the page fades out beneath it.
+            .overlay(alignment: .top) { LinearGradient(colors: [T.bg.opacity(0.92), T.bg.opacity(0.8), T.bg.opacity(0)], startPoint: .top, endPoint: .bottom).frame(height: 10).ignoresSafeArea(edges: .top).allowsHitTesting(false) }
             .onTapGesture { withAnimation(.easeOut(duration: 0.25)) { chrome.toggle() } }
             // The reading rises out of the dark below and sinks into it above, as by candlelight.
             VStack { Spacer(); LinearGradient(stops: [.init(color: T.bg.opacity(0), location: 0), .init(color: T.bg.opacity(0.6), location: 0.45), .init(color: T.bg.opacity(0.9), location: 0.8), .init(color: T.bg, location: 1)], startPoint: .top, endPoint: .bottom).frame(height: SH * 0.3) }.ignoresSafeArea().allowsHitTesting(false)
