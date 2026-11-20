@@ -219,9 +219,11 @@ final class DevotionModel: ObservableObject {
         guard let db = await db() else { loaded = true; return }
         async let D = db.rows("/rest/v1/devotionals?slug=eq.\(slug)&select=title,body")
         async let V = db.rows("/rest/v1/devotionals?slug=eq.valley-of-vision&select=body")
+        async let L = db.rows("/rest/v1/devotion_prayers?select=id,body,source")
         async let H = db.rows("/rest/v1/hymn_tunes?select=name,url")
         async let P = db.rows("/rest/v1/profiles?id=eq.\(db.a.me)&select=role")
-        if let d = (try? await D)?.first { title = d["title"] as? String ?? ""; let body = d["body"] as? String ?? ""; blocks = dparse(body); date = DDate(body) }
+        let lib = (try? await L) ?? []
+        if let d = (try? await D)?.first { title = d["title"] as? String ?? ""; let body = Self.expand(d["body"] as? String ?? "", lib); blocks = dparse(body); date = DDate(body) }
         var out: [(title: String, blocks: [DBlock])] = []
         for b in dparse(((try? await V)?.first?["body"] as? String) ?? "") {
             if b.kind == "day" { out.append((b.lines[0], [])) } else if !out.isEmpty { var x = b; x.verse = b.kind == "para"; out[out.count - 1].blocks.append(DBlock(id: "v" + x.id, kind: x.kind, lines: x.lines, verse: x.verse)) }
@@ -230,6 +232,18 @@ final class DevotionModel: ObservableObject {
         var r: [String: String] = [:]; for x in (try? await H) ?? [] { if let n = x["name"] as? String, let u = x["url"] as? String { r[n] = u } }; recs = r
         admin = (try? await P)?.first?["role"] as? String == "administrator"
         loaded = true
+    }
+    /// A section that uses a prayer from the library holds one line, "⊕ <id> | <name>": the prayer's words and source are written in.
+    static func expand(_ body: String, _ lib: [[String: Any]]) -> String {
+        guard body.contains("⊕") else { return body }
+        var by: [String: String] = [:]
+        for p in lib { if let id = p["id"] as? String { let src = (p["source"] as? String ?? "").trimmingCharacters(in: .whitespaces); by[id.lowercased()] = (p["body"] as? String ?? "").replacingOccurrences(of: "\r", with: "") + (src.isEmpty ? "" : "\n— " + src) } }
+        return body.components(separatedBy: "\n").map { l -> String in
+            let t = l.trimmingCharacters(in: .whitespaces)
+            guard t.hasPrefix("⊕") else { return l }
+            let id = t.dropFirst().trimmingCharacters(in: .whitespaces).prefix(36).lowercased()
+            return by[id] ?? ""
+        }.joined(separator: "\n")
     }
     /// The day to open on: today's date if there is one, else the latest day already reached, else the first.
     var today: DBlock? {
