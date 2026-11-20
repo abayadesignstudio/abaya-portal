@@ -58,6 +58,8 @@ final class WebModel: NSObject, ObservableObject {
     let view: WKWebView
     weak var feed: FeedModel?
     /// Which Library pane is showing: mine, notes (the Commonplace, still the web's) or club.
+    /// Set for one visit when an administrator opens the web's own devotion (for its editor).
+    var allowWebReader = false
     @Published var libPane = UserDefaults.standard.string(forKey: "lotm.libPane") ?? "mine"
     /// The screen the web app is on (it reports each change), and the tab chosen in the app's own tab bar.
     @Published var route = ""
@@ -331,6 +333,13 @@ final class RouteHandler: NSObject, WKScriptMessageHandler {
             guard let model = self.model else { return }
             // A member's page is native: a link to one opens it over the app, and the web goes back to where it was.
             let first = path.split(separator: "?").first.map(String.init) ?? path
+            // The devotion is the app's own.
+            if first.hasPrefix("/read/") {
+                if model.allowWebReader { model.allowWebReader = false } else {
+                    let office = URLComponents(string: "x://x" + path)?.queryItems?.first { $0.name == "office" }?.value
+                    model.go(model.tab.route); openDevotion(model, slug: String(first.dropFirst(6)), office: office); return
+                }
+            }
             if first.hasPrefix("/member/") { model.go(model.tab.route); openMember(String(first.dropFirst(8)), model); return }
             model.route = path
             // Arriving at a web tab some other way (a link, a notification) moves the tab bar with it.

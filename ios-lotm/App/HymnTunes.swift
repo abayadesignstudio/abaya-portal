@@ -1,0 +1,62 @@
+import Foundation
+
+/// Tunes for the devotional's hymns and psalms, matched by first line (the same table the website uses).
+private let HYMN_TUNES: [(String, String)] = [
+    ("angels from the realms of glory", "Iris"),
+    ("as with gladness men of old", "Dix"),
+    ("comfort comfort", "Blaenwern"),
+    ("come thou long expected jesus", "Hyfrydol"),
+    ("creator of the starry height", "Puer Nobis"),
+    ("down in yon forest", "Down in Yon Forest"),
+    ("earth has many a noble city", "Stuttgart"),
+    ("endow the king with justice", "Church Triumphant"),
+    ("hail to the lords anointed", "Crüger"),
+    ("hark a thrilling voice", "Merton"),
+    ("hark the herald angels sing", "Mendelssohn"),
+    ("he is found in human fashion", "Corde Natus"),
+    ("hills of the north rejoice", "Little Cornard"),
+    ("his name for ever shall endure", "Effingham"),
+    ("jesus came the heavens adoring", "Regent Square"),
+    ("joy to the world", "Antioch"),
+    ("let all mortal flesh keep silence", "Picardy"),
+    ("lift up the advent strain", "Carlisle"),
+    ("lo how a rose", "Es ist ein Ros"),
+    ("lo he comes with clouds descending", "Helmsley"),
+    ("may god arise and may his foes", "Melita"),
+    ("o come all ye faithful", "Adeste Fideles"),
+    ("o come divine messiah", "Venez Divin Messie"),
+    ("o come o come emmanuel", "Veni Emmanuel"),
+    ("o heavenly word eternal light", "Puer Nobis"),
+    ("o holy night", "Cantique de Noël"),
+    ("o little town of bethlehem", "Forest Green"),
+    ("o radiant light o sun divine", "Walton"),
+    ("o savior rend the heavens wide", "Winchester New"),
+    ("of the fathers love begotten", "Corde Natus"),
+    ("once in royal davids city", "Irby"),
+    ("people look east", "Besançon"),
+    ("prepare the way o zion", "Bereden Väg"),
+    ("savior of the nations come", "Lübeck"),
+    ("see in yonder manger low", "Humility"),
+    ("silent night", "Stille Nacht"),
+    ("the advent of our king", "Carlisle"),
+    ("the darkest midnight in december", "Darkest Midnight"),
+    ("the king shall come when morning dawns", "Ellacombe"),
+    ("the tree of life my soul hath seen", "Jesus Christ the Apple Tree"),
+    ("the world and all", "Richmond"),
+    ("this is the truth sent from above", "Herefordshire"),
+    ("to earth descending word sublime", "Vom Himmel Hoch"),
+    ("wake awake for night is flying", "Wachet Auf"),
+    ("we three kings", "Kings of Orient"),
+    ("what star is this", "Morning Hymn"),
+    ("why do the heathen nations rage", "Winchester New"),
+    ("zions king shall reign victorious", "Abbot's Leigh"),
+    ("glory be to the father", "Gloria Patri (Greatorex)"),
+    ("glory be to god the father", "Regent Square"),
+    ("praise god from whom all blessings flow", "Old Hundredth"),
+    ("praise and honor to the father", "Westminster Abbey")
+]
+func tuneForLine(_ first: String) -> String? {
+    let folded = first.lowercased().folding(options: .diacriticInsensitive, locale: nil).replacingOccurrences(of: "[’'‘]", with: "", options: .regularExpression)
+    let p = folded.replacingOccurrences(of: "[^a-z ]+", with: " ", options: .regularExpression).replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+    return HYMN_TUNES.first { p.hasPrefix($0.0) }?.1
+}

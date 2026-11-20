@@ -321,7 +321,7 @@ private struct StoryRow: View {
                     Button {
                         Haptic.tap()
                         seen.insert(it.id); UserDefaults.standard.set(Array(seen.suffix(300)), forKey: seenKey)
-                        if it.kind == .read, let s = it.slug { web.goTop("/read/\(s)") } else { m.detail = it }
+                        if it.kind == .read, let s = it.slug { openDevotion(web, slug: s) } else { m.detail = it }
                     } label: { StoryPill(it: it, m: m, fresh: !seen.contains(it.id)) }
                     .buttonStyle(Press())
                 }
