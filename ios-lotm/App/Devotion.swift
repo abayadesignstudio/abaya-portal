@@ -497,7 +497,7 @@ struct DevotionScreen: View {
                     Button { sheet = "type" } label: { Label("Themes & Settings", systemImage: "textformat.size") }
                     Button { sheet = "reminders" } label: { Label("Reminders", systemImage: "bell") }
                     Button { toMenu() } label: { Label("Devotion menu", systemImage: "chevron.down") }
-                    if m.admin { Button { let s = m.slug; close { web.allowWebReader = true; web.go("/read/\(s)") } } label: { Label("Edit the devotion", systemImage: "pencil") } }
+                    if m.admin { Button { let s = m.slug, d = (day?.lines[0] ?? "").addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""; close { web.allowWebReader = true; web.go("/read/\(s)?edit=1&day=\(d)") } } label: { Label("Edit the devotion", systemImage: "pencil") } }
                 } label: { Image(systemName: "line.3.horizontal").font(.system(size: 16, weight: .bold)).foregroundStyle(T.fg).frame(width: 40, height: 40).background(Circle().fill(Color(rgb: 0x787880, T.dark ? 0.36 : 0.18))) }
                 .padding(.trailing, 14).padding(.bottom, 8).transition(.opacity)
             }

@@ -424,6 +424,51 @@ private struct Flow: View, Animatable {
 
 /// Cover Flow as the web drew it: the middle book forward, the others stepped back behind it and darker, overlapping
 /// like a Rolodex. Drag to move, flick to coast; it always comes to rest on a cover. Tap the middle book to turn it over.
+/// The shelf's touches, taken with UIKit's own recognizers on the page's scroll view. A pan is ours only if it sets off
+/// sideways, so a swipe up or down anywhere on the covers scrolls the page as it would anywhere else; a hold picks a book up.
+private struct ShelfTouch: UIViewRepresentable {
+    var pan: (UIGestureRecognizer.State, CGFloat, CGFloat) -> Void
+    var hold: (UIGestureRecognizer.State, CGPoint, CGFloat, CGFloat) -> Void
+    func makeUIView(context: Context) -> Catcher { let v = Catcher(); v.pan = pan; v.hold = hold; return v }
+    func updateUIView(_ v: Catcher, context: Context) { v.pan = pan; v.hold = hold }
+    static func dismantleUIView(_ v: Catcher, coordinator: ()) { v.detach() }
+
+    final class Catcher: UIView, UIGestureRecognizerDelegate {
+        var pan: (UIGestureRecognizer.State, CGFloat, CGFloat) -> Void = { _, _, _ in }
+        var hold: (UIGestureRecognizer.State, CGPoint, CGFloat, CGFloat) -> Void = { _, _, _, _ in }
+        private lazy var panG: UIPanGestureRecognizer = { let g = UIPanGestureRecognizer(target: self, action: #selector(onPan)); g.delegate = self; g.maximumNumberOfTouches = 1; g.cancelsTouchesInView = false; return g }()
+        private lazy var holdG: UILongPressGestureRecognizer = { let g = UILongPressGestureRecognizer(target: self, action: #selector(onHold)); g.delegate = self; g.minimumPressDuration = 0.42; g.cancelsTouchesInView = false; return g }()
+        private weak var host: UIView?
+        override init(frame: CGRect) { super.init(frame: frame); isUserInteractionEnabled = false; backgroundColor = .clear }
+        required init?(coder: NSCoder) { fatalError() }
+        override func didMoveToWindow() {
+            super.didMoveToWindow(); detach()
+            guard window != nil else { return }
+            var s: UIView? = superview
+            while let x = s, !(x is UIScrollView) { s = x.superview }
+            guard let target = s ?? window else { return }
+            target.addGestureRecognizer(panG); target.addGestureRecognizer(holdG); host = target
+        }
+        func detach() { host?.removeGestureRecognizer(panG); host?.removeGestureRecognizer(holdG); host = nil }
+        /// The page lets go of the touch while the shelf has it.
+        private func takeFromPage() { if let sc = host as? UIScrollView { sc.panGestureRecognizer.isEnabled = false; sc.panGestureRecognizer.isEnabled = true } }
+        override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+            guard window != nil, bounds.contains(g.location(in: self)) else { return false }
+            if g === panG { let v = panG.velocity(in: self); return abs(v.x) > abs(v.y) * 1.2 }
+            return true
+        }
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith o: UIGestureRecognizer) -> Bool { true }
+        @objc private func onPan() {
+            if panG.state == .began { takeFromPage() }
+            pan(panG.state, panG.translation(in: self).x, panG.velocity(in: self).x)
+        }
+        @objc private func onHold() {
+            if holdG.state == .began { takeFromPage() }
+            hold(holdG.state, holdG.location(in: self), bounds.width, holdG.location(in: nil).x)
+        }
+    }
+}
+
 struct Shelf: View {
     let items: [ShelfItem]
     var w: CGFloat = 124
@@ -439,11 +484,9 @@ struct Shelf: View {
     @State private var auto = 0                     // places gained by holding the book at an edge
     @State private var edge = 0                     // -1 held at the left edge, 1 at the right
     @State private var lastDX = 0.0
-    @GestureState private var swiping = false
-    @GestureState private var held = false
+    @State private var holdX = 0.0
     @State private var pos: Double = 0
     @State private var from: Double?
-    @State private var axis = 0                     // 0 undecided, 1 sideways (ours), 2 up and down (the page's)
     @State private var flipped: String?
     @State private var placed = false
     private var live: [ShelfItem] {
@@ -460,24 +503,46 @@ struct Shelf: View {
     private let settle = Animation.spring(response: 0.5, dampingFraction: 0.82)
     private func go(_ i: Int) { withAnimation(settle) { pos = Double(max(0, min(last, i))) } }
 
-    private var swipe: some Gesture {
-        DragGesture(minimumDistance: 8)
-                    .onChanged { g in
-                        if moving != nil { return }
-                        if axis == 0 { axis = abs(g.translation.width) > abs(g.translation.height) * 1.35 ? 1 : 2; if axis == 1 { from = pos; flipped = nil; onDrag(true) } }
-                        guard axis == 1, let f = from else { return }
-                        var p = f - Double(g.translation.width) / unit
-                        if p < 0 { p *= 0.35 }; if p > Double(last) { p = Double(last) + (p - Double(last)) * 0.35 }      // rubber band at the ends
-                        pos = p
-                    }
-                    .onEnded { g in
-                        if moving != nil { axis = 0; from = nil; return }
-                        defer { axis = 0; from = nil; onDrag(false) }
-                        guard axis == 1, let f = from else { return }
-                        let coast = max(-2.5, min(2.5, -Double(g.predictedEndTranslation.width - g.translation.width) / unit * 0.6))
-                        go(Int((max(0, min(Double(last), f - Double(g.translation.width) / unit)) + coast).rounded()))
-                    }
-                    .updating($swiping) { _, s, _ in s = true }
+    /// A sideways drag of the shelf (from UIKit, so an up-and-down swipe is never ours and always scrolls the page).
+    private func panned(_ st: UIGestureRecognizer.State, _ tx: CGFloat, _ vx: CGFloat) {
+        if moving != nil { return }
+        switch st {
+        case .began: from = pos; flipped = nil; onDrag(true)
+        case .changed:
+            guard let f = from else { return }
+            var p = f - Double(tx) / unit
+            if p < 0 { p *= 0.35 }; if p > Double(last) { p = Double(last) + (p - Double(last)) * 0.35 }      // rubber band at the ends
+            pos = p
+        default:
+            guard let f = from else { return }
+            from = nil; onDrag(false)
+            let rest = max(0, min(Double(last), f - Double(tx) / unit)), coast = max(-2.5, min(2.5, -Double(vx) * 0.16 / unit))
+            go(Int((rest + coast).rounded()))
+        }
+    }
+    /// A hold on a cover picks it up; moving the finger carries it; letting go sets it down.
+    private func held(_ st: UIGestureRecognizer.State, _ at: CGPoint, _ width: CGFloat, _ screenX: CGFloat) {
+        switch st {
+        case .began:
+            guard moving == nil, from == nil else { return }
+            // which cover is under the finger (the nearer the middle, the further forward it sits)
+            var hit: Int?
+            for i in live.indices.sorted(by: { abs(Double($0) - pos) < abs(Double($1) - pos) }) {
+                let d = Double(i) - pos, a = abs(d), near = min(a, 1), far = max(0, a - 1), scale = 700 / (700 + 130 * near + 26 * far)
+                let cx = Double(width) / 2 + (d < 0 ? -1.0 : 1.0) * (near * Double(w) * 0.74 + far * Double(w) * 0.3) * scale
+                if abs(Double(at.x) - cx) <= Double(w) * scale / 2 { hit = i; break }
+            }
+            guard let i = hit, live[i].movable, flipped != live[i].id else { return }
+            order = live.map(\.id); moving = live[i].id; moveFrom = i; auto = 0; edge = 0; lastDX = 0; holdX = Double(at.x); flipped = nil; onDrag(true)
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            withAnimation(settle) { pos = Double(i) }
+        case .changed:
+            guard moving != nil else { return }
+            let W = UIScreen.main.bounds.width
+            edge = screenX < 64 ? -1 : screenX > W - 64 ? 1 : 0
+            lastDX = Double(at.x) - holdX; carry()
+        default: drop()
+        }
     }
     /// Carry the held book to the place its drag (and any time held at an edge) has reached.
     private func carry() {
@@ -500,7 +565,7 @@ struct Shelf: View {
         VStack(spacing: 0) {
             Flow(pos: pos, items: live, w: w, h: h) { it, i, shade in AnyView(card(it, i, shade: shade)) }
                 .contentShape(Rectangle())
-                .simultaneousGesture(swipe)
+                .background(ShelfTouch(pan: panned, hold: held))
             VStack(spacing: 1) {
                 Text(mid?.title ?? " ").font(.serif(16, .semibold)).foregroundStyle(T.ink).lineLimit(2).multilineTextAlignment(.center)
                 if let by = mid?.by, !by.isEmpty { Text("by \(by)").font(.serif(14, italic: true)).foregroundStyle(T.muted).lineLimit(1) }
@@ -509,12 +574,6 @@ struct Shelf: View {
             .padding(.horizontal, 24).frame(maxWidth: .infinity, minHeight: 64, alignment: .top)
         }
         .onAppear { open() }
-        // A touch taken away by the system (a scroll, an alert) never reports its end: put things back regardless.
-        .onChange(of: held) { _, h in if !h { DispatchQueue.main.async { drop() } } }
-        .onChange(of: swiping) { _, on in
-            guard !on, moving == nil else { return }
-            DispatchQueue.main.async { if axis != 0 || from != nil { axis = 0; from = nil; onDrag(false); go(active) } }
-        }
         // Held at an edge, the book keeps travelling that way.
         .task(id: moving) {
             while moving != nil, !Task.isCancelled {
@@ -573,22 +632,6 @@ struct Shelf: View {
             Haptic.tap()
             if it.back != nil { withAnimation(.spring(response: 0.55, dampingFraction: 0.75)) { flipped = it.id } } else { it.open() }
         }
-        .simultaneousGesture(LongPressGesture(minimumDuration: 0.45).sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
-            .updating($held) { v, st, _ in if case .second(true, _) = v { st = true } }
-            .onChanged { v in
-                guard it.movable, !on, case .second(true, let drag) = v else { return }
-                if moving == nil {
-                    guard let at = live.firstIndex(where: { $0.id == it.id }) else { return }
-                    order = live.map(\.id); moving = it.id; moveFrom = at; auto = 0; edge = 0; lastDX = 0; flipped = nil; onDrag(true)
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    withAnimation(settle) { pos = Double(at) }
-                }
-                guard moving == it.id, let drag else { return }
-                let W = UIScreen.main.bounds.width
-                edge = drag.location.x < 64 ? -1 : drag.location.x > W - 64 ? 1 : 0
-                lastDX = Double(drag.translation.width); carry()
-            }
-            .onEnded { _ in if moving == it.id { drop() } })
         .accessibilityLabel(it.title).accessibilityAddTraits(.isButton)
     }
 

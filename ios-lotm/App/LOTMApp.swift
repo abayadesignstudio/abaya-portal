@@ -337,7 +337,7 @@ final class RouteHandler: NSObject, WKScriptMessageHandler {
             if first.hasPrefix("/read/") {
                 if model.allowWebReader { model.allowWebReader = false } else {
                     let office = URLComponents(string: "x://x" + path)?.queryItems?.first { $0.name == "office" }?.value
-                    model.go(model.tab.route); openDevotion(model, slug: String(first.dropFirst(6)), office: office); return
+                    model.go(model.tab.route); openDevotion(model, slug: String(first.dropFirst(6).split(separator: "?").first ?? ""), office: office); return
                 }
             }
             if first.hasPrefix("/member/") { model.go(model.tab.route); openMember(String(first.dropFirst(8)), model); return }
