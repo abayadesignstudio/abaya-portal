@@ -139,7 +139,7 @@ final class WebModel: NSObject, ObservableObject {
             let rest = path.dropFirst("/notebook".count).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             if rest == "new" || !v("text").isEmpty || !v("url").isEmpty { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { openNote(self, text: v("text"), url: v("url")) } }
             else if !rest.isEmpty && rest != "index" { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { openNote(self, id: rest) } }
-            else if !v("new").isEmpty { DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { NotesModel.shared.focusQuick += 1 } }
+            else if !v("new").isEmpty { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { openNote(self) } }
             return
         }
         go(path + query)

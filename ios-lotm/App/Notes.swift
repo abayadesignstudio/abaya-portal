@@ -68,7 +68,6 @@ final class NotesModel: ObservableObject {
     @Published var lib: [NBook] = []
     @Published var filter: NFilter?
     @Published var toast: String?
-    @Published var focusQuick = 0
     var undo: (() -> Void)?
     weak var feed: FeedModel?
     private var doomed: [String: Task<Void, Never>] = [:]
@@ -189,7 +188,17 @@ struct NotesPane: View {
                     if !q.isEmpty { Button { q = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(T.muted) } }
                 }
                 .padding(.horizontal, 12).frame(height: 40).background(RoundedRectangle(cornerRadius: 12).fill(Color(rgb: 0x0c0e08, 0.07))).padding(.horizontal, 16).padding(.top, 10)
-                NoteQuick(m: m)
+                Button { Haptic.tap(); openNote(web) } label: {
+                    HStack(spacing: 10) {
+                        GlyphView(n: "pencil", s: 20).foregroundStyle(T.muted)
+                        Text("New note").font(.serif(20)).foregroundStyle(T.muted)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16).frame(height: 54)
+                    .background(RoundedRectangle(cornerRadius: 18).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 18).stroke(T.rule))
+                    .contentShape(RoundedRectangle(cornerRadius: 18))
+                }
+                .buttonStyle(Press(scale: 0.985)).padding(.horizontal, 16).padding(.top, 10).accessibilityLabel("New note")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach([("all", "All · \(m.notes.count)"), ("quote", "Quotes"), ("thought", "Thoughts"), ("entry", "Entries")], id: \.0) { k, l in
@@ -309,100 +318,6 @@ private struct BookPicker: View {
     }
 }
 
-/// Write straight into the notebook at the top of the page: a thought, or (with the quote tool) a passage, with a
-/// photo, a link, a book and topics.
-private struct NoteQuick: View {
-    @ObservedObject var m: NotesModel
-    @State private var text = ""
-    @State private var quote: String?
-    @State private var image: String?
-    @State private var link: String?
-    @State private var tags: String?
-    @State private var book: NBook?
-    @State private var page = ""
-    @State private var picking = false
-    @State private var camera = false
-    @State private var photo: PhotosPickerItem?
-    @State private var busy = false
-    @State private var textTick = 0
-    @State private var quoteTick = 0
-    private var has: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !(quote ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || image != nil }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if quote != nil {
-                HStack(alignment: .top) {
-                    CaretText(text: Binding(get: { quote ?? "" }, set: { quote = $0 }), hint: "The passage", size: 21, italic: true, minHeight: 52, focus: quoteTick)
-                    Button { quote = nil } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(T.ink).frame(width: 22, height: 22).background(Circle().fill(Color(rgb: 0x0c0e08, 0.12))) }.accessibilityLabel("Remove the passage")
-                }
-                .padding(.leading, 12).overlay(alignment: .leading) { T.ink.frame(width: 3) }.padding(.bottom, 8)
-            }
-            CaretText(text: $text, hint: quote != nil ? "Your thought on it (optional)" : "A thought worth keeping…", size: 21, focus: textTick)
-            if let u = image.flatMap(URL.init(string:)) {
-                AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { T.soft }.frame(width: 150, height: 100).clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(alignment: .topTrailing) { Button { image = nil } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white).frame(width: 24, height: 24).background(Circle().fill(Color(rgb: 0x0a0c06, 0.72))) }.padding(6).accessibilityLabel("Remove photo") }
-                    .padding(.top, 8)
-            }
-            if let b = book {
-                HStack(spacing: 8) {
-                    NCover(title: b.title, url: b.cover, w: 22, h: 32)
-                    Text(b.title).font(.serif(15, italic: true)).foregroundStyle(T.ink).lineLimit(1)
-                    Spacer(minLength: 0)
-                    TextField("", text: $page, prompt: Text("p.").foregroundColor(T.muted)).keyboardType(.numbersAndPunctuation).font(.sans(14)).foregroundStyle(T.ink).padding(.horizontal, 8).frame(width: 56, height: 30)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(T.paper)).overlay(RoundedRectangle(cornerRadius: 8).stroke(T.softBd))
-                    Button { book = nil; page = "" } label: { Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(T.muted).frame(width: 26, height: 26) }.accessibilityLabel("Remove book")
-                }.padding(.top, 8)
-            }
-            if link != nil { field(Binding(get: { link ?? "" }, set: { link = $0 }), "Link (where it’s from)").keyboardType(.URL).textInputAutocapitalization(.never) }
-            if tags != nil { field(Binding(get: { tags ?? "" }, set: { tags = $0 }), "Topics, e.g. virtue, time").textInputAutocapitalization(.never) }
-            HStack(spacing: 2) {
-                PhotosPicker(selection: $photo, matching: .images) { tool("image", false) }.accessibilityLabel("Add a photo")
-                Button { camera = true } label: { tool("camera", false) }.accessibilityLabel("Take a photo")
-                Button { link = link == nil ? "" : nil } label: { tool("link", link != nil) }.accessibilityLabel("Add a link")
-                Button { if quote == nil { quote = "" }; DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { quoteTick += 1 } } label: { tool("quote", quote != nil) }.accessibilityLabel("Quote a passage")
-                Button { picking = true } label: { tool("reading", book != nil) }.accessibilityLabel("Tag a book")
-                Button { tags = tags == nil ? "" : nil } label: { tool("hash", tags != nil) }.accessibilityLabel("Topics")
-                Spacer(minLength: 0)
-                Button { save() } label: {
-                    Text(busy ? "…" : "Save").font(.sans(14, .bold)).lineLimit(1).fixedSize().foregroundStyle(has ? T.paper : T.muted).padding(.horizontal, 16).frame(height: 34)
-                        .background(Capsule().fill(has ? T.ink : .clear)).overlay(Capsule().stroke(has ? .clear : T.softBd))
-                }.disabled(!has || busy)
-            }
-            .buttonStyle(.plain).padding(.top, 6).padding(.leading, -8)
-        }
-        .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 6)
-        .background(RoundedRectangle(cornerRadius: 18).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 18).stroke(T.rule))
-        .padding(.horizontal, 16).padding(.top, 10)
-        .animation(.snappy(duration: 0.22), value: quote != nil).animation(.snappy(duration: 0.22), value: link != nil).animation(.snappy(duration: 0.22), value: tags != nil).animation(.snappy(duration: 0.22), value: book)
-        .sheet(isPresented: $picking) { BookPicker(m: m) { book = $0; picking = false } }
-        .fullScreenCover(isPresented: $camera) { CameraPicker { img in camera = false; if let img { put(img) } }.ignoresSafeArea() }
-        .onChange(of: photo) { _, it in
-            guard let it else { return }
-            Task { if let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) { put(img) }; photo = nil }
-        }
-        .onChange(of: m.focusQuick) { _, _ in textTick += 1 }
-    }
-    private func tool(_ n: String, _ on: Bool) -> some View { GlyphView(n: n, s: 22).foregroundStyle(on ? T.ink : T.muted).frame(width: 38, height: 36).contentShape(Rectangle()) }
-    private func field(_ b: Binding<String>, _ hint: String) -> some View {
-        TextField("", text: b, prompt: Text(hint).foregroundColor(T.muted)).font(.sans(15)).foregroundStyle(T.ink).autocorrectionDisabled()
-            .padding(.horizontal, 12).frame(height: 38).background(RoundedRectangle(cornerRadius: 12).fill(T.paper)).overlay(RoundedRectangle(cornerRadius: 12).stroke(T.softBd)).padding(.top, 8)
-    }
-    private func put(_ img: UIImage) { busy = true; Task { image = await m.upload(img); busy = false } }
-    private func save() {
-        guard has, !busy else { return }
-        busy = true
-        var n = NNote(id: "")
-        let qt = (quote ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        n.kind = qt.isEmpty ? "thought" : "quote"; n.body = text.trimmingCharacters(in: .whitespacesAndNewlines); n.quotation = qt
-        n.bookTitle = book?.title ?? ""; n.bookAuthor = book?.author ?? ""; n.bookCover = book?.cover; n.page = page
-        n.tags = tagList(tags ?? ""); n.source = (link ?? "").trimmingCharacters(in: .whitespaces); n.image = image
-        Task {
-            if await m.save(n, new: true) { text = ""; quote = nil; image = nil; link = nil; tags = nil; book = nil; page = ""; UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
-            busy = false
-        }
-    }
-}
-
 // MARK: - One entry
 
 struct NoteEntry: View {
@@ -418,11 +333,12 @@ struct NoteEntry: View {
     @State private var busy = false
     @State private var confirm = false
     @State private var tick = 0
+    @State private var photo: PhotosPickerItem?
 
     init(m: NotesModel, web: WebModel, id: String?, text: String = "", url: String = "") {
         self.m = m; self.web = web; self.id = id
         var x = id.flatMap { i in m.notes.first { $0.id == i } } ?? NNote(id: id ?? "")
-        if id == nil { x.kind = "quote"; x.quotation = text; x.source = url }
+        if id == nil { x.kind = text.isEmpty ? "thought" : "quote"; x.quotation = text; x.source = url }
         _n = State(initialValue: x); _original = State(initialValue: x.body)
     }
 
@@ -454,7 +370,8 @@ struct NoteEntry: View {
                                 .padding(.top, 8)
                         }
                         HStack(spacing: 8) {
-                            Button("Scan a page") { camera = true }.buttonStyle(PillStyle())
+                            PhotosPicker(selection: $photo, matching: .images) { Text("Photo") }.buttonStyle(PillStyle())
+                            Button("Camera") { camera = true }.buttonStyle(PillStyle())
                             Button("Paste") { if let s = UIPasteboard.general.string, !s.isEmpty { if n.kind == "quote" { n.quotation += (n.quotation.isEmpty ? "" : " ") + s } else { n.body += (n.body.isEmpty ? "" : "\n") + s } } }.buttonStyle(PillStyle())
                         }.padding(.top, 10)
                     }
@@ -484,6 +401,9 @@ struct NoteEntry: View {
                             }
                         }.rowBox()
                         line
+                        HStack(spacing: 10) { Text("Web link").font(.sans(14)).foregroundStyle(T.ink)
+                            TextField("", text: $n.source, prompt: Text("Where it’s from (optional)").foregroundColor(T.muted)).multilineTextAlignment(.trailing).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().font(.sans(14)).foregroundStyle(T.ink) }.rowBox()
+                        line
                         Button { pick = "link" } label: { HStack { Text("Link to another entry").font(.sans(14)).foregroundStyle(T.ink); Spacer(); Text(n.linked.isEmpty ? "None ›" : "\(n.linked.count) linked ›").font(.sans(14)).foregroundStyle(T.chev) }.rowBox() }.buttonStyle(.plain)
                         line
                         Toggle(isOn: $n.isPrivate) { Text("Private").font(.sans(14)).foregroundStyle(T.ink) }.tint(T.green).rowBox()
@@ -500,6 +420,10 @@ struct NoteEntry: View {
         .background(T.paper.ignoresSafeArea()).preferredColorScheme(.dark).tint(T.ink)
         .onAppear { if id == nil { DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { tick += 1 } } }
         .fullScreenCover(isPresented: $camera) { CameraPicker { img in camera = false; if let img { busy = true; Task { n.image = await m.upload(img) ?? n.image; busy = false } } }.ignoresSafeArea() }
+        .onChange(of: photo) { _, it in
+            guard let it else { return }
+            Task { if let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) { busy = true; n.image = await m.upload(img) ?? n.image; busy = false }; photo = nil }
+        }
         .sheet(isPresented: Binding(get: { pick == "book" }, set: { if !$0 { pick = "" } })) { BookPicker(m: m) { b in n.bookTitle = b?.title ?? ""; n.bookAuthor = b?.author ?? ""; n.bookCover = b?.cover; if b == nil { n.page = "" }; pick = "" } }
         .sheet(isPresented: Binding(get: { pick == "link" }, set: { if !$0 { pick = "" } })) { linker }
         .alert("Add a topic", isPresented: Binding(get: { pick == "tag" }, set: { if !$0 { pick = "" } })) {
