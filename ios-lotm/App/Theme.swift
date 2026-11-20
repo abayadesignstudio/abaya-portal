@@ -241,3 +241,81 @@ func quoteMarked(_ body: String, _ html: String?) -> String {
     }
     return out.isEmpty ? body : out.joined(separator: "\n\n")
 }
+
+
+// MARK: - Writing that keeps the cursor in view
+
+/// A text field that grows with what is written and, as in Notes, keeps the line being typed in view: when the cursor
+/// moves under the keyboard or off the top, the page scrolls to it. The keyboard has a button to put it away, and a
+/// drag down the page takes it along.
+struct CaretText: UIViewRepresentable {
+    @Binding var text: String
+    var hint = ""
+    var size: CGFloat = 20
+    var italic = false
+    var semibold = false
+    var color: UIColor = UIColor(T.ink)
+    var minHeight: CGFloat = 0
+    /// Raise this number to put the cursor here.
+    var focus = 0
+    var onFocus: (Bool) -> Void = { _ in }
+
+    private var font: UIFont { UIFont(name: italic ? "EBGaramond-Italic" : semibold ? "EBGaramond-SemiBold" : "EBGaramond-Regular", size: size) ?? .systemFont(ofSize: size) }
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeUIView(context: Context) -> UITextView {
+        let v = UITextView()
+        v.delegate = context.coordinator; v.isScrollEnabled = false; v.backgroundColor = .clear
+        v.textContainerInset = .zero; v.textContainer.lineFragmentPadding = 0
+        v.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        v.autocapitalizationType = .sentences; v.keyboardAppearance = .dark
+        let hintLabel = UILabel(); hintLabel.numberOfLines = 0; hintLabel.tag = 7; hintLabel.textColor = UIColor(T.muted)
+        hintLabel.translatesAutoresizingMaskIntoConstraints = false; v.addSubview(hintLabel)
+        NSLayoutConstraint.activate([hintLabel.topAnchor.constraint(equalTo: v.topAnchor), hintLabel.leadingAnchor.constraint(equalTo: v.leadingAnchor), hintLabel.widthAnchor.constraint(equalTo: v.widthAnchor)])
+        // A bar on the keyboard with a button to put it away.
+        let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 40)); bar.barStyle = .black; bar.isTranslucent = true; bar.tintColor = UIColor(T.ink)
+        bar.items = [UIBarButtonItem(systemItem: .flexibleSpace), UIBarButtonItem(image: UIImage(systemName: "keyboard.chevron.compact.down"), style: .plain, target: v, action: #selector(UIResponder.resignFirstResponder))]
+        v.inputAccessoryView = bar
+        context.coordinator.seen = focus
+        return v
+    }
+    func updateUIView(_ v: UITextView, context: Context) {
+        context.coordinator.parent = self
+        if v.text != text { v.text = text }
+        v.font = font; v.textColor = color
+        let p = NSMutableParagraphStyle(); p.lineSpacing = size * 0.16
+        v.typingAttributes = [.font: font, .foregroundColor: color, .paragraphStyle: p]
+        if let l = v.viewWithTag(7) as? UILabel { l.text = hint; l.font = font; l.isHidden = !text.isEmpty }
+        if focus != context.coordinator.seen { context.coordinator.seen = focus; DispatchQueue.main.async { v.becomeFirstResponder() } }
+    }
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView v: UITextView, context: Context) -> CGSize? {
+        let w = proposal.width ?? 300
+        guard w.isFinite, w > 0 else { return nil }
+        let h = v.sizeThatFits(CGSize(width: w, height: .greatestFiniteMagnitude)).height
+        return CGSize(width: w, height: max(h, minHeight, font.lineHeight))
+    }
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: CaretText; var seen = 0
+        init(_ p: CaretText) { parent = p }
+        func textViewDidChange(_ v: UITextView) {
+            parent.text = v.text
+            (v.viewWithTag(7) as? UILabel)?.isHidden = !v.text.isEmpty
+            v.invalidateIntrinsicContentSize(); follow(v)
+        }
+        func textViewDidChangeSelection(_ v: UITextView) { if v.isFirstResponder { follow(v) } }
+        func textViewDidBeginEditing(_ v: UITextView) { parent.onFocus(true); DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self.follow(v) } }
+        func textViewDidEndEditing(_ v: UITextView) { parent.onFocus(false) }
+        /// Bring the cursor's line into view in the page it sits in, with a little room above and below.
+        private func follow(_ v: UITextView) {
+            DispatchQueue.main.async {
+                guard let r = v.selectedTextRange else { return }
+                var s: UIView? = v.superview
+                while let x = s, !(x is UIScrollView) { s = x.superview }
+                guard let scroll = s as? UIScrollView else { return }
+                let caret = v.convert(v.caretRect(for: r.end), to: scroll).insetBy(dx: 0, dy: -34)
+                guard caret.origin.y.isFinite, caret.height.isFinite else { return }
+                let top = scroll.contentOffset.y + scroll.adjustedContentInset.top, bottom = scroll.contentOffset.y + scroll.bounds.height - scroll.adjustedContentInset.bottom
+                if caret.minY < top || caret.maxY > bottom { scroll.scrollRectToVisible(caret, animated: true) }
+            }
+        }
+    }
+}

@@ -334,7 +334,7 @@ struct PostScreen: View {
             HStack(alignment: .bottom, spacing: 4) {
                 Face(name: m.person(m.me).name, url: m.person(m.me).avatar, s: 36).padding(.bottom, 1)
                 TextField("", text: $text, prompt: Text("Reply to \(first)…").foregroundColor(T.muted), axis: .vertical)
-                    .font(.sans(16)).foregroundStyle(T.ink).lineLimit(1...6).focused($typing)
+                    .font(.serif(20)).foregroundStyle(T.ink).lineLimit(1...6).focused($typing)
                     .padding(.horizontal, 4).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 38)
                 PhotosPicker(selection: $pick, matching: .images) { GlyphView(n: "image", s: 23, w: 1.9).foregroundStyle(T.ink).frame(width: 38, height: 38) }
                     .onChange(of: pick) { _, it in
@@ -385,7 +385,7 @@ private struct PostBody: View {
                 }
                 if p.showTitle { Text(p.title).font(.serif(26 * z, .semibold)).foregroundStyle(T.ink).fixedSize(horizontal: false, vertical: true).padding(.top, 12 * z) }
             }
-            if !p.body.isEmpty { Paras(text: p.body, size: 18 * z, leading: 1.45, gap: 6 * z).padding(.top, 8 * z) }
+            if !p.body.isEmpty { Paras(text: p.body, size: 21 * z, leading: 1.4, gap: 7 * z).padding(.top, 8 * z) }
             if !p.photos.isEmpty { PhotoRow(urls: p.photos).padding(.top, 10 * z) }
             if let q = p.quoted {
                 Button { m.id = q.id; m.post = nil; m.parts = []; m.replies = []; Task { _ = await m.load() } } label: {
@@ -448,7 +448,7 @@ private struct ReplyCard: View {
                     (Text("Replying to ").foregroundColor(T.muted) + Text("@\(m.person(parent.userId).name.split(separator: " ").first.map(String.init) ?? "")").foregroundColor(T.ticker)).font(.sans(13)).padding(.top, 1)
                 }
                 if !r.body.isEmpty {
-                    Text(linked(r.body)).font(.serif(17.5)).foregroundStyle(T.ink).lineSpacing(max(0, 17.5 * 1.4 - 17.5 * 1.305)).textSelection(.enabled)
+                    Text(linked(r.body)).font(.serif(20)).foregroundStyle(T.ink).lineSpacing(max(0, 20 * 1.36 - 20 * 1.305)).textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true).padding(.top, 3)
                 }
                 if let u = r.attachment {

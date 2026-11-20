@@ -256,7 +256,7 @@ private struct PostRow: View {
                     if let remove { Button(action: remove) { Text("×").font(.sans(20)).foregroundStyle(C.muted).frame(width: 28, height: 28) } }
                 }
                 TextField(index == 0 ? "What’s on your mind?" : "Say more…", text: $post.text, axis: .vertical)
-                    .font(.serif(20)).foregroundStyle(C.ink).lineSpacing(3)
+                    .font(.serif(22)).foregroundStyle(C.ink).lineSpacing(3)
                     .focused(focus, equals: post.id)
                     .textInputAutocapitalization(.sentences)
                 if index == 0 { extras }

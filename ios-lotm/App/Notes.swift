@@ -249,11 +249,11 @@ private struct NoteCard: View {
                 Text(relDay(n.created)).font(.sans(11, .medium))
             }.foregroundStyle(T.muted)
             if !n.quotation.isEmpty {
-                Text(n.quotation).font(.serif(18, italic: true)).foregroundStyle(T.ink).lineSpacing(3).multilineTextAlignment(.leading).lineLimit(8)
+                Text(n.quotation).font(.serif(20, italic: true)).foregroundStyle(T.ink).lineSpacing(3).multilineTextAlignment(.leading).lineLimit(8)
                     .padding(.leading, 12).overlay(alignment: .leading) { T.ink.frame(width: 3) }.padding(.top, 8)
             }
             if !n.title.isEmpty { Text(n.title).font(.serif(18, .semibold)).foregroundStyle(T.ink).multilineTextAlignment(.leading).padding(.top, 6) }
-            if !n.body.isEmpty { Text(n.body).font(.serif(n.kind == "quote" ? 17 : 20)).foregroundStyle(n.kind == "quote" ? T.sub : T.ink).lineSpacing(3).lineLimit(4).multilineTextAlignment(.leading).padding(.top, 6) }
+            if !n.body.isEmpty { Text(n.body).font(.serif(n.kind == "quote" ? 18 : 21)).foregroundStyle(n.kind == "quote" ? T.sub : T.ink).lineSpacing(3).lineLimit(4).multilineTextAlignment(.leading).padding(.top, 6) }
             if let u = n.image.flatMap(URL.init(string:)) {
                 Color(rgb: 0x2a2d1d).frame(height: 180).overlay(AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear }).clipShape(RoundedRectangle(cornerRadius: 10)).padding(.top, 8)
             }
@@ -324,19 +324,20 @@ private struct NoteQuick: View {
     @State private var camera = false
     @State private var photo: PhotosPickerItem?
     @State private var busy = false
-    @FocusState private var focus: Int?
+    @State private var textTick = 0
+    @State private var quoteTick = 0
     private var has: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !(quote ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || image != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if quote != nil {
                 HStack(alignment: .top) {
-                    TextField("", text: Binding(get: { quote ?? "" }, set: { quote = $0 }), prompt: Text("The passage").foregroundColor(T.muted), axis: .vertical).font(.serif(18, italic: true)).foregroundStyle(T.ink).lineLimit(2...12).focused($focus, equals: 1)
+                    CaretText(text: Binding(get: { quote ?? "" }, set: { quote = $0 }), hint: "The passage", size: 21, italic: true, minHeight: 52, focus: quoteTick)
                     Button { quote = nil } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(T.ink).frame(width: 22, height: 22).background(Circle().fill(Color(rgb: 0x0c0e08, 0.12))) }.accessibilityLabel("Remove the passage")
                 }
                 .padding(.leading, 12).overlay(alignment: .leading) { T.ink.frame(width: 3) }.padding(.bottom, 8)
             }
-            TextField("", text: $text, prompt: Text(quote != nil ? "Your thought on it (optional)" : "A thought worth keeping…").foregroundColor(T.muted), axis: .vertical).font(.serif(19)).foregroundStyle(T.ink).lineLimit(1...14).focused($focus, equals: 0)
+            CaretText(text: $text, hint: quote != nil ? "Your thought on it (optional)" : "A thought worth keeping…", size: 21, focus: textTick)
             if let u = image.flatMap(URL.init(string:)) {
                 AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { T.soft }.frame(width: 150, height: 100).clipShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(alignment: .topTrailing) { Button { image = nil } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white).frame(width: 24, height: 24).background(Circle().fill(Color(rgb: 0x0a0c06, 0.72))) }.padding(6).accessibilityLabel("Remove photo") }
@@ -358,7 +359,7 @@ private struct NoteQuick: View {
                 PhotosPicker(selection: $photo, matching: .images) { tool("image", false) }.accessibilityLabel("Add a photo")
                 Button { camera = true } label: { tool("camera", false) }.accessibilityLabel("Take a photo")
                 Button { link = link == nil ? "" : nil } label: { tool("link", link != nil) }.accessibilityLabel("Add a link")
-                Button { if quote == nil { quote = "" }; focus = 1 } label: { tool("quote", quote != nil) }.accessibilityLabel("Quote a passage")
+                Button { if quote == nil { quote = "" }; DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { quoteTick += 1 } } label: { tool("quote", quote != nil) }.accessibilityLabel("Quote a passage")
                 Button { picking = true } label: { tool("reading", book != nil) }.accessibilityLabel("Tag a book")
                 Button { tags = tags == nil ? "" : nil } label: { tool("hash", tags != nil) }.accessibilityLabel("Topics")
                 Spacer(minLength: 0)
@@ -379,7 +380,7 @@ private struct NoteQuick: View {
             guard let it else { return }
             Task { if let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) { put(img) }; photo = nil }
         }
-        .onChange(of: m.focusQuick) { _, _ in focus = 0 }
+        .onChange(of: m.focusQuick) { _, _ in textTick += 1 }
     }
     private func tool(_ n: String, _ on: Bool) -> some View { GlyphView(n: n, s: 22).foregroundStyle(on ? T.ink : T.muted).frame(width: 38, height: 36).contentShape(Rectangle()) }
     private func field(_ b: Binding<String>, _ hint: String) -> some View {
@@ -396,7 +397,7 @@ private struct NoteQuick: View {
         n.bookTitle = book?.title ?? ""; n.bookAuthor = book?.author ?? ""; n.bookCover = book?.cover; n.page = page
         n.tags = tagList(tags ?? ""); n.source = (link ?? "").trimmingCharacters(in: .whitespaces); n.image = image
         Task {
-            if await m.save(n, new: true) { text = ""; quote = nil; image = nil; link = nil; tags = nil; book = nil; page = ""; focus = nil }
+            if await m.save(n, new: true) { text = ""; quote = nil; image = nil; link = nil; tags = nil; book = nil; page = ""; UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
             busy = false
         }
     }
@@ -416,7 +417,7 @@ struct NoteEntry: View {
     @State private var camera = false
     @State private var busy = false
     @State private var confirm = false
-    @FocusState private var typing: Bool
+    @State private var tick = 0
 
     init(m: NotesModel, web: WebModel, id: String?, text: String = "", url: String = "") {
         self.m = m; self.web = web; self.id = id
@@ -438,15 +439,14 @@ struct NoteEntry: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Seg(options: ["Quote", "Thought", "Entry"], value: Binding(get: { n.kind.capitalized }, set: { n.kind = $0.lowercased() })).padding(.horizontal, 16)
                     VStack(alignment: .leading, spacing: 0) {
-                        if n.kind == "entry" { TextField("", text: $n.title, prompt: Text("Title").foregroundColor(T.muted), axis: .vertical).font(.serif(20, .semibold)).foregroundStyle(T.ink).padding(.bottom, 8) }
+                        if n.kind == "entry" { CaretText(text: $n.title, hint: "Title", size: 23, semibold: true).padding(.bottom, 8) }
                         if n.kind == "quote" {
                             Text("THE PASSAGE").font(.sans(11, .bold)).tracking(0.9).foregroundStyle(T.muted)
-                            TextField("", text: $n.quotation, prompt: Text("Type or paste the passage").foregroundColor(T.muted), axis: .vertical).font(.serif(18, italic: true)).foregroundStyle(T.ink).lineSpacing(3).lineLimit(4...)
-                                .focused($typing).padding(.leading, 12).overlay(alignment: .leading) { T.ink.frame(width: 3) }.padding(.top, 6)
-                            TextField("", text: $n.body, prompt: Text("Your thought on it (optional)").foregroundColor(T.muted), axis: .vertical).font(.serif(16)).foregroundStyle(T.sub).lineLimit(2...).padding(.top, 8)
+                            CaretText(text: $n.quotation, hint: "Type or paste the passage", size: 21, italic: true, minHeight: 96, focus: tick)
+                                .padding(.leading, 12).overlay(alignment: .leading) { T.ink.frame(width: 3) }.padding(.top, 6)
+                            CaretText(text: $n.body, hint: "Your thought on it (optional)", size: 19, color: UIColor(T.sub), minHeight: 44).padding(.top, 10)
                         } else {
-                            TextField("", text: $n.body, prompt: Text(n.kind == "thought" ? "A thought worth keeping…" : "Write…").foregroundColor(T.muted), axis: .vertical).font(.serif(18)).foregroundStyle(T.ink).lineSpacing(4)
-                                .lineLimit((n.kind == "entry" ? 10 : 4)...).focused($typing)
+                            CaretText(text: $n.body, hint: n.kind == "thought" ? "A thought worth keeping…" : "Write…", size: 21, minHeight: n.kind == "entry" ? 260 : 110, focus: tick)
                         }
                         if let u = n.image.flatMap(URL.init(string:)) {
                             AsyncImage(url: u) { $0.resizable().scaledToFit() } placeholder: { T.soft.frame(height: 160) }.clipShape(RoundedRectangle(cornerRadius: 10))
@@ -469,10 +469,12 @@ struct NoteEntry: View {
                                 Spacer(minLength: 0); Text(n.bookTitle.isEmpty ? "›" : "Change ›").font(.sans(14)).foregroundStyle(T.chev)
                             }.rowBox()
                         }.buttonStyle(.plain)
-                        line
-                        HStack { Text("Page").font(.sans(14)).foregroundStyle(T.ink); Spacer()
-                            TextField("", text: $n.page).multilineTextAlignment(.trailing).keyboardType(.numbersAndPunctuation).font(.sans(14)).foregroundStyle(T.ink).padding(.horizontal, 8).frame(width: 70, height: 32)
-                                .background(RoundedRectangle(cornerRadius: 8).fill(T.group)).overlay(RoundedRectangle(cornerRadius: 8).stroke(T.softBd)) }.rowBox()
+                        if !n.bookTitle.isEmpty {
+                            line
+                            HStack { Text("Page").font(.sans(14)).foregroundStyle(T.ink); Spacer()
+                                TextField("", text: $n.page).multilineTextAlignment(.trailing).keyboardType(.numbersAndPunctuation).font(.sans(14)).foregroundStyle(T.ink).padding(.horizontal, 8).frame(width: 70, height: 32)
+                                    .background(RoundedRectangle(cornerRadius: 8).fill(T.group)).overlay(RoundedRectangle(cornerRadius: 8).stroke(T.softBd)) }.rowBox()
+                        }
                         line
                         VStack(alignment: .leading, spacing: 8) {
                             HStack { Text("Topics").font(.sans(14)).foregroundStyle(T.ink); Spacer()
@@ -496,9 +498,9 @@ struct NoteEntry: View {
             .scrollDismissesKeyboard(.interactively)
         }
         .background(T.paper.ignoresSafeArea()).preferredColorScheme(.dark).tint(T.ink)
-        .onAppear { if id == nil { DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { typing = true } } }
+        .onAppear { if id == nil { DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { tick += 1 } } }
         .fullScreenCover(isPresented: $camera) { CameraPicker { img in camera = false; if let img { busy = true; Task { n.image = await m.upload(img) ?? n.image; busy = false } } }.ignoresSafeArea() }
-        .sheet(isPresented: Binding(get: { pick == "book" }, set: { if !$0 { pick = "" } })) { BookPicker(m: m) { b in n.bookTitle = b?.title ?? ""; n.bookAuthor = b?.author ?? ""; n.bookCover = b?.cover; pick = "" } }
+        .sheet(isPresented: Binding(get: { pick == "book" }, set: { if !$0 { pick = "" } })) { BookPicker(m: m) { b in n.bookTitle = b?.title ?? ""; n.bookAuthor = b?.author ?? ""; n.bookCover = b?.cover; if b == nil { n.page = "" }; pick = "" } }
         .sheet(isPresented: Binding(get: { pick == "link" }, set: { if !$0 { pick = "" } })) { linker }
         .alert("Add a topic", isPresented: Binding(get: { pick == "tag" }, set: { if !$0 { pick = "" } })) {
             TextField("virtue", text: $newTag).textInputAutocapitalization(.never)
