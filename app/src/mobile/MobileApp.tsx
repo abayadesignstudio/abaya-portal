@@ -14,6 +14,7 @@ import '../staff/home.css'
 import PushToggle from '../components/PushToggle'
 import { useField } from '../lib/field'
 import { TimerPop, TripSheet, RecordSheet, VoiceSheet, IconMicSmall, useSince } from './Field'
+import FeeCalcScreen from './FeeCalc'
 import './mobile.css'
 
 type Tab = 'calendar' | 'time' | 'expenses' | 'invoices'
@@ -49,7 +50,7 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
   const detail = loc.pathname !== '/'
   useEffect(() => { document.body.style.overflow = sheet ? 'hidden' : ''; return () => { document.body.style.overflow = '' } }, [sheet])
   useEffect(() => { if (!sheet) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setSheet(null) }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k) }, [sheet])
-  const title = detail ? '' : tab === 'calendar' ? 'Calendar' : tab === 'time' ? 'Time' : tab === 'expenses' ? 'Expenses' : 'Invoices'
+  const title = detail ? '' : tab === 'calendar' ? 'Calendar' : tab === 'time' ? 'Time' : tab === 'expenses' ? 'Expenses' : 'Invoices and fees'
   const ini = profile?.initials || (profile?.full_name || profile?.email || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
   const full = sheet === 'timer' || sheet === 'manual' || sheet === 'expense' || sheet === 'note' || sheet === 'trip' || sheet === 'record' || sheet === 'voice' || sheet === 'voiceGo' || (typeof sheet === 'object' && sheet !== null)
 
@@ -66,7 +67,7 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
           : tab === 'calendar' ? <CalendarScreen me={me} admin={profile!.role === 'admin'} />
           : tab === 'time' ? <TimeScreen api={api} me={me} onEdit={(c) => setSheet({ edit: c })} />
           : tab === 'expenses' ? <ExpensesScreen me={me} onOpen={(e) => setSheet({ expense: e })} />
-          : <InvoicesScreen me={me} />}
+          : <MoneyTab me={me} />}
       </main>
 
       {!full && api.running && <div className={'mapp-timer' + (api.paused ? ' paused' : '')} role="region" aria-label="Running timer">
@@ -342,7 +343,19 @@ function ExpenseForm({ me, api, edit, onDone }: { me: string; api: TimerApi; edi
   </div>
 }
 
-// ---------------------------------------------------------------- Invoices
+// ---------------------------------------------------------------- Invoices tab: two pages, Fee calculator and Invoices
+function MoneyTab({ me }: { me: string }) {
+  const [page, setPage] = useState<string>(() => remember('abaya.m.money', 'invoices'))
+  const pick = (p: string) => { setPage(p); keep('abaya.m.money', p) }
+  return <>
+    <div className="m-pages"><div className="cvp-seg" role="group" aria-label="Page" style={{ gridTemplateColumns: 'repeat(2,minmax(0,1fr))', marginTop: 0 }}>
+      <button type="button" aria-pressed={page === 'fee'} onClick={() => pick('fee')}>Fee calculator</button>
+      <button type="button" aria-pressed={page !== 'fee'} onClick={() => pick('invoices')}>Invoices</button>
+    </div></div>
+    {page === 'fee' ? <FeeCalcScreen /> : <InvoicesScreen me={me} />}
+  </>
+}
+
 type Inv = { id: string; number: string; status: string; issue_date: string | null; due_date: string | null; total: number; amount_paid: number; sent_at: string | null; reminders_sent: number
   project_id: string | null; projects: { number: string; name: string; sector: string | null } | null }
 const FILTERS = [['open', 'Open'], ['late', 'Past due'], ['mine', 'My projects'], ['draft', 'Drafts'], ['paid', 'Paid']] as const

@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { projectEstimates, seedFromEstimate } from '../lib/feeSeed'
-import { agreementCodes } from '../lib/fees'
-import { supabase, money, SECTOR_COLOR, PHASES } from '../lib/supabase'
+import { supabase, money, SECTOR_COLOR } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useLoad, must } from '../lib/useQuery'
-import { newDoc } from '../lib/agreementTemplate'
+import { applyFeeToProject } from '../lib/applyFee'
 import RowMenu, { type RowMenuItem } from '../components/RowMenu'
 import { useRemembered } from '../lib/useRemembered'
 import FeeTriangulator, { type FeeSeed } from './FeeTriangulator'
@@ -82,66 +81,12 @@ export default function Proposals() {
       } catch (e) { setBusy(false); return setErr(/duplicate|unique/i.test(String((e as Error).message)) ? `Project number ${np.number.trim()} is already used.` : (e as Error).message) }
     }
     if (!p) { setBusy(false); return setErr('That project wasn’t found. Reload the page and try again.') }
-    // agreements one at a time: update the open draft; phases already in a signed agreement are left out of the next one
-    let held: string[] = []
-    let sd = seed
-    if (projectId !== 'new') {
-      const all = must(await supabase.from('agreements').select('id, status, doc, title').eq('project_id', p.id).neq('status', 'void')) as { id: string; status: string; doc: ReturnType<typeof newDoc>; title: string }[]
-      held = [...new Set(all.filter((x) => x.status === 'signed').flatMap((x) => agreementCodes({ split: x.doc.split ?? null, ph: x.doc.ph })))]
-      if (sd && held.length) {
-        const keep = sd.split.filter(([k]) => !held.includes(k))
-        const amt = keep.map(([k, v]) => [k, sd!.fee * v / 100] as const), tot = Math.round(amt.reduce((a, [, x]) => a + x, 0) * 100) / 100
-        if (!keep.length) { setBusy(false); return setErr(`Every phase in this fee is already in a signed agreement on ${p.number}. Use Change fee on the project instead.`) }
-        sd = { ...sd, fee: tot, split: amt.map(([k, x]) => [k, Math.round(x / tot * 1e6) / 1e4] as [string, number]) }
-      }
-      const c = all.find((x) => x.status === 'draft' || x.status === 'sent') ?? null
-      if (c?.status === 'sent') { setBusy(false); return setErr(`${p.number}’s agreement (“${c.title}”) is out for the client’s signature. Unpublish it on the agreement page first, then apply this fee.`) }
-      if (c) {
-        if (sd) {
-          const d = c.doc
-          if (d.detached && !window.confirm(`“${c.title}” was disconnected from the calculator, so its fee (${money(Number(d.v.fee) || 0)}) was set on the agreement. Replace it with ${money(sd.fee)} from “${sd.name || 'this calculation'}” and reconnect?`)) { setBusy(false); return }
-          d.detached = false; d.source = { estimateId: sd.estimateId, name: sd.name, fee: sd.fee }
-          d.v.fee = String(sd.fee)
-          if (sd.sf > 0 && !d.v.projSize) d.v.projSize = `${sd.sf.toLocaleString()} SF`
-          const S = sd
-          Object.keys(d.ph).forEach((k) => { d.ph[k].on = S.split.some(([u]) => u === k) })
-          const nameOf = (k: string) => PHASES.find(([x]) => x === k)?.[1] ?? k
-          d.split = Object.fromEntries(sd.split.map(([k, v]) => [k, String(v)]))
-          // keep the draft's payment grouping when it already has one; otherwise one payment per phase
-          if (!d.pay?.some((x) => (x.phases?.length ?? 0) > 1) || d.pay.reduce((a, x) => a + (+x.pct || 0), 0) !== 100)
-            d.pay = sd.split.map(([k, v], i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${nameOf(k)}`, phase: nameOf(k), pct: String(v), phases: [k] }))
-          else d.pay = d.pay.map((x) => ({ ...x, pct: String(Math.round((x.phases ?? []).reduce((a, k) => a + (S.split.find(([c]) => c === k)?.[1] ?? 0), 0) * 100) / 100) }))
-          const { error } = await supabase.from('agreements').update({ doc: d, total_fee: sd.fee, updated_at: new Date().toISOString() }).eq('id', c.id)
-          setBusy(false)
-          if (error) return setErr(error.message)
-          setSeed(null)
-        } else setBusy(false)
-        nav('/proposals/' + c.id, { state: { note: sd ? `Updated this draft with the new fee: phases on ${p.number} follow it.` : `${p.number} already has this open agreement; finish or sign it before starting the next.` } })
-        return
-      }
-    }
-    const fees = p ? Object.fromEntries((p.phases ?? []).filter((ph) => Number(ph.fee) > 0 && !held.includes(ph.code)).map((ph) => [ph.code, Number(ph.fee)])) : {}
-    const doc = newDoc(p ? {
-      projName: p.name, projAddr: p.address ?? '', projType: (p.categories ?? []).join(',') || p.category || 'S',
-      ownerName: p.clients?.name ?? '', ownerPhone: p.clients?.phone ?? '', ownerEmail: p.clients?.billing_email ?? '', ownerAddr: p.clients?.address ?? '',
-    } : {}, fees)
-    if (sd) { // the triangulator's fee, phases and one payment per phase replace the project's phase fees
-      doc.v.fee = String(sd.fee)
-      if (sd.sf > 0 && !doc.v.projSize) doc.v.projSize = `${sd.sf.toLocaleString()} SF`
-      const S2 = sd
-      Object.keys(doc.ph).forEach((c) => { doc.ph[c].on = S2.split.some(([u]) => u === c) })
-      const nameOf = (c: string) => PHASES.find(([x]) => x === c)?.[1] ?? c
-      doc.split = Object.fromEntries(sd.split.map(([c, v]) => [c, String(v)]))
-      doc.source = { estimateId: sd.estimateId, name: sd.name, fee: sd.fee }
-      doc.pay = sd.split.map(([c, v], i) => ({ label: `Payment ${i + 1}`, due: `Due at completion of ${nameOf(c)}`, phase: nameOf(c), pct: String(v), phases: [c] }))
-    }
-    const { data, error } = await supabase.from('agreements').insert({
-      title: held.length ? `${p.name} — Proposal (${PHASES.map(([c]) => c).filter((c) => doc.ph[c]?.on).join(', ')})` : `${p.name} — Proposal`, project_id: p.id, client_id: p.client_id ?? null,
-      doc, total_fee: +doc.v.fee || 0, created_by: profile?.id,
-    }).select('id').single()
+    const r = await applyFeeToProject(p.id, seed, profile?.id ?? null, (m) => window.confirm(m))
     setBusy(false)
-    if (error) return setErr(error.message)
-    nav('/proposals/' + (data as { id: string }).id)
+    if ('error' in r) return setErr(r.error)
+    if ('cancelled' in r) return
+    if (!r.created) setSeed(null)
+    nav('/proposals/' + r.id, r.note ? { state: { note: r.note } } : undefined)
   }
 
   const [note, setNote] = useState('')
