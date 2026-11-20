@@ -128,7 +128,7 @@ struct SettingsScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Settings").font(.serif(20, .semibold)).tracking(-0.2).foregroundStyle(T.ink).padding(.horizontal, 20).padding(.top, 12)
-                    Button { Haptic.tap(); sheet = .profile } label: {
+                    Button { Haptic.tap(); openProfileEdit(feed) } label: {
                         HStack(spacing: 14) {
                             Face(name: m.me.name, url: m.me.avatar, s: 60)
                             VStack(alignment: .leading, spacing: 2) {
@@ -177,6 +177,7 @@ struct SettingsScreen: View {
         .background(T.paper.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .task { m.feed = feed; await m.load() }
+        .onReceive(NotificationCenter.default.publisher(for: .lotmProfileChanged)) { _ in Task { await m.load() } }
         .sheet(item: $sheet) { s in sheetView(s).presentationDetents([.medium, .large]) }
         .confirmationDialog("Delete your account?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete my account", role: .destructive) { Task { await deleteAccount() } }

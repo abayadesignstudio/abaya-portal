@@ -139,7 +139,7 @@ struct MemberScreen: View {
                     Face(name: person?.name ?? "", url: person?.avatar, s: 76).padding(4).background(Circle().fill(T.paper))
                     Spacer()
                     if isMe {
-                        Button { close { web.select(.settings) } } label: {
+                        Button { Haptic.tap(); openProfileEdit(feed) } label: {
                             Text("Edit profile").font(.sans(14, .bold)).foregroundStyle(T.ink).padding(.horizontal, 18).frame(height: 40).overlay(Capsule().stroke(Color(rgb: 0x626546)))
                         }
                     } else {
@@ -216,6 +216,7 @@ struct MemberScreen: View {
         .preferredColorScheme(.dark).tint(T.ink)
         .environment(\.openURL, OpenURLAction { url in openInApp(url); return .handled })
         .task { mine.web = web.view; mine.open = feed.open; async let a: () = mine.load(); async let b: () = load(); _ = await (a, b) }
+        .onReceive(NotificationCenter.default.publisher(for: .lotmProfileChanged)) { _ in Task { await load() } }
         .onDisappear { if MemberScreen.showing == id { MemberScreen.showing = nil } }
         .sheet(item: $acting) { p in
             PostActions(p: p, m: mine, web: web, close: { acting = nil }, report: { acting = nil; reporting = p; reason = "" }, delete: { acting = nil; deleting = p })
