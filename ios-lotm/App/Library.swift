@@ -455,11 +455,8 @@ struct Shelf: View {
     private let settle = Animation.spring(response: 0.5, dampingFraction: 0.82)
     private func go(_ i: Int) { withAnimation(settle) { pos = Double(max(0, min(last, i))) } }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            Flow(pos: pos, live: live, w: w, h: h) { it, i, shade in AnyView(card(it, i, shade: shade)) }
-                .contentShape(Rectangle())
-                .simultaneousGesture(DragGesture(minimumDistance: 8)
+    private var swipe: some Gesture {
+        DragGesture(minimumDistance: 8)
                     .onChanged { g in
                         if moving != nil { return }
                         if axis == 0 { axis = abs(g.translation.width) > abs(g.translation.height) ? 1 : 2; if axis == 1 { from = pos; flipped = nil; onDrag(true) } }
@@ -474,7 +471,14 @@ struct Shelf: View {
                         guard axis == 1, let f = from else { return }
                         let coast = max(-2.5, min(2.5, -Double(g.predictedEndTranslation.width - g.translation.width) / unit * 0.6))
                         go(Int((max(0, min(Double(last), f - Double(g.translation.width) / unit)) + coast).rounded()))
-                    })
+                    }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Flow(pos: pos, live: live, w: w, h: h) { it, i, shade in AnyView(card(it, i, shade: shade)) }
+                .contentShape(Rectangle())
+                .simultaneousGesture(swipe)
             VStack(spacing: 1) {
                 Text(mid?.title ?? " ").font(.serif(16, .semibold)).foregroundStyle(T.ink).lineLimit(2).multilineTextAlignment(.center)
                 if let by = mid?.by, !by.isEmpty { Text("by \(by)").font(.serif(14, italic: true)).foregroundStyle(T.muted).lineLimit(1) }
@@ -733,8 +737,8 @@ struct LibraryScreen: View {
                                  sub: AnyView(Text("LOTM book · tap to add to your library").font(.sans(12)).foregroundStyle(T.muted)), open: { Task { await m.joinClub(b) } }))
         }
         for (i, r) in m.mine.enumerated() {
-            out.append(ShelfItem(id: r.id, title: lshort(r.title), by: r.author, cover: r.cover, shade: SHADES[(i + 2) % SHADES.count], sub: AnyView(Bar(pct: pct(r))),
-                                 movable: true, back: { close in AnyView(CoverBack(r: r, m: m, close: close)) }))
+            out.append(ShelfItem(id: r.id, title: lshort(r.title), by: r.author, cover: r.cover, shade: SHADES[(i + 2) % SHADES.count], movable: true, sub: AnyView(Bar(pct: pct(r))),
+                                 back: { close in AnyView(CoverBack(r: r, m: m, close: close)) }))
         }
         return out
     }
@@ -749,8 +753,8 @@ struct LibraryScreen: View {
         for (i, r) in list.enumerated() {
             let n = m.notes[lnorm(r.title)]
             out.append(ShelfItem(id: r.id, title: lshort(r.title), by: r.author, cover: r.cover, shade: SHADES[(i + 5) % SHADES.count],
-                                 sub: n.map { AnyView(Text("\($0) in commonplace").font(.sans(12)).foregroundStyle(T.muted)) },
-                                 movable: true, back: { close in AnyView(CoverBack(r: r, m: m, close: close)) }))
+                                 movable: true, sub: n.map { AnyView(Text("\($0) in commonplace").font(.sans(12)).foregroundStyle(T.muted)) },
+                                 back: { close in AnyView(CoverBack(r: r, m: m, close: close)) }))
         }
         return out
     }
