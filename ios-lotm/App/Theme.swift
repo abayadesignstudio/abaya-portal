@@ -258,6 +258,10 @@ struct CaretText: UIViewRepresentable {
     var minHeight: CGFloat = 0
     /// Raise this number to put the cursor here.
     var focus = 0
+    /// Or say outright whether the cursor is here (nil leaves it alone).
+    var active: Bool? = nil
+    /// The put-away bar over the keyboard (off where the screen has its own bar there).
+    var bar = true
     var onFocus: (Bool) -> Void = { _ in }
 
     private var font: UIFont { UIFont(name: italic ? "EBGaramond-Italic" : semibold ? "EBGaramond-SemiBold" : "EBGaramond-Regular", size: size) ?? .systemFont(ofSize: size) }
@@ -274,7 +278,7 @@ struct CaretText: UIViewRepresentable {
         // A bar on the keyboard with a button to put it away.
         let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 40)); bar.barStyle = .black; bar.isTranslucent = true; bar.tintColor = UIColor(T.ink)
         bar.items = [UIBarButtonItem(systemItem: .flexibleSpace), UIBarButtonItem(image: UIImage(systemName: "keyboard.chevron.compact.down"), style: .plain, target: v, action: #selector(UIResponder.resignFirstResponder))]
-        v.inputAccessoryView = bar
+        if self.bar { v.inputAccessoryView = bar }
         context.coordinator.seen = focus
         return v
     }
@@ -286,6 +290,10 @@ struct CaretText: UIViewRepresentable {
         v.typingAttributes = [.font: font, .foregroundColor: color, .paragraphStyle: p]
         if let l = v.viewWithTag(7) as? UILabel { l.text = hint; l.font = font; l.isHidden = !text.isEmpty }
         if focus != context.coordinator.seen { context.coordinator.seen = focus; DispatchQueue.main.async { v.becomeFirstResponder() } }
+        if let active {
+            if active, !v.isFirstResponder, v.window != nil { DispatchQueue.main.async { if !v.isFirstResponder { v.becomeFirstResponder() } } }
+            else if !active, v.isFirstResponder { DispatchQueue.main.async { v.resignFirstResponder() } }
+        }
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView v: UITextView, context: Context) -> CGSize? {
         let w = proposal.width ?? 300
