@@ -361,7 +361,7 @@ struct NoteEntry: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Seg(options: ["Quote", "Note"], value: Binding(get: { n.kind == "quote" ? "Quote" : "Note" }, set: { flushTyping(); n.kind = $0 == "Quote" ? "quote" : "thought" })).padding(.horizontal, 16)
                     VStack(alignment: .leading, spacing: 0) {
-                        if n.kind != "quote" { CaretText(text: $n.title, hint: "Title (optional)", size: 23, semibold: true).padding(.bottom, 8) }
+                        CaretText(text: $n.title, hint: "Title", size: 23, semibold: true).padding(.bottom, 8)
                         if n.kind == "quote" {
                             Text("THE PASSAGE").font(.sans(11, .bold)).tracking(0.9).foregroundStyle(T.muted)
                             CaretText(text: $n.quotation, hint: "Type or paste the passage", size: 21, italic: true, minHeight: 96, focus: tick)
@@ -376,6 +376,8 @@ struct NoteEntry: View {
                                 .padding(.top, 8)
                         }
                         HStack(spacing: 8) {
+                            Button { listTool("bullet") } label: { Image(systemName: "list.bullet") }.buttonStyle(PillStyle()).accessibilityLabel("Bullet list")
+                            Button { listTool("number") } label: { Image(systemName: "list.number") }.buttonStyle(PillStyle()).accessibilityLabel("Numbered list")
                             PhotosPicker(selection: $photo, matching: .images) { Text("Photo") }.buttonStyle(PillStyle())
                             Button("Camera") { camera = true }.buttonStyle(PillStyle())
                             Button("Paste") { flushTyping(); if let s = UIPasteboard.general.string, !s.isEmpty { if n.kind == "quote" { n.quotation += (n.quotation.isEmpty ? "" : " ") + s } else { n.body += (n.body.isEmpty ? "" : "\n") + s } } }.buttonStyle(PillStyle())

@@ -250,7 +250,9 @@ func quoteMarked(_ body: String, _ html: String?) -> String {
 /// drag down the page takes it along.
 /// Hand every text field's latest words to its page now (before posting, saving or leaving).
 @MainActor func flushTyping() { NotificationCenter.default.post(name: .lotmFlushTyping, object: nil) }
-extension Notification.Name { static let lotmFlushTyping = Notification.Name("lotm.flushTyping") }
+/// Start or end a list on the line being written, in whichever writing box has the keyboard: "bullet" or "number".
+@MainActor func listTool(_ kind: String) { NotificationCenter.default.post(name: .lotmList, object: kind) }
+extension Notification.Name { static let lotmFlushTyping = Notification.Name("lotm.flushTyping"); static let lotmList = Notification.Name("lotm.list") }
 
 struct CaretText: UIViewRepresentable {
     @Binding var text: String
@@ -265,7 +267,7 @@ struct CaretText: UIViewRepresentable {
     /// Or say outright whether the cursor is here (nil leaves it alone).
     var active: Bool? = nil
     /// The put-away bar over the keyboard (off where the screen has its own bar there).
-    var bar = true
+    var bar = false
     /// Room kept between the cursor's line and whatever sits over the bottom of the page.
     var below: CGFloat = 30
     var onFocus: (Bool) -> Void = { _ in }
@@ -293,6 +295,7 @@ struct CaretText: UIViewRepresentable {
         // While words typed here are still on their way to the page, the page's older copy must not overwrite them.
         if context.coordinator.local == nil, v.text != text { v.text = text }
         // Styled once (and again only if the look changes), not on every letter typed.
+        context.coordinator.view = v
         let look = "\(size)|\(italic)|\(semibold)|\(color.hash)"
         if context.coordinator.look != look {
             context.coordinator.look = look
@@ -325,8 +328,47 @@ struct CaretText: UIViewRepresentable {
         init(_ p: CaretText) {
             parent = p; super.init()
             watch = NotificationCenter.default.addObserver(forName: .lotmFlushTyping, object: nil, queue: nil) { [weak self] _ in MainActor.assumeIsolated { self?.flush() } }
+            lists = NotificationCenter.default.addObserver(forName: .lotmList, object: nil, queue: nil) { [weak self] n in let k = n.object as? String ?? "bullet"; MainActor.assumeIsolated { self?.list(k) } }
         }
-        deinit { if let watch { NotificationCenter.default.removeObserver(watch) } }
+        deinit { if let watch { NotificationCenter.default.removeObserver(watch) }; if let lists { NotificationCenter.default.removeObserver(lists) } }
+        weak var view: UITextView?
+        private var lists: NSObjectProtocol?
+        // MARK: lists
+        /// The list mark a line begins with: its length, and its number if it is a numbered one.
+        private static func mark(_ line: String) -> (len: Int, n: Int?)? {
+            if line.hasPrefix("• ") { return (2, nil) }
+            let digits = line.prefix { $0.isNumber }
+            if !digits.isEmpty, digits.count < 4, line.dropFirst(digits.count).hasPrefix(". "), let n = Int(digits) { return (digits.count + 2, n) }
+            return nil
+        }
+        private func put(_ v: UITextView, _ r: NSRange, _ s: String) {
+            guard let a = v.position(from: v.beginningOfDocument, offset: r.location), let b = v.position(from: a, offset: r.length), let tr = v.textRange(from: a, to: b) else { return }
+            v.replace(tr, withText: s); textViewDidChange(v)
+        }
+        /// The tool: turn the cursor's line into a list item of that kind, change its kind, or (the same kind again) back to plain.
+        func list(_ kind: String) {
+            guard let v = view, v.isFirstResponder else { return }
+            let ns = v.text as NSString, lr = ns.lineRange(for: NSRange(location: min(v.selectedRange.location, ns.length), length: 0))
+            let line = ns.substring(with: lr), had = Self.mark(line)
+            var want = ""
+            if !(had != nil && (had!.n != nil) == (kind == "number")) {
+                if kind == "number" {
+                    var n = 1
+                    if lr.location > 0 { let prev = ns.substring(with: ns.lineRange(for: NSRange(location: lr.location - 1, length: 0))); if let p = Self.mark(prev), let k = p.n { n = k + 1 } }
+                    want = "\(n). "
+                } else { want = "• " }
+            }
+            put(v, NSRange(location: lr.location, length: had?.len ?? 0), want); Haptic.tap()
+        }
+        /// Return inside a list begins the next item; Return on an empty item ends the list.
+        func textView(_ v: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            guard text == "\n", range.length == 0 else { return true }
+            let ns = v.text as NSString, lr = ns.lineRange(for: NSRange(location: range.location, length: 0))
+            let upto = ns.substring(with: NSRange(location: lr.location, length: range.location - lr.location))
+            guard let m = Self.mark(upto) else { return true }
+            if (upto as NSString).length == m.len { put(v, NSRange(location: lr.location, length: m.len), ""); return false }
+            put(v, range, "\n" + (m.n.map { "\($0 + 1). " } ?? "• ")); return false
+        }
         func flush() {
             pending?.cancel(); pending = nil
             guard let t = local else { return }

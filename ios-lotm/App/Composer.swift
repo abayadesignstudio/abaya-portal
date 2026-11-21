@@ -63,6 +63,7 @@ final class ComposeModel: ObservableObject {
     @Published var pollDays = 3
     /// Where this goes: out to the feed, or into your private notebook. One composer serves both.
     @Published var toNotes = false
+    @Published var noteTitle = ""
     var auth: () async -> SupaAuth? = { nil }
     var send: (String, @escaping (String) -> Void) -> Void = { _, done in done("Not connected") }
     var close: () -> Void = {}
@@ -87,7 +88,7 @@ final class ComposeModel: ObservableObject {
         busy = true; error = nil
         var n = NNote(id: "")
         let qt = (quote ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        n.kind = qt.isEmpty ? "thought" : "quote"; n.quotation = qt
+        n.kind = qt.isEmpty ? "thought" : "quote"; n.quotation = qt; n.title = noteTitle
         n.body = posts.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.joined(separator: "\n\n")
         n.bookTitle = book?.title ?? ""; n.bookAuthor = book?.author ?? ""; n.bookCover = book?.cover?.absoluteString
         n.tags = tags; n.source = link.trimmingCharacters(in: .whitespaces)
@@ -95,7 +96,7 @@ final class ComposeModel: ObservableObject {
         Task { @MainActor in
             let notes = NotesModel.shared
             if let photo { n.image = await notes.upload(photo) }
-            if await notes.save(n, new: true) { UINotificationFeedbackGenerator().notificationOccurred(.success); self.clearDraft(); self.close() }
+            if await notes.save(n, new: true) { UINotificationFeedbackGenerator().notificationOccurred(.success); self.noteTitle = ""; self.clearDraft(); self.close() }
             else { self.error = notes.toast ?? "The note couldn’t be saved." }
             self.busy = false
         }
@@ -165,6 +166,7 @@ struct ComposeView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
+                        if m.toNotes { TextField("", text: $m.noteTitle, prompt: Text("Title").foregroundColor(C.muted), axis: .vertical).font(.serif(23, .semibold)).foregroundStyle(C.ink).padding(.leading, 68).padding(.trailing, 16).padding(.bottom, 8) }
                         ForEach($m.posts) { $p in
                             let i = m.posts.firstIndex(where: { $0.id == p.id }) ?? 0
                             PostRow(post: $p, index: i, name: m.name, avatar: m.avatar, showLine: true, focus: $focus,
@@ -395,7 +397,12 @@ private struct PostRow: View {
                 Button { withAnimation(.snappy) { if m.quote == nil { m.quote = "" } else { quoteFocus = true } } } label: { tool("quote2") }
                 Button { openSheet(.book) } label: { tool("book") }.foregroundStyle(m.book == nil ? C.muted : C.ink)
                 Button { openSheet(.tags) } label: { tool("hash") }.foregroundStyle(m.tags.isEmpty ? C.muted : C.ink)
-                Button { withAnimation(.snappy) { m.poll = m.poll == nil ? ["", ""] : nil } } label: { tool("pollbars") }.foregroundStyle(m.poll == nil ? C.muted : C.ink)
+                if m.toNotes {
+                    Button { listTool("bullet") } label: { Image(systemName: "list.bullet").font(.system(size: 19)).frame(width: 44, height: 42).contentShape(Rectangle()) }.accessibilityLabel("Bullet list")
+                    Button { listTool("number") } label: { Image(systemName: "list.number").font(.system(size: 19)).frame(width: 44, height: 42).contentShape(Rectangle()) }.accessibilityLabel("Numbered list")
+                } else {
+                    Button { withAnimation(.snappy) { m.poll = m.poll == nil ? ["", ""] : nil } } label: { tool("pollbars") }.foregroundStyle(m.poll == nil ? C.muted : C.ink)
+                }
             }
             Spacer(minLength: 0)
         }
