@@ -295,7 +295,7 @@ private struct PostRow: View {
                 }
                 if index == 0, m.toNotes { TextField("", text: $m.noteTitle, prompt: Text("Title").foregroundColor(C.muted), axis: .vertical).font(.serif(23, .semibold)).foregroundStyle(C.ink).padding(.trailing, 14).padding(.top, 2) }
                 // Apple's own text view: as the writing grows, the page keeps the cursor's line above the keyboard.
-                CaretText(text: $post.text, hint: index == 0 ? (m.toNotes ? "A thought worth keeping…" : "What’s on your mind?") : "Say more…", size: 22, active: focus == post.id, bar: false, below: 84,
+                CaretText(text: $post.text, hint: index == 0 ? "What’s on your mind?" : "Say more…", size: 22, active: focus == post.id, bar: false, below: 84,
                           onFocus: { on in let id = post.id; DispatchQueue.main.async { if on { focus = id } else if focus == id { focus = nil } } })
                     .padding(.trailing, 14)      // room between the words and the edge of the screen
                 if index == 0 { extras }
@@ -397,13 +397,9 @@ private struct PostRow: View {
                 Button { withAnimation(.snappy) { if m.quote == nil { m.quote = "" } else { quoteFocus = true } } } label: { tool("quote2") }
                 Button { openSheet(.book) } label: { tool("book") }.foregroundStyle(m.book == nil ? C.muted : C.ink)
                 Button { openSheet(.tags) } label: { tool("hash") }.foregroundStyle(m.tags.isEmpty ? C.muted : C.ink)
-                if m.toNotes {
-                    Button { listTool("bullet") } label: { Image(systemName: "list.bullet").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Bullet list")
-                    Button { listTool("number") } label: { Image(systemName: "list.number").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Numbered list")
-                } else {
-                    Button { withAnimation(.snappy) { m.poll = m.poll == nil ? ["", ""] : nil } } label: { tool("pollbars") }.foregroundStyle(m.poll == nil ? C.muted : C.ink)
-                }
             }
+            Button { listTool("bullet") } label: { Image(systemName: "list.bullet").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Bullet list")
+            Button { listTool("number") } label: { Image(systemName: "list.number").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Numbered list")
             Spacer(minLength: 0)
         }
         .foregroundStyle(C.muted)
