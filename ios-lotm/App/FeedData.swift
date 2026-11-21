@@ -142,7 +142,12 @@ final class FeedModel: ObservableObject {
         async let S = db.rows("/rest/v1/club_updates?study_at=gte.\(soon)&select=id,book_title,book_author,cover_url,cover_image_url,reading_position,study_at,study_location,study_location_url&order=study_at.asc,created_at.desc&limit=1")
         async let R = db.rows("/rest/v1/devotionals?show_from=lte.\(today)&show_until=gte.\(today)&select=slug,title,subtitle")
         async let E = db.rows("/rest/v1/club_events?starts_at=gte.\(soon)&select=id,title,description,location,location_url,starts_at,external_url&order=starts_at&limit=8")
-        let (pins, study, reads, events) = try await (P, S, R, E)
+        let (pins, study, own, events) = try await (P, S, R, E)
+        // a devotional published day by day is listed for members from its published copy
+        var reads = own
+        for r in (try? await db.rows("/rest/v1/devotionals_public?show_from=lte.\(today)&show_until=gte.\(today)&select=slug,title,subtitle,body")) ?? [] {
+            if !reads.contains(where: { $0["slug"] as? String == r["slug"] as? String }), (r["body"] as? String ?? "").contains("\n# ") || (r["body"] as? String ?? "").hasPrefix("# ") { reads.append(r) }
+        }
         var out: [FPin] = []
         for r in reads { out.append(FPin(id: "read" + (r["slug"] as? String ?? ""), kind: .read, title: r["title"] as? String ?? "", text: (r["subtitle"] as? String) ?? (r["title"] as? String ?? ""), slug: r["slug"] as? String)) }
         if let s = study.first, let at = s["study_at"] as? String {

@@ -208,6 +208,8 @@ final class DevotionModel: ObservableObject {
     @Published var note: String?
     @Published var esv: [String: (canonical: String, text: String)?] = [:]
     @Published var admin = false
+    /// The days not yet published (their titles): only administrators are shown them.
+    @Published var drafts: Set<String> = []
     init(slug: String) { self.slug = slug }
     /// The published works prayers are drawn from (lowercased), as kept in the editor's list of sources.
     @Published var works: [String] = []
@@ -219,7 +221,7 @@ final class DevotionModel: ObservableObject {
 
     func load() async {
         guard let db = await db() else { loaded = true; return }
-        async let D = db.rows("/rest/v1/devotionals?slug=eq.\(slug)&select=title,body")
+        async let D = db.rows("/rest/v1/devotionals?slug=eq.\(slug)&select=title,body,private")
         async let V = db.rows("/rest/v1/devotionals?slug=eq.valley-of-vision&select=body")
         async let L = db.rows("/rest/v1/devotion_prayers?select=id,body,source")
         async let S = db.rows("/rest/v1/devotion_sources?select=name")
@@ -227,7 +229,22 @@ final class DevotionModel: ObservableObject {
         async let P = db.rows("/rest/v1/profiles?id=eq.\(db.a.me)&select=role")
         let lib = (try? await L) ?? []
         works = ((try? await S) ?? []).compactMap { ($0["name"] as? String)?.lowercased() }.filter { $0.range(of: #"\d+:\d+"#, options: .regularExpression) == nil }
-        if let d = (try? await D)?.first { title = d["title"] as? String ?? ""; let body = Self.expand(d["body"] as? String ?? "", lib); blocks = dparse(body); date = DDate(body) }
+        // Administrators read the devotional itself, drafts and all; members read the days that have been published.
+        var row = (try? await D)?.first
+        let whole = row != nil
+        if row == nil { row = (try? await db.rows("/rest/v1/devotionals_public?slug=eq.\(slug)&select=title,body"))?.first }
+        if let d = row {
+            title = d["title"] as? String ?? ""; let raw = d["body"] as? String ?? ""
+            var un: Set<String> = [], cur: String?
+            if whole, d["private"] as? Bool == true {
+                for l in raw.replacingOccurrences(of: "\r", with: "").components(separatedBy: "\n") {
+                    if l.hasPrefix("# ") { cur = String(l.dropFirst(2)).trimmingCharacters(in: .whitespaces); un.insert(cur!) }
+                    else if let c = cur, l.range(of: #"^⚙\s*published\s*$"#, options: .regularExpression) != nil { un.remove(c) }
+                }
+            }
+            drafts = un
+            let body = Self.expand(raw, lib); blocks = dparse(body); date = DDate(body)
+        }
         var out: [(title: String, blocks: [DBlock])] = []
         for b in dparse(((try? await V)?.first?["body"] as? String) ?? "") {
             if b.kind == "day" { out.append((b.lines[0], [])) } else if !out.isEmpty { var x = b; x.verse = b.kind == "para"; out[out.count - 1].blocks.append(DBlock(id: "v" + x.id, kind: x.kind, lines: x.lines, verse: x.verse)) }
@@ -479,6 +496,7 @@ struct DevotionScreen: View {
             .frame(width: 260, height: 192)
             .overlay { VStack(spacing: 0) { mut.opacity(0.33).frame(height: 1); Spacer().frame(height: 62); mut.opacity(0.33).frame(height: 1) }.allowsHitTesting(false) }
             Text("\(desc) · about \(day.map { m.minutes($0.id, off) } ?? 1) min").font(.serif(17, italic: true)).foregroundStyle(mut).padding(.top, 10).id("desc")
+            if let t = day?.lines.first, m.drafts.contains(t.trimmingCharacters(in: .whitespaces)) { Text("DRAFT · ONLY ADMINISTRATORS SEE THIS DAY").font(.sans(11, .bold)).tracking(1).foregroundStyle(Color(rgb: 0xe2c37a)).padding(.top, 8) }
             Button { begin() } label: { Text("Begin").font(.sans(16, .bold)).foregroundStyle(Color(rgb: 0x1d1f14)).padding(.horizontal, 34).frame(height: 46).background(Capsule().fill(fg)) }.buttonStyle(Press(scale: 0.96)).padding(.top, 22)
             sourcesBox(mut).padding(.top, 18)
             Spacer(minLength: 8)
