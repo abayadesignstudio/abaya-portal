@@ -498,8 +498,7 @@ struct DevotionScreen: View {
             Text("\(desc) · about \(day.map { m.minutes($0.id, off) } ?? 1) min").font(.serif(17, italic: true)).foregroundStyle(mut).padding(.top, 10).id("desc")
             if let t = day?.lines.first, m.drafts.contains(t.trimmingCharacters(in: .whitespaces)) { Text("DRAFT · ONLY ADMINISTRATORS SEE THIS DAY").font(.sans(11, .bold)).tracking(1).foregroundStyle(Color(rgb: 0xe2c37a)).padding(.top, 8) }
             Button { begin() } label: { Text("Begin").font(.sans(16, .bold)).foregroundStyle(Color(rgb: 0x1d1f14)).padding(.horizontal, 34).frame(height: 46).background(Capsule().fill(fg)) }.buttonStyle(Press(scale: 0.96)).padding(.top, 22)
-            sourcesBox(mut).padding(.top, 18)
-            Spacer(minLength: 8)
+            Spacer()
             Text("Adoration of the Magi, Beuronese mural by the monks of Conception Abbey, 1896. Basilica of the Immaculate Conception, Conception, Missouri.").font(.serif(12, italic: true)).foregroundStyle(mut.opacity(0.75)).multilineTextAlignment(.center).padding(.horizontal, 24).padding(.bottom, 30)
         }
         .shadow(color: .black.opacity(0.65), radius: 7, y: 1)
