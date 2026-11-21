@@ -84,8 +84,13 @@ final class LibraryModel: ObservableObject {
         async let O = db.rows("/rest/v1/club_shelf_order?year=eq.\(year)&select=titles")
         async let N = db.rows("/rest/v1/private_notes?user_id=eq.\(me)&book_title=not.is.null&select=book_title")
         async let P = db.rows("/rest/v1/profiles?id=eq.\(me)&select=role")
-        let u = (try? await U) ?? [], r = (try? await R) ?? [], b = (try? await B) ?? []
-        past = b.compactMap { x in (x["id"] as? String).map { LPast(id: $0, title: x["title"] as? String ?? "", author: x["author"] as? String, cover: lurl(x["cover_url"]), bookURL: x["book_url"] as? String, created: parseDate(x["created_at"])) } }
+        // A fetch that fails (a dropped connection, several logs in quick succession) must never empty the shelves:
+        // what is on screen stays until an answer actually arrives. The books are tried once more before giving up.
+        let u = (try? await U) ?? [], bGot = try? await B
+        var rGot = try? await R
+        if rGot == nil { try? await Task.sleep(nanoseconds: 600_000_000); rGot = try? await db.rows("/rest/v1/current_reads?user_id=eq.\(me)&select=id,current_page,status,sort_order,custom_title,custom_author,custom_cover_url,custom_total_pages,editions(title,author,cover_url,total_pages,book_url)&order=sort_order") }
+        let b = bGot ?? []
+        if bGot != nil || past.isEmpty { past = b.compactMap { x in (x["id"] as? String).map { LPast(id: $0, title: x["title"] as? String ?? "", author: x["author"] as? String, cover: lurl(x["cover_url"]), bookURL: x["book_url"] as? String, created: parseDate(x["created_at"])) } } }
         let rows: [LUpdate] = u.compactMap { x in
             guard let id = x["id"] as? String else { return nil }
             return LUpdate(id: id, title: x["book_title"] as? String ?? "", author: x["book_author"] as? String, synopsis: x["synopsis"] as? String, position: x["reading_position"] as? String,
@@ -99,14 +104,14 @@ final class LibraryModel: ObservableObject {
             let done = past.contains { lnorm($0.title).prefix(14) == k.prefix(14) && $0.created >= x.created }
             if seen[k] == nil && !done && newest.timeIntervalSince(x.created) < 21 * 86400 { seen[k] = x; order.append(k) }
         }
-        current = Array(order.compactMap { seen[$0] }.prefix(4))
-        reads = r.compactMap { x in
+        if !u.isEmpty || current.isEmpty { current = Array(order.compactMap { seen[$0] }.prefix(4)) }
+        if let r = rGot { reads = r.compactMap { x in
             guard let id = x["id"] as? String else { return nil }
             let e = x["editions"] as? [String: Any]
             return LRead(id: id, page: x["current_page"] as? Int ?? 0, status: x["status"] as? String ?? "reading", title: (e?["title"] as? String) ?? (x["custom_title"] as? String) ?? "Book",
                          author: (e?["author"] as? String) ?? (x["custom_author"] as? String), cover: lurl(e?["cover_url"]) ?? lurl(x["custom_cover_url"]),
                          total: (e?["total_pages"] as? Int) ?? (x["custom_total_pages"] as? Int), bookURL: e?["book_url"] as? String, sort: x["sort_order"] as? Int ?? 0)
-        }
+        } }
         shelfOrder = ((try? await O)?.first?["titles"] as? [String]) ?? []
         var c: [String: Int] = [:]; for x in (try? await N) ?? [] { if let t = x["book_title"] as? String { c[lnorm(t), default: 0] += 1 } }; notes = c
         admin = (try? await P)?.first?["role"] as? String == "administrator"
