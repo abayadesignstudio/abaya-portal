@@ -327,6 +327,8 @@ private struct BookPicker: View {
 // MARK: - One entry
 
 struct NoteEntry: View {
+    /// Only a note that already has a title shows the title line.
+    @State private var titled = false
     @ObservedObject var m: NotesModel
     @ObservedObject var web: WebModel
     let id: String?
@@ -359,9 +361,9 @@ struct NoteEntry: View {
             .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 10)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    Seg(options: ["Quote", "Note"], value: Binding(get: { n.kind == "quote" ? "Quote" : "Note" }, set: { flushTyping(); n.kind = $0 == "Quote" ? "quote" : "thought" })).padding(.horizontal, 16)
+                    Seg(options: ["Quote", "Note"], value: Binding(get: { n.kind == "quote" ? "Quote" : "Note" }, set: { flushTyping(); n.kind = $0 == "Quote" ? "quote" : "thought" })).padding(.horizontal, 16).onAppear { titled = !n.title.trimmingCharacters(in: .whitespaces).isEmpty }
                     VStack(alignment: .leading, spacing: 0) {
-                        CaretText(text: $n.title, hint: "Title", size: 23, semibold: true).padding(.bottom, 8)
+                        if titled { CaretText(text: $n.title, hint: "Title", size: 23, semibold: true).padding(.bottom, 8) }
                         if n.kind == "quote" {
                             Text("THE PASSAGE").font(.sans(11, .bold)).tracking(0.9).foregroundStyle(T.muted)
                             CaretText(text: $n.quotation, hint: "Type or paste the passage", size: 21, italic: true, minHeight: 96, focus: tick)

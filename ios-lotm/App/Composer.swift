@@ -88,7 +88,7 @@ final class ComposeModel: ObservableObject {
         busy = true; error = nil
         var n = NNote(id: "")
         let qt = (quote ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        n.kind = qt.isEmpty ? "thought" : "quote"; n.quotation = qt; n.title = noteTitle
+        n.kind = qt.isEmpty ? "thought" : "quote"; n.quotation = qt
         n.body = posts.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.joined(separator: "\n\n")
         n.bookTitle = book?.title ?? ""; n.bookAuthor = book?.author ?? ""; n.bookCover = book?.cover?.absoluteString
         n.tags = tags; n.source = link.trimmingCharacters(in: .whitespaces)
@@ -294,8 +294,6 @@ private struct PostRow: View {
                     Spacer()
                     if let remove { Button(action: remove) { Text("×").font(.sans(20)).foregroundStyle(C.muted).frame(width: 28, height: 28) } }
                 }
-                if index == 0, m.toNotes { TextField("", text: $m.noteTitle, prompt: Text("Title").foregroundColor(C.muted), axis: .vertical).font(.serif(23, .semibold)).foregroundStyle(C.ink).focused($titleFocus).padding(.trailing, 14).padding(.top, 2)
-                    .onChange(of: titleFocus) { _, on in if on, focus == post.id { focus = nil } } }
                 // Apple's own text view: as the writing grows, the page keeps the cursor's line above the keyboard.
                 CaretText(text: $post.text, hint: index == 0 ? "What’s on your mind?" : "Say more…", size: 22, active: focus == post.id, bar: false, below: 84,
                           onFocus: { on in let id = post.id; DispatchQueue.main.async { if on { focus = id } else if focus == id { focus = nil } } })

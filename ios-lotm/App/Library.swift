@@ -777,6 +777,8 @@ struct LibraryScreen: View {
                 NotesPane(m: NotesModel.shared, feed: feed, web: web).offset(x: (1 - Self.paneIndex(web.libPane)) * UIScreen.main.bounds.width)
                 page { club }.offset(x: (2 - Self.paneIndex(web.libPane)) * UIScreen.main.bounds.width)
             }
+            // the panes run to the foot of the screen, under the bar, as the feed does
+            .ignoresSafeArea(.container, edges: .bottom)
             .clipped()
         }
         .animation(Self.slide, value: web.libPane)
