@@ -166,7 +166,6 @@ struct ComposeView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        if m.toNotes { TextField("", text: $m.noteTitle, prompt: Text("Title").foregroundColor(C.muted), axis: .vertical).font(.serif(23, .semibold)).foregroundStyle(C.ink).padding(.leading, 68).padding(.trailing, 16).padding(.bottom, 8) }
                         ForEach($m.posts) { $p in
                             let i = m.posts.firstIndex(where: { $0.id == p.id }) ?? 0
                             PostRow(post: $p, index: i, name: m.name, avatar: m.avatar, showLine: true, focus: $focus,
@@ -294,6 +293,7 @@ private struct PostRow: View {
                     Spacer()
                     if let remove { Button(action: remove) { Text("×").font(.sans(20)).foregroundStyle(C.muted).frame(width: 28, height: 28) } }
                 }
+                if index == 0, m.toNotes { TextField("", text: $m.noteTitle, prompt: Text("Title").foregroundColor(C.muted), axis: .vertical).font(.serif(23, .semibold)).foregroundStyle(C.ink).padding(.trailing, 14).padding(.top, 2) }
                 // Apple's own text view: as the writing grows, the page keeps the cursor's line above the keyboard.
                 CaretText(text: $post.text, hint: index == 0 ? (m.toNotes ? "A thought worth keeping…" : "What’s on your mind?") : "Say more…", size: 22, active: focus == post.id, bar: false, below: 84,
                           onFocus: { on in let id = post.id; DispatchQueue.main.async { if on { focus = id } else if focus == id { focus = nil } } })
@@ -398,8 +398,8 @@ private struct PostRow: View {
                 Button { openSheet(.book) } label: { tool("book") }.foregroundStyle(m.book == nil ? C.muted : C.ink)
                 Button { openSheet(.tags) } label: { tool("hash") }.foregroundStyle(m.tags.isEmpty ? C.muted : C.ink)
                 if m.toNotes {
-                    Button { listTool("bullet") } label: { Image(systemName: "list.bullet").font(.system(size: 19)).frame(width: 44, height: 42).contentShape(Rectangle()) }.accessibilityLabel("Bullet list")
-                    Button { listTool("number") } label: { Image(systemName: "list.number").font(.system(size: 19)).frame(width: 44, height: 42).contentShape(Rectangle()) }.accessibilityLabel("Numbered list")
+                    Button { listTool("bullet") } label: { Image(systemName: "list.bullet").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Bullet list")
+                    Button { listTool("number") } label: { Image(systemName: "list.number").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Numbered list")
                 } else {
                     Button { withAnimation(.snappy) { m.poll = m.poll == nil ? ["", ""] : nil } } label: { tool("pollbars") }.foregroundStyle(m.poll == nil ? C.muted : C.ink)
                 }
@@ -417,7 +417,7 @@ private struct PostRow: View {
             }
         }
     }
-    private func tool(_ n: String) -> some View { GlyphView(n: n, s: 24).frame(width: 44, height: 42).contentShape(Rectangle()) }
+    private func tool(_ n: String) -> some View { GlyphView(n: n, s: 24).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }
 }
 
 private struct SmallGhost: ButtonStyle {
