@@ -91,6 +91,7 @@ private struct Dock: View {
                     }
                     .frame(maxWidth: .infinity).frame(height: 48)
                     .background(Capsule().fill(web.tab == .chat ? Color(rgb: 0x0c0e08, 0.09) : .clear).padding(.horizontal, 2))
+                    .contentShape(Rectangle())
             }
             .buttonStyle(Press(scale: 0.92)).frame(maxWidth: .infinity)
             .accessibilityLabel(chatCount > 0 ? "Chat, \(chatCount) unread" : "Chat")
@@ -115,8 +116,10 @@ private struct Dock: View {
             web.select(t)
         } label: {
             GlyphView(n: icon, s: 27).foregroundStyle(on ? T.ink : T.muted)
-                .frame(maxWidth: .infinity).frame(height: 48)
-                .background(Capsule().fill(on ? Color(rgb: 0x0c0e08, 0.09) : .clear).padding(.horizontal, 2))
+                .frame(maxWidth: .infinity).frame(height: 58)
+                .background(Capsule().fill(on ? Color(rgb: 0x0c0e08, 0.09) : .clear).padding(.horizontal, 2).padding(.vertical, 5))
+                // the whole cell answers a tap, not only the lines of the icon
+                .contentShape(Rectangle())
         }
         .buttonStyle(Press(scale: 0.92)).frame(maxWidth: .infinity)
         .accessibilityLabel(label)

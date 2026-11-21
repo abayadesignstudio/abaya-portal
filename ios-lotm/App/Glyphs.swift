@@ -585,6 +585,7 @@ struct GlyphView: View {
             if fill || n == "feed" { scaled.fill() }
             scaled.stroke(style: StrokeStyle(lineWidth: (n == "feed" ? 1.2 : w) * s / 24, lineCap: .round, lineJoin: .round))
         }
-        .frame(width: s, height: s)
+        // An icon is touched anywhere within its square, not only on its lines.
+        .frame(width: s, height: s).contentShape(Rectangle())
     }
 }

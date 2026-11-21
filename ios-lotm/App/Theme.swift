@@ -92,7 +92,7 @@ struct PageBar<Right: View>: View {
             Text(title).font(.sans(16, .semibold)).foregroundStyle(T.ink).lineLimit(1).padding(.horizontal, 96)
             HStack(spacing: 4) {
                 Button(action: onBack) {
-                    HStack(spacing: 2) { GlyphView(n: "back", s: 24); Text(back).font(.sans(16)) }.foregroundStyle(T.ink).padding(.vertical, 8)
+                    HStack(spacing: 2) { GlyphView(n: "back", s: 24); Text(back).font(.sans(16)) }.foregroundStyle(T.ink).padding(.vertical, 8).padding(.trailing, 10).contentShape(Rectangle())
                 }
                 Spacer(minLength: 0)
                 right()
@@ -307,7 +307,7 @@ struct CaretText: UIViewRepresentable {
         if let l = v.viewWithTag(7) as? UILabel { if l.text != hint { l.text = hint }; l.isHidden = !text.isEmpty }
         if focus != context.coordinator.seen { context.coordinator.seen = focus; DispatchQueue.main.async { v.becomeFirstResponder() } }
         if let active {
-            if active, !v.isFirstResponder, v.window != nil { DispatchQueue.main.async { if !v.isFirstResponder { v.becomeFirstResponder() } } }
+            if active, !v.isFirstResponder, v.window != nil, Date().timeIntervalSince(context.coordinator.endedAt) > 0.6 { DispatchQueue.main.async { if !v.isFirstResponder { v.becomeFirstResponder() } } }
             else if !active, v.isFirstResponder { DispatchQueue.main.async { v.resignFirstResponder() } }
         }
     }
@@ -392,7 +392,8 @@ struct CaretText: UIViewRepresentable {
         // The page chases the cursor only when something is typed (as in X and Notes): never because the page was
         // scrolled or the cursor was placed by hand, so a finger moving the page is left alone.
         func textViewDidBeginEditing(_ v: UITextView) { parent.onFocus(true); follow(v, after: [0.45]) }
-        func textViewDidEndEditing(_ v: UITextView) { flush(); parent.onFocus(false) }
+        var endedAt = Date.distantPast
+        func textViewDidEndEditing(_ v: UITextView) { endedAt = Date(); flush(); parent.onFocus(false) }
         private var following: [DispatchWorkItem] = []
         /// Where the cursor's line is, in the text view's own space. At the very end of the writing (where typing nearly
         /// always is) the system's answer can be empty or sit at the top just after Return, so the end is measured instead.

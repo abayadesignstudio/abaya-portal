@@ -374,7 +374,7 @@ struct PostScreen: View {
                 TextField("", text: $text, prompt: Text(first.isEmpty ? "Add a comment…" : "Reply to \(first)…").foregroundColor(T.muted), axis: .vertical)
                     .font(.serif(20)).foregroundStyle(T.ink).lineLimit(1...6).focused($typing)
                     .padding(.horizontal, 4).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 38)
-                PhotosPicker(selection: $pick, matching: .images) { GlyphView(n: "image", s: 23, w: 1.9).foregroundStyle(T.ink).frame(width: 38, height: 38) }
+                PhotosPicker(selection: $pick, matching: .images) { GlyphView(n: "image", s: 23, w: 1.9).foregroundStyle(T.ink).frame(width: 38, height: 38).contentShape(Rectangle()) }
                     .onChange(of: pick) { _, it in
                         guard let it else { return }
                         Task { if let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) { await MainActor.run { image = img; pick = nil } } }
@@ -389,7 +389,7 @@ struct PostScreen: View {
                     }
                     .disabled(!ok).padding(1)
                 } else {
-                    Button { if let p = m.post { m.close(); m.webGo("/reply/\(p.id)") } } label: { GlyphView(n: "expand", s: 21, w: 1.9).foregroundStyle(T.ink).frame(width: 38, height: 38) }
+                    Button { if let p = m.post { m.close(); m.webGo("/reply/\(p.id)") } } label: { GlyphView(n: "expand", s: 21, w: 1.9).foregroundStyle(T.ink).frame(width: 38, height: 38).contentShape(Rectangle()) }
                 }
             }
             .padding(.leading, 9).padding(.trailing, 8).padding(.vertical, 7)
@@ -423,7 +423,7 @@ private struct PostBody: View {
                 }
                 if p.showTitle { Text(p.title).font(.serif(26 * z, .semibold)).foregroundStyle(T.ink).fixedSize(horizontal: false, vertical: true).padding(.top, 12 * z) }
             }
-            if !p.body.isEmpty { Paras(text: p.body, size: 21 * z, leading: 1.4, gap: 7 * z).padding(.top, 8 * z) }
+            if !p.body.isEmpty { Paras(text: p.body, size: 18.5 * z, leading: 1.3, gap: 5 * z, weight: .medium).padding(.top, 8 * z) }
             if !p.photos.isEmpty { PhotoRow(urls: p.photos).padding(.top, 10 * z) }
             if let q = p.quoted {
                 Button { m.id = q.id; m.post = nil; m.parts = []; m.replies = []; Task { _ = await m.load() } } label: {
@@ -516,8 +516,8 @@ private struct ReplyCard: View {
                         HStack(spacing: 5) { GlyphView(n: "heart", s: 19, w: 1.9, fill: r.liked).symbolPop(r.liked); if r.likes > 0 { Text("\(r.likes)") } }
                             .foregroundStyle(r.liked ? T.like : T.muted).font(.sans(14)).padding(.vertical, 2)
                     }.buttonStyle(.plain)
-                    if let onReply { Button(action: onReply) { GlyphView(n: "chat", s: 19, w: 1.9).foregroundStyle(T.muted).padding(.vertical, 2) }.buttonStyle(.plain).accessibilityLabel("Reply") }
-                    Button { Task { await m.saveReply(r) } } label: { GlyphView(n: "bookmark", s: 19, w: 1.9, fill: r.saved).symbolPop(r.saved).foregroundStyle(r.saved ? T.ink : T.muted).padding(.vertical, 2) }
+                    if let onReply { Button(action: onReply) { GlyphView(n: "chat", s: 19, w: 1.9).foregroundStyle(T.muted).padding(.vertical, 6).padding(.horizontal, 6).contentShape(Rectangle()).padding(-6) }.buttonStyle(.plain).accessibilityLabel("Reply") }
+                    Button { Task { await m.saveReply(r) } } label: { GlyphView(n: "bookmark", s: 19, w: 1.9, fill: r.saved).symbolPop(r.saved).foregroundStyle(r.saved ? T.ink : T.muted).padding(.vertical, 6).padding(.horizontal, 6).contentShape(Rectangle()).padding(-6) }
                         .buttonStyle(.plain).accessibilityLabel(r.saved ? "Remove from saved" : "Save")
                 }
                 .padding(.top, 8)
