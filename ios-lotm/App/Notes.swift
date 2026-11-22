@@ -391,8 +391,7 @@ struct NoteEntry: View {
                             Button { listTool("number") } label: { Image(systemName: "list.number").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Numbered list")
                             Spacer(minLength: 0)
                         }
-                        .foregroundStyle(T.muted).buttonStyle(.plain).padding(.leading, -8)
-                        }.padding(.top, 10)
+                        .foregroundStyle(T.muted).buttonStyle(.plain).padding(.leading, -8).padding(.top, 6)
                     }
                     .padding(.horizontal, 16).padding(.vertical, 14).frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 16).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.rule)).padding(.horizontal, 16).padding(.top, 14)
