@@ -1342,8 +1342,18 @@ private struct ClubBookSheet: View {
     @State private var clubPage = ""
     @State private var clubTotal = ""
     @State private var confirm = false
+    /// What the group is reading to, as the schedule has it.
+    private var assigned: String? {
+        if let cp = b.clubPage {
+            var t = "Read through page \(cp)"
+            if let tot = b.clubTotal { t += " of \(tot)" }
+            if let d = b.studyAt { t += " by " + d.formatted(.dateTime.weekday(.wide).month(.wide).day()) }
+            return t
+        }
+        if let pos = b.position, !pos.isEmpty, pos != "TBD" { return "Reading: " + pos }
+        return nil
+    }
     var body: some View {
-        let my = m.myFor(b), n = Int(page) ?? 0, ok = my != nil && n > 0 && (my?.total == nil || n <= my!.total!)
         SheetBody {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 14) {
@@ -1354,9 +1364,7 @@ private struct ClubBookSheet: View {
                         Button("Amazon ↗") { UIApplication.shared.open(amazon(b.title, b.author, b.bookURL)) }.font(.sans(13, .semibold)).foregroundStyle(T.ink).padding(.top, 4)
                     }
                 }
-                if let cp = b.clubPage {
-                    Text("Read through page \(cp)" + (b.clubTotal.map { " of \($0)" } ?? "") + (b.studyAt.map { " by " + $0.formatted(.dateTime.weekday(.wide).month(.wide).day()) } ?? "")).font(.sans(15, .semibold)).foregroundStyle(T.ink)
-                } else if let pos = b.position, !pos.isEmpty, pos != "TBD" { Text("Reading: \(pos)").font(.sans(15, .semibold)).foregroundStyle(T.ink) }
+                if let line = assigned { Text(line).font(.sans(15, .semibold)).foregroundStyle(T.ink) }
                 if m.myFor(b) == nil { Button("Add to my library") { close(); Task { await m.joinClub(b) } }.buttonStyle(LBtn()) }
                 if m.admin { Button("Mark complete for LOTM") { confirm = true }.buttonStyle(LBtn(ghost: true)) }
             }
@@ -1395,7 +1403,12 @@ private struct UpdateSheet: View {
                 Button("Post update") {
                     guard !d.title.trimmingCharacters(in: .whitespaces).isEmpty else { m.say("Book title is required"); return }
                     func v(_ s: String?) -> Any { (s ?? "").isEmpty ? NSNull() as Any : s! }
-                    let row: [String: Any] = ["book_title": d.title, "book_author": v(d.author), "book_publisher": v(d.publisher), "reading_position": v(d.position), "club_page": Int(d.page).map { $0 as Any } ?? NSNull() as Any, "club_total": (m.current.first.flatMap { m.myFor($0)?.total } ?? m.current.first?.clubTotal).map { $0 as Any } ?? NSNull() as Any, "book_url": v(d.bookURL), "cover_url": v(d.cover),
+                    let pageNo: Int? = Int(d.page.trimmingCharacters(in: .whitespaces))
+                    let cp: Any = pageNo.map { $0 as Any } ?? (NSNull() as Any)
+                    let cur: LUpdate? = m.current.first { lsame($0.title, d.title) }
+                    let total: Int? = cur.flatMap { m.myFor($0)?.total } ?? cur?.clubTotal
+                    let ct: Any = total.map { $0 as Any } ?? (NSNull() as Any)
+                    let row: [String: Any] = ["book_title": d.title, "book_author": v(d.author), "book_publisher": v(d.publisher), "reading_position": v(d.position), "club_page": cp, "club_total": ct, "book_url": v(d.bookURL), "cover_url": v(d.cover),
                                               "reading_file_url": v(d.file), "synopsis": v(d.notes), "study_at": d.hasDate ? liso(d.when) as Any : NSNull(), "study_location": v(d.place),
                                               "study_location_url": d.place.isEmpty ? NSNull() as Any : "https://www.google.com/maps/search/?api=1&query=\(d.place.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")"]
                     Task { if await m.postUpdate(row) { close() } }
