@@ -262,6 +262,9 @@ final class ChatModel: ObservableObject {
     @Published var busy = false
     @Published var problem: String?
     @Published var muted = false
+    @Published var receipts = true
+    @Published var seenAt: Date?
+    private var readsAt = Date.distantPast
     @Published var images: [String: UIImage] = [:]
     let s = ChatSession.shared
     private var db: Supa? { s.db }
@@ -373,6 +376,7 @@ final class ChatModel: ObservableObject {
     /// New messages are asked for every second or so (only what came since the last one); a full look, which also
     /// catches deletions, happens every quarter minute.
     func refresh(full: Bool = false) async {
+        await loadReads()
         guard let db else { return }
         if stage == .waiting || Date().timeIntervalSince(lastMaintain) > 60 {
             try? await loadKeys()
@@ -545,6 +549,25 @@ final class ChatModel: ObservableObject {
         do { try d.write(to: u, options: .completeFileProtection); return u } catch { return nil }
     }
 
+    /// Your own choice, kept with your membership of this chat; nobody else is told.
+    func setReceipts(_ v: Bool) async {
+        receipts = v; Haptic.tap()
+        _ = try? await db?.req("POST", "/rest/v1/conversation_members", json: ["conversation_id": conv, "user_id": me, "read_receipts": v], prefer: "resolution=merge-duplicates,return=minimal")
+    }
+    /// When the other person last opened this chat, if they share read receipts (and you do: receipts are mutual).
+    func loadReads() async {
+        guard let db, Date().timeIntervalSince(readsAt) > 6 else { return }
+        readsAt = Date()
+        guard let rows = try? await db.rows("/rest/v1/conversation_members?conversation_id=eq.\(conv)&select=user_id,last_read_at,read_receipts,muted") else { return }
+        var seen: Date?
+        for r in rows {
+            let uid = r["user_id"] as? String ?? ""
+            if uid == me { receipts = r["read_receipts"] as? Bool ?? true; continue }
+            if r["read_receipts"] as? Bool ?? true, let s = r["last_read_at"] as? String { let d = parseDate(s); if d > (seen ?? .distantPast) { seen = d } }
+        }
+        let v = receipts ? seen : nil
+        if v != seenAt { seenAt = v }
+    }
     func setMuted(_ v: Bool) async {
         muted = v; Haptic.tap()
         _ = try? await db?.req("POST", "/rest/v1/conversation_members", json: ["conversation_id": conv, "user_id": me, "muted": v], prefer: "resolution=merge-duplicates,return=minimal")
@@ -942,14 +965,24 @@ struct ChatScreen: View {
                 }
                 .frame(maxWidth: .infinity)
             }.buttonStyle(.plain)
-            Button { Task { await m.setMuted(!m.muted) } } label: {
-                GlyphView(n: m.muted ? "mute" : "bell", s: 21).foregroundStyle(m.muted ? T.like : T.ink).frame(width: 40, height: 40)
-            }
-            .opacity(m.stage == .ready ? 1 : 0).accessibilityLabel(m.muted ? "Unmute" : "Mute")
+            Color.clear.frame(width: 40, height: 40)     // (alerts are set under the picture, in the chat's own page)
         }
         .padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 8)
         .background(Color(rgb: 0x3a3d2b, 0.96))
-        .overlay(alignment: .bottom) { T.rule.frame(height: 1) }
+        .overlay(alignment: .bottom) {
+            if m.msgs.contains(where: { $0.failed }) { T.danger.frame(height: 2) }
+            else if m.msgs.contains(where: { $0.pending }) { ProgressView().progressViewStyle(.linear).tint(Color(rgb: 0x5a9a68)).frame(height: 2).scaleEffect(x: 1, y: 0.6, anchor: .bottom) }
+            else { T.rule.frame(height: 1) }
+        }
+    }
+
+    /// Under your latest message: whether it is on its way, delivered, or (if they share receipts) read.
+    @ViewBuilder private var receipt: some View {
+        if let last = m.msgs.last(where: { $0.ctl == nil && !$0.deleted }), last.userId == m.me {
+            let t: String = last.failed ? "Not delivered · tap the message to try again" : last.pending ? "Sending…"
+                : (m.c.kind == "direct" && (m.seenAt ?? .distantPast) >= last.created) ? "Read " + (m.seenAt ?? Date()).formatted(date: .omitted, time: .shortened) : "Delivered"
+            Text(t).font(.sans(11.5, .medium)).foregroundStyle(last.failed ? T.danger : T.muted).frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, 18).padding(.top, 1)
+        }
     }
 
     private var thread: some View {
@@ -969,6 +1002,7 @@ struct ChatScreen: View {
                     ForEach(Array(m.msgs.enumerated()), id: \.element.id) { i, msg in
                         row(msg, prev: i > 0 ? m.msgs[i - 1] : nil).id(msg.id)
                     }
+                    receipt
                     Color.clear.frame(height: 4).id("end")
                 }
                 .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 8)
@@ -1326,6 +1360,65 @@ private struct KeySetup: View {
 }
 
 /// Who's in a chat, safety numbers to compare in person, and (for groups) adding, removing and leaving.
+/// What has been shared in a chat: its photos, its files and its links.
+private struct SharedSections: View {
+    @ObservedObject var m: ChatModel
+    @State private var shown: UIImage?
+    @State private var preview: URL?
+    private var photos: [CMsg] { m.msgs.filter { !$0.deleted && $0.att?.isImage == true }.reversed() }
+    private var files: [CMsg] { m.msgs.filter { !$0.deleted && $0.att != nil && $0.att?.isImage != true }.reversed() }
+    private var links: [(String, URL, Date)] {
+        guard let re = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return [] }
+        var out: [(String, URL, Date)] = []
+        for x in m.msgs.reversed() where !x.deleted && x.ctl == nil && x.text.contains("http") {
+            for h in re.matches(in: x.text, range: NSRange(x.text.startIndex..., in: x.text)) { if let u = h.url, u.scheme?.hasPrefix("http") == true { out.append((x.id + u.absoluteString, u, x.created)) } }
+        }
+        return out
+    }
+    var body: some View {
+        Section("Photos") {
+            if photos.isEmpty { Text("None yet").font(.sans(14)).foregroundStyle(T.muted) } else {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 3), spacing: 4) {
+                    ForEach(photos.prefix(60)) { x in SharedThumb(m: m, msg: x) { shown = $0 } }
+                }.padding(.vertical, 4)
+            }
+        }
+        Section("Files") {
+            if files.isEmpty { Text("None yet").font(.sans(14)).foregroundStyle(T.muted) } else {
+                ForEach(files.prefix(60)) { x in
+                    Button { Task { preview = await m.file(x) } } label: {
+                        HStack(spacing: 10) { Image(systemName: "doc").foregroundStyle(T.muted); Text(x.att?.name ?? "File").font(.sans(15)).foregroundStyle(T.ink).lineLimit(1); Spacer(); Text(x.created.formatted(date: .abbreviated, time: .omitted)).font(.sans(12)).foregroundStyle(T.muted) }
+                    }
+                }
+            }
+        }
+        .quickLookPreview($preview)
+        Section("Links") {
+            if links.isEmpty { Text("None yet").font(.sans(14)).foregroundStyle(T.muted) } else {
+                ForEach(links.prefix(60), id: \.0) { l in
+                    Button { openInApp(l.1) } label: {
+                        VStack(alignment: .leading, spacing: 2) { Text(l.1.host ?? l.1.absoluteString).font(.sans(15, .semibold)).foregroundStyle(T.ink); Text(l.1.absoluteString).font(.sans(12)).foregroundStyle(T.muted).lineLimit(1) }
+                    }
+                }
+            }
+        }
+        .fullScreenCover(item: Binding(get: { shown.map { ZoomBox(img: $0) } }, set: { shown = $0?.img })) { z in ZoomImageView(img: z.img) { shown = nil } }
+    }
+}
+private struct SharedThumb: View {
+    @ObservedObject var m: ChatModel
+    let msg: CMsg
+    let open: (UIImage) -> Void
+    @State private var img: UIImage?
+    var body: some View {
+        Color(rgb: 0x2a2d1d).aspectRatio(1, contentMode: .fit)
+            .overlay { if let img { Image(uiImage: img).resizable().scaledToFill() } }
+            .clipShape(RoundedRectangle(cornerRadius: 6)).contentShape(Rectangle())
+            .onTapGesture { if let img { open(img) } }
+            .task { if img == nil, let u = await m.file(msg), let d = try? Data(contentsOf: u) { img = UIImage(data: d) } }
+    }
+}
+
 private struct ChatInfo: View {
     @ObservedObject var m: ChatModel
     let left: () -> Void
@@ -1336,6 +1429,11 @@ private struct ChatInfo: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    Toggle(isOn: Binding(get: { m.muted }, set: { v in Task { await m.setMuted(v) } })) { Label("Hide alerts", systemImage: "bell.slash").font(.sans(15)).foregroundStyle(T.ink) }.tint(T.green)
+                    Toggle(isOn: Binding(get: { m.receipts }, set: { v in Task { await m.setReceipts(v) } })) { Label("Send read receipts", systemImage: "checkmark.message").font(.sans(15)).foregroundStyle(T.ink) }.tint(T.green)
+                } footer: { Text("Only you see these settings. With read receipts off, you won’t see theirs either.").font(.sans(12)) }
+                SharedSections(m: m)
                 Section {
                     Text("Messages and photos are encrypted on your phone before they’re sent. To check that nobody’s key has been swapped, compare a person’s safety number with what their own phone shows.")
                         .font(.sans(14)).foregroundStyle(T.sub)

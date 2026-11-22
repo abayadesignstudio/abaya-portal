@@ -7,7 +7,7 @@ import WebKit
 // MARK: - Data
 
 struct LRead: Identifiable, Equatable { let id: String; var page: Int, status: String, title: String, author: String?, cover: URL?, total: Int?, bookURL: String?, sort: Int }
-struct LUpdate: Identifiable, Equatable { let id: String; var title: String, author: String?, synopsis: String?, position: String?, bookURL: String?, cover: URL?, file: String?, studyAt: Date?, place: String?, placeURL: String?, created: Date }
+struct LUpdate: Identifiable, Equatable { let id: String; var title: String, author: String?, synopsis: String?, position: String?, clubPage: Int? = nil, clubTotal: Int? = nil, bookURL: String?, cover: URL?, file: String?, studyAt: Date?, place: String?, placeURL: String?, created: Date }
 struct LPast: Identifiable, Equatable { let id: String; var title: String, author: String?, cover: URL?, bookURL: String?, created: Date }
 struct LEvent: Identifiable, Equatable { let id: String; var title: String, details: String?, place: String?, placeURL: String?, starts: Date, link: String? }
 struct LSug: Identifiable, Equatable { let id: String; var user: String, title: String, dateRaw: String?, place: String?, details: String? }
@@ -71,6 +71,11 @@ final class LibraryModel: ObservableObject {
             .filter { b in !current.contains { lnorm($0.title).prefix(14) == lnorm(b.title).prefix(14) } }
     }
     var earlier: [LPast] { past.filter { Calendar.current.component(.year, from: $0.created) < year } }
+    func setClubPage(_ b: LUpdate, _ page: Int, _ total: Int) async {
+        guard let a = await feed?.auth() else { return }
+        var row: [String: Any] = ["club_page": page]; if total > 0 { row["club_total"] = total }
+        do { _ = try await Supa(a: a).req("PATCH", "/rest/v1/club_updates?id=eq.\(b.id)", json: row, prefer: "return=minimal"); say("Updated for LOTM"); await load() } catch { say("Couldn’t update") }
+    }
     func myFor(_ b: LUpdate) -> LRead? { reads.first { $0.status != "finished" && lsame($0.title, b.title) } }
     private var front: Int { min(0, reads.map(\.sort).min() ?? 0) - 1 }
     func say(_ s: String) { toast = s; Task { try? await Task.sleep(nanoseconds: 2_400_000_000); if toast == s { toast = nil } } }
@@ -93,7 +98,7 @@ final class LibraryModel: ObservableObject {
         if bGot != nil || past.isEmpty { past = b.compactMap { x in (x["id"] as? String).map { LPast(id: $0, title: x["title"] as? String ?? "", author: x["author"] as? String, cover: lurl(x["cover_url"]), bookURL: x["book_url"] as? String, created: parseDate(x["created_at"])) } } }
         let rows: [LUpdate] = u.compactMap { x in
             guard let id = x["id"] as? String else { return nil }
-            return LUpdate(id: id, title: x["book_title"] as? String ?? "", author: x["book_author"] as? String, synopsis: x["synopsis"] as? String, position: x["reading_position"] as? String,
+            return LUpdate(id: id, title: x["book_title"] as? String ?? "", author: x["book_author"] as? String, synopsis: x["synopsis"] as? String, position: x["reading_position"] as? String, clubPage: x["club_page"] as? Int, clubTotal: x["club_total"] as? Int,
                            bookURL: x["book_url"] as? String, cover: lurl(x["cover_url"]) ?? lurl(x["cover_image_url"]), file: (x["reading_file_url"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                            studyAt: (x["study_at"] as? String).map { parseDate($0) }, place: x["study_location"] as? String, placeURL: x["study_location_url"] as? String, created: parseDate(x["created_at"]))
         }
@@ -863,7 +868,8 @@ struct LibraryScreen: View {
     private func clubItems() -> [ShelfItem] {
         var books: [(Int, ShelfItem)] = []
         for (i, b) in m.current.enumerated() {
-            let p = pct(m.myFor(b))
+            // the bar is the group's place in the book when an administrator has set it; otherwise your own
+            let p = (b.clubPage != nil && (b.clubTotal ?? 0) > 0) ? min(100, b.clubPage! * 100 / b.clubTotal!) : pct(m.myFor(b))
             let pos = (b.position ?? "TBD") != "TBD" && !(b.position ?? "").isEmpty ? " · Read: \(b.position!)" : ""
             let label = (i == 0 ? "Current LOTM read" : "Also reading") + pos
             let item = ShelfItem(id: b.id, title: lshort(b.title), by: b.author, cover: b.cover, shade: SHADES[i % 2], movable: m.admin,
@@ -1332,6 +1338,8 @@ private struct ClubBookSheet: View {
     @ObservedObject var m: LibraryModel
     let close: () -> Void
     @State private var page = ""
+    @State private var clubPage = ""
+    @State private var clubTotal = ""
     @State private var confirm = false
     var body: some View {
         let my = m.myFor(b), n = Int(page) ?? 0, ok = my != nil && n > 0 && (my?.total == nil || n <= my!.total!)
@@ -1345,12 +1353,22 @@ private struct ClubBookSheet: View {
                         Button("Amazon ↗") { UIApplication.shared.open(amazon(b.title, b.author, b.bookURL)) }.font(.sans(13, .semibold)).foregroundStyle(T.ink).padding(.top, 4)
                     }
                 }
+                if m.admin {
+                    HStack(alignment: .bottom, spacing: 10) {
+                        LField(label: "We’re on page", text: $clubPage, hint: b.clubPage.map(String.init) ?? "0", number: true)
+                        LField(label: "of", text: $clubTotal, hint: (b.clubTotal ?? m.myFor(b)?.total).map(String.init) ?? "pages", number: true)
+                        Button("Set") { let pg = Int(clubPage) ?? b.clubPage ?? 0, tot = Int(clubTotal) ?? b.clubTotal ?? m.myFor(b)?.total ?? 0; close(); Task { await m.setClubPage(b, pg, tot) } }.buttonStyle(LBtn()).frame(width: 84)
+                    }
+                    Text("This sets where LOTM is in the book, for everyone.").font(.sans(12)).foregroundStyle(T.muted)
+                } else if let cp = b.clubPage {
+                    Text("LOTM is on page \(cp)" + (b.clubTotal.map { " of \($0)" } ?? "")).font(.sans(14, .semibold)).foregroundStyle(T.ink)
+                }
                 if let my {
                     HStack(alignment: .bottom, spacing: 10) {
-                        LField(label: (m.admin ? "We’re on page" : "I’m on page") + (my.total.map { " (of \($0))" } ?? ""), text: $page, hint: "\(my.page)", number: true)
+                        LField(label: "I’m on page" + (my.total.map { " (of \($0))" } ?? ""), text: $page, hint: "\(my.page)", number: true)
                         Button("Log") { close(); Task { await m.log(my, n) } }.buttonStyle(LBtn()).frame(width: 84).disabled(!ok).opacity(ok ? 1 : 0.4)
                     }
-                    Button(m.admin ? "We’ve finished it" : "I’ve finished it") { close(); Task { await m.setStatus(my, "finished") } }.buttonStyle(LBtn(ghost: true))
+                    Button("I’ve finished it") { close(); Task { await m.setStatus(my, "finished") } }.buttonStyle(LBtn(ghost: true))
                 } else {
                     Button("Add to my Currently reading") { close(); Task { await m.joinClub(b) } }.buttonStyle(LBtn())
                 }
