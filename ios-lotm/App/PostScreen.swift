@@ -96,7 +96,7 @@ struct NPost: Identifiable {
     var allowReplies: Bool, likes = 0, liked = false, tags: [String] = [], quoted: NQuote? = nil, quoteId: String?, saved = false
     var showTitle: Bool {
         let n = { (t: String) in t.replacingOccurrences(of: quoteMark, with: "").lowercased().replacingOccurrences(of: #"[…\.\s"“”'‘’,:;!?-]+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces) }
-        let t = n(title); return !t.isEmpty && t != "voice note" && !n(body).hasPrefix(t)
+        let t = n(title); return !t.isEmpty && t != "voice note" && t != "photo" && !n(body).hasPrefix(t)
     }
 }
 struct NQuote { let id: String, userId: String, text: String }
@@ -421,7 +421,7 @@ private struct PostBody: View {
                     Spacer()
                     ShareLink(item: link) { Text("···").font(.sans(15 * z, .bold)).tracking(1).foregroundStyle(T.muted) }
                 }
-                if p.showTitle { Text(p.title).font(.serif(26 * z, .semibold)).foregroundStyle(T.ink).fixedSize(horizontal: false, vertical: true).padding(.top, 12 * z) }
+                if p.showTitle { Text(p.title).font(.serif(19 * z, .bold)).foregroundStyle(T.ink).fixedSize(horizontal: false, vertical: true).padding(.top, 12 * z) }
             }
             if !p.body.isEmpty { Paras(text: p.body, size: 18.5 * z, leading: 1.3, gap: 5 * z, weight: .medium).padding(.top, 8 * z) }
             if !p.photos.isEmpty { PhotoRow(urls: p.photos).padding(.top, 10 * z) }

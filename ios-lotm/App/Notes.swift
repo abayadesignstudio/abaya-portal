@@ -193,18 +193,7 @@ struct NotesPane: View {
                     TextField("", text: $q, prompt: Text("Search quotes, thoughts, books, tags").foregroundColor(T.muted)).font(.sans(14)).foregroundStyle(T.ink).autocorrectionDisabled().submitLabel(.search)
                     if !q.isEmpty { Button { q = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(T.muted) } }
                 }
-                .padding(.horizontal, 12).frame(height: 40).background(RoundedRectangle(cornerRadius: 12).fill(Color(rgb: 0x0c0e08, 0.07))).padding(.horizontal, 16).padding(.top, 10)
-                Button { web.composer.present(name: feed.myName, avatar: feed.myAvatar, toNotes: true) } label: {
-                    HStack(spacing: 10) {
-                        GlyphView(n: "pencil", s: 20).foregroundStyle(T.muted)
-                        Text("New note").font(.serif(20)).foregroundStyle(T.muted)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16).frame(height: 54)
-                    .background(RoundedRectangle(cornerRadius: 18).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 18).stroke(T.rule))
-                    .contentShape(RoundedRectangle(cornerRadius: 18))
-                }
-                .buttonStyle(Press(scale: 0.985)).padding(.horizontal, 16).padding(.top, 10).accessibilityLabel("New note")
+                .padding(.horizontal, 14).frame(height: 48).background(RoundedRectangle(cornerRadius: 18).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 18).stroke(T.rule)).padding(.horizontal, 16).padding(.top, 10)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach([("all", "All · \(m.notes.count)"), ("quote", "Quotes"), ("note", "Notes")], id: \.0) { k, l in

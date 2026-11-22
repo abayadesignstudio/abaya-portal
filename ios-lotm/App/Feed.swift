@@ -770,8 +770,8 @@ private struct PollView: View {
                         if show { Text("\(Int((pct * 100).rounded()))%").font(.sans(14, .semibold)).monospacedDigit().contentTransition(.numericText()).transition(.opacity) }
                     }
                     .foregroundStyle(T.ink).padding(.horizontal, 14).frame(minHeight: 42)
-                    .background(alignment: .leading) { GeometryReader { g in Rectangle().fill(mine == i ? Color(rgb: 0x5a5e42) : Color(rgb: 0x484b34)).frame(width: show ? g.size.width * pct : 0) } }
-                    .background(T.card).clipShape(Capsule()).overlay(Capsule().stroke(mine == i ? T.ink.opacity(0.55) : T.border, lineWidth: mine == i ? 1.5 : 1))
+                    .background(alignment: .leading) { GeometryReader { g in Rectangle().fill(mine == i ? T.maroon : Color(rgb: 0x484b34)).frame(width: show ? g.size.width * pct : 0) } }
+                    .background(T.card).clipShape(Capsule()).overlay(Capsule().stroke(mine == i ? Color(rgb: 0x93384b) : T.border, lineWidth: mine == i ? 1.5 : 1))
                     .contentShape(Capsule())
                 }
                 .buttonStyle(Press(scale: 0.97)).disabled(closed)

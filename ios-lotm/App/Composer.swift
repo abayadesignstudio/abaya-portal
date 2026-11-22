@@ -153,13 +153,8 @@ struct ComposeView: View {
                     Button("Cancel") { flushTyping(); if m.hasContent { confirmCancel = true } else { m.close() } }
                         .font(.sans(17)).foregroundStyle(C.ink)
                     Spacer()
-                    // Longer writing — title, headings, cover — goes to the article editor.
-                    Button { flushTyping(); m.saveDraft(); m.article() } label: {
-                        HStack(spacing: 6) { GlyphView(n: "pencil", s: 15, w: 2); Text("Article").font(.sans(15, .semibold)) }
-                            .foregroundStyle(C.ink).padding(.horizontal, 12).frame(height: 32)
-                            .overlay(Capsule().stroke(Color(hex: 0x50533a), lineWidth: 1))
-                    }
-                    .opacity(m.toNotes ? 0 : 1).disabled(m.toNotes)
+                    // (Articles are set aside for now: there is no way into the article editor from here.)
+                    Color.clear.frame(width: 60, height: 32)
                 }
             }
             .padding(.horizontal, 16).frame(height: 54)
@@ -178,8 +173,10 @@ struct ComposeView: View {
                                 .id(p.id)
                         }
                         // Like Threads: a faded "Add to thread" under the last post
-                        if !m.toNotes, !(m.posts.last?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) || (m.posts.last?.images.isEmpty == false) {
+                        if !m.toNotes {
+                            let canAdd = !(m.posts.last?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) || (m.posts.last?.images.isEmpty == false)
                             Button {
+                                flushTyping(); guard canAdd else { return }
                                 let n = DraftPost(); withAnimation(.snappy) { m.posts.append(n) }
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focus = n.id; withAnimation { proxy.scrollTo(n.id, anchor: .bottom) } }
                             } label: {
@@ -189,6 +186,7 @@ struct ComposeView: View {
                                     Spacer()
                                 }
                             }
+                            .opacity(canAdd ? 1 : 0.45)
                             .padding(.leading, 16).padding(.top, 4).padding(.bottom, 24)
                         }
                     }
@@ -338,7 +336,7 @@ private struct PostRow: View {
                 C.ink.frame(width: 3)
                 TextField("Quote a passage", text: Binding(get: { q }, set: { m.quote = $0 }), axis: .vertical)
                     .font(.serif(20, italic: true)).foregroundStyle(C.ink).focused($quoteFocus).padding(.leading, 14)
-                Button { withAnimation(.snappy) { m.quote = nil }; focus = post.id } label: {
+                Button { quoteFocus = false; m.quote = nil; let id = post.id; DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { focus = id } } label: {
                     Text("×").font(.sans(15)).foregroundStyle(C.ink).frame(width: 24, height: 24).background(Circle().fill(Color(rgb: 0x0c0e08, 0.08)))
                 }
             }

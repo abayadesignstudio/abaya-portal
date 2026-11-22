@@ -34,7 +34,7 @@ extension Color {
 enum T {
     static let paper = Color(rgb: 0x3b3e2a), card = Color(rgb: 0x414530), ink = Color(rgb: 0xf1eedd), muted = Color(rgb: 0xc3c3a6)
     static let rule = Color(rgb: 0x4d4f37), tan = Color(rgb: 0x2d301f), cream = Color(rgb: 0xf4f1e2), soft = Color(rgb: 0x434530), softBd = Color(rgb: 0x50533a)
-    static let like = Color(rgb: 0xe08a98), green = Color(rgb: 0x2f6b45), danger = Color(rgb: 0xe7907f), sub = Color(rgb: 0xcdcbb4), chev = Color(rgb: 0xb9b696)
+    static let like = Color(rgb: 0xc9566d), maroon = Color(rgb: 0x6a2231), green = Color(rgb: 0x2f6b45), danger = Color(rgb: 0xe7907f), sub = Color(rgb: 0xcdcbb4), chev = Color(rgb: 0xb9b696)
     static let group = Color(rgb: 0x444530), groupLine = Color(rgb: 0x4a4c35), border = Color(rgb: 0x54563c), av = Color(rgb: 0x5a5d40), avInk = Color(rgb: 0xdad8c7)
     static let ticker = Color(rgb: 0xd0ceb9)
     /// Feed and post pages are drawn one step larger (the stylesheet's .readscale zoom).
@@ -63,10 +63,10 @@ struct PillStyle: ButtonStyle {
     func makeBody(configuration c: Configuration) -> some View {
         c.label
             .font(.sans(14, .semibold))
-            .foregroundStyle(liked ? Color(rgb: 0xf2b6c0) : T.ink)
+            .foregroundStyle(liked ? Color(rgb: 0xf3dfe2) : T.ink)
             .frame(maxWidth: .infinity).frame(height: big ? 46 : 40)
-            .background(Capsule().fill(liked ? Color(rgb: 0x6b4a4c) : T.soft))
-            .overlay(Capsule().stroke(liked ? Color(rgb: 0xa8707a) : T.softBd, lineWidth: 1))
+            .background(Capsule().fill(liked ? T.maroon : T.soft))
+            .overlay(Capsule().stroke(liked ? Color(rgb: 0x93384b) : T.softBd, lineWidth: 1))
             .overlay(Capsule().inset(by: 1).trim(from: 0.55, to: 0.95).stroke(.white.opacity(0.16), lineWidth: 1).rotationEffect(.degrees(0)).opacity(0))
             .shadow(color: Color(rgb: 0x0c0e08, 0.08), radius: 2, y: 2)
             .scaleEffect(c.isPressed ? 0.96 : 1)
@@ -261,7 +261,9 @@ func hashtags(_ s: String) -> [String] {
     for m in re.matches(in: s, range: NSRange(s.startIndex..., in: s)) { if let r = Range(m.range(at: 1), in: s) { let t = s[r].lowercased(); if !out.contains(t) { out.append(t) } } }
     return out
 }
-extension Notification.Name { static let lotmFlushTyping = Notification.Name("lotm.flushTyping"); static let lotmList = Notification.Name("lotm.list"); static let lotmInsert = Notification.Name("lotm.insert") }
+extension Notification.Name { static let lotmFlushTyping = Notification.Name("lotm.flushTyping"); static let lotmList = Notification.Name("lotm.list"); static let lotmInsert = Notification.Name("lotm.insert"); static let lotmMention = Notification.Name("lotm.mention") }
+/// Whether one of the app's writing fields has the keyboard (so a tool acts through the field, at its cursor).
+enum WriteFocus { static var on = false }
 
 struct CaretText: UIViewRepresentable {
     @Binding var text: String
@@ -556,6 +558,7 @@ struct MentionBar: View {
                 HStack(spacing: 8) {
                     ForEach(hits.prefix(14), id: \.self) { n in
                         Button {
+                            if WriteFocus.on { NotificationCenter.default.post(name: .lotmMention, object: n); Haptic.tap(); return }
                             flushTyping(); let t = text
                             if let cur = mentionQuery(t) { text = String(t.dropLast(cur.count)) + n + " "; Haptic.tap() }
                         } label: { Text("@" + n).font(.sans(14, .semibold)).foregroundStyle(T.ink).padding(.horizontal, 12).frame(height: 32).background(Capsule().fill(T.ink.opacity(0.1))) }
@@ -608,9 +611,10 @@ struct WriteField: View {
             .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
             .contentShape(Rectangle()).onTapGesture { on = true }
             .onAppear { local = text; if active == true { DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { on = true } } }
-            .onChange(of: text) { _, v in if v != local { local = v } }
+            .onChange(of: text) { _, v in if v != local { local = v; sel = TextSelection(insertionPoint: v.endIndex) } }
             .onChange(of: local) { old, new in carryList(old, new); later() }
-            .onChange(of: on) { _, v in onFocus(v); if !v { flush() } }
+            .onChange(of: on) { _, v in WriteFocus.on = v; onFocus(v); if !v { flush() } }
+            .onReceive(NotificationCenter.default.publisher(for: .lotmMention)) { n in if on, let s = n.object as? String { mention(s) } }
             .onChange(of: active) { _, v in if let v, v != on { on = v } }
             .onChange(of: focus) { _, _ in on = true }
             .onReceive(NotificationCenter.default.publisher(for: .lotmFlushTyping)) { _ in flush() }
@@ -630,6 +634,13 @@ struct WriteField: View {
         return local.endIndex
     }
     private func lineStart(_ i: String.Index) -> String.Index { local[..<i].lastIndex(of: "\n").map { local.index(after: $0) } ?? local.startIndex }
+    /// A member chosen from the @ list: the name replaces what was typed after the @.
+    private func mention(_ name: String) {
+        let i = caret
+        guard let at = local[..<i].lastIndex(of: "@") else { return }
+        local.replaceSubrange(at..<i, with: "@" + name + " ")
+        sel = TextSelection(insertionPoint: local.index(at, offsetBy: name.count + 2)); flush()
+    }
     private func put(_ s: String) {
         let i = caret; local.insert(contentsOf: s, at: i)
         sel = TextSelection(insertionPoint: local.index(i, offsetBy: s.count))

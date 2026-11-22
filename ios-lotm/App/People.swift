@@ -163,7 +163,7 @@ struct MemberScreen: View {
                 }
                 .padding(.horizontal, 20).padding(.top, 10)
                 HStack(spacing: 0) {
-                    ForEach(["Posts", "Replies", "Articles"], id: \.self) { t in
+                    ForEach(["Posts", "Replies"], id: \.self) { t in
                         Button { Haptic.tap(); tab = t } label: {
                             Text(t).font(.sans(14, tab == t ? .bold : .regular)).foregroundStyle(tab == t ? T.ink : T.muted)
                                 .frame(maxWidth: .infinity).padding(.top, 12).padding(.bottom, 10)

@@ -592,9 +592,25 @@ struct ChatSoon: View {
     ChatSession.shared.web = web.view
     // The list of chats is a page of the app, under its header; a particular chat slides in over it.
     if conv == nil && person == nil { web.select(.chat); return }
-    guard !ChatListScreen.showing else { return }
-    ChatListScreen.showing = true
-    presentSlide(ChatListScreen(s: ChatSession.shared, goTo: conv, with: person))
+    // One chat at a time: whatever is open (another chat, a post, a profile) is put away first and the Chat tab shown,
+    // so swiping back out of any chat always lands on the list of chats.
+    let root = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first
+    ChatListScreen.showing = false
+    let go = {
+        web.select(.chat)
+        let s = ChatSession.shared
+        Task { @MainActor in
+            if s.stage == .ready {
+                if s.convos.isEmpty { await s.loadConvos() }
+                var c = conv.flatMap { id in s.convos.first { $0.id == id } }
+                if c == nil, let person, person != s.me { c = await s.direct(with: person) }
+                if let c { presentSlide(ChatScreen(m: s.model(c))); return }
+            }
+            ChatListScreen.showing = true
+            presentSlide(ChatListScreen(s: s, goTo: conv, with: person))
+        }
+    }
+    if root?.presentedViewController != nil { root?.dismiss(animated: false, completion: go) } else { go() }
 }
 
 /// window.webkit.messageHandlers.chat.postMessage(userId) — a profile's Message button.
@@ -1098,7 +1114,9 @@ struct ChatScreen: View {
                         Text("\(n)").font(.sans(13)).foregroundStyle(T.muted).monospacedDigit()
                     }
                     .padding(.horizontal, 12).padding(.vertical, 9).frame(minHeight: 40)
-                    .background(alignment: .leading) { GeometryReader { g in Color.white.opacity(0.10).frame(width: g.size.width * CGFloat(n) / CGFloat(total)) } }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(alignment: .leading) { GeometryReader { g in (my == i ? T.maroon : Color.white.opacity(0.10)).frame(width: g.size.width * CGFloat(n) / CGFloat(total)) } }
+                    .contentShape(Rectangle())
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(my == i ? T.ink : T.border))
                 }
@@ -1230,15 +1248,30 @@ private struct ZoomBox: Identifiable { let img: UIImage; var id: ObjectIdentifie
 private struct ZoomImageView: View {
     let img: UIImage; let done: () -> Void
     @State private var drop: CGFloat = 0
+    @State private var scale: CGFloat = 1
+    @State private var held: CGFloat = 1
+    @State private var pan: CGSize = .zero
+    @State private var panHeld: CGSize = .zero
+    private func reset() { scale = 1; held = 1; pan = .zero; panHeld = .zero }
     var body: some View {
+        // As in Photos: pinch or double-tap to zoom, drag to move about when zoomed, swipe down to close.
         ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
             Image(uiImage: img).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: .infinity)
+                .scaleEffect(scale).offset(pan)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) { withAnimation(.snappy) { if scale > 1 { reset() } else { scale = 2.5; held = 2.5 } } }
+                .gesture(MagnifyGesture().onChanged { scale = max(1, min(6, held * $0.magnification)) }
+                    .onEnded { _ in held = scale; if scale <= 1.02 { withAnimation(.snappy) { reset() } } })
             Button(action: done) { GlyphView(n: "x", s: 20).foregroundStyle(.white).frame(width: 40, height: 40).background(Circle().fill(.white.opacity(0.15))) }.padding(16)
         }
         .offset(y: drop).opacity(Double(1 - min(0.5, abs(drop) / 500)))
-        .gesture(DragGesture(minimumDistance: 10).onChanged { drop = $0.translation.height }
-            .onEnded { g in if abs(g.translation.height) > 90 || abs(g.predictedEndTranslation.height) > 320 { done() } else { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { drop = 0 } } })
+        .simultaneousGesture(DragGesture(minimumDistance: 10)
+            .onChanged { g in if scale > 1 { pan = CGSize(width: panHeld.width + g.translation.width, height: panHeld.height + g.translation.height) } else { drop = g.translation.height } }
+            .onEnded { g in
+                if scale > 1 { panHeld = pan; return }
+                if abs(g.translation.height) > 90 || abs(g.predictedEndTranslation.height) > 320 { done() } else { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { drop = 0 } }
+            })
     }
 }
 

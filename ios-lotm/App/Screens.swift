@@ -32,7 +32,8 @@ func presentSlide<V: View>(_ screen: V) {
     var top = root; while let p = top?.presentedViewController { top = p }
     guard let top else { return }
     let vc = SlideHost(rootView: AnyView(EmptyView()))
-    vc.rootView = AnyView(screen.environment(\.closeScreen, CloseAction { [weak vc] then in vc?.dismiss(animated: true) { then?() } }))
+    vc.rootView = AnyView(screen.environment(\.closeScreen, CloseAction { [weak vc] then in vc?.dismiss(animated: true) { then?() } })
+        .environment(\.openURL, OpenURLAction { url in openInApp(url); return .handled }))   // outside pages open inside the app
     vc.overrideUserInterfaceStyle = .dark
     vc.view.backgroundColor = UIColor(red: 0.231, green: 0.243, blue: 0.165, alpha: 1)
     vc.modalPresentationStyle = .overFullScreen

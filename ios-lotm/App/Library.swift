@@ -318,7 +318,7 @@ final class LibraryModel: ObservableObject {
     }
     func openLink(_ l: LLink) {
         Task { _ = try? await db()?.req("POST", "/rest/v1/rpc/increment_worthwhile_view", json: ["resource_id": l.id]) }
-        if let u = URL(string: l.url) { UIApplication.shared.open(u) }
+        if let u = URL(string: l.url) { openInApp(u) }
     }
     func postUpdate(_ row: [String: Any]) async -> Bool {
         guard let db = await db() else { return false }
@@ -708,7 +708,7 @@ private struct CoverBack: View {
             } else {
                 Spacer(minLength: 0)
                 Button { close(); Task { await m.setStatus(r, "reading") } } label: {
-                    Text(r.status == "want" ? "Start reading" : "Read again").font(.sans(14, .bold)).foregroundStyle(T.cream).frame(maxWidth: .infinity).frame(height: 40).background(Capsule().fill(T.paper))
+                    Text(r.status == "want" ? "Start" : "Read again").font(.sans(14, .bold)).foregroundStyle(T.cream).frame(maxWidth: .infinity).frame(height: 40).background(Capsule().fill(T.paper))
                 }
                 .padding(.horizontal, 14)
                 Spacer(minLength: 0)
@@ -796,7 +796,7 @@ struct LibraryScreen: View {
         .sheet(isPresented: Binding(get: { byHand != nil }, set: { if !$0 { byHand = nil } })) { ByHand(want: byHand ?? false) { t, a, p in let w = byHand ?? false; byHand = nil; Task { await m.addByHand(title: t, author: a, pages: p, want: w) } }.presentationDetents([.medium]) }
         .sheet(item: $clubBook) { b in ClubBookSheet(b: b, m: m) { clubBook = nil }.presentationDetents([.medium]) }
         .sheet(isPresented: $clubSearch) {
-            BookSearch(title: "Add a club book", cta: "Use this book", manual: { clubSearch = false; let d = pending ?? UpdateDraft(); pending = nil; DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { editing = d } }) { f in
+            BookSearch(title: "Add an LOTM book", cta: "Use this book", manual: { clubSearch = false; let d = pending ?? UpdateDraft(); pending = nil; DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { editing = d } }) { f in
                 clubSearch = false
                 var d = pending ?? UpdateDraft(); pending = nil
                 d.title = f.title; d.author = f.author ?? ""; d.cover = f.cover; d.bookURL = f.bookURL; d.publisher = f.publisher
@@ -865,7 +865,7 @@ struct LibraryScreen: View {
         for (i, b) in m.current.enumerated() {
             let p = pct(m.myFor(b))
             let pos = (b.position ?? "TBD") != "TBD" && !(b.position ?? "").isEmpty ? " · Read: \(b.position!)" : ""
-            let label = (i == 0 ? "Current club read" : "Also reading") + pos
+            let label = (i == 0 ? "Current LOTM read" : "Also reading") + pos
             let item = ShelfItem(id: b.id, title: lshort(b.title), by: b.author, cover: b.cover, shade: SHADES[i % 2], movable: m.admin,
                                  sub: AnyView(VStack(spacing: 3) { Bar(pct: p); Text(label).font(.sans(12)).foregroundStyle(T.muted).lineLimit(1) }), open: { clubBook = b })
             books.append((rank(b.title, done: false), item))
@@ -876,7 +876,7 @@ struct LibraryScreen: View {
                                  sub: AnyView(Text("Read · \(month)").font(.sans(12)).foregroundStyle(T.muted)), open: { UIApplication.shared.open(amazon(b.title, b.author, b.bookURL)) })
             books.append((rank(b.title, done: true), item))
         }
-        var out: [ShelfItem] = m.admin ? [ShelfItem(id: "addclub", title: "Add a club book", plus: true, open: { pending = nil; clubSearch = true })] : []
+        var out: [ShelfItem] = m.admin ? [ShelfItem(id: "addclub", title: "Add an LOTM book", plus: true, open: { pending = nil; clubSearch = true })] : []
         if m.shelfOrder.isEmpty { out += books.map { $0.1 } }
         else { out += books.enumerated().sorted { a, b in a.element.0 != b.element.0 ? a.element.0 < b.element.0 : a.offset < b.offset }.map { $0.element.1 } }
         return out
@@ -973,10 +973,9 @@ struct LibraryScreen: View {
             Spacer()
             if m.admin {
                 Button { let c = m.current.first; editing = UpdateDraft(title: c.map { lshort($0.title) } ?? "", author: c?.author ?? "", cover: c?.cover?.absoluteString, bookURL: c?.bookURL, place: c?.place ?? "") } label: {
-                    Text("Post update").font(.sans(13, .bold)).foregroundStyle(T.ink).padding(.horizontal, 14).frame(height: 30).background(Capsule().fill(Color(rgb: 0x0c0e08, 0.08)))
+                    Text("Update").font(.sans(13, .bold)).foregroundStyle(T.ink).padding(.horizontal, 14).frame(height: 30).background(Capsule().fill(Color(rgb: 0x0c0e08, 0.08)))
                 }.buttonStyle(.plain)
             }
-            if !cur.isEmpty { Button { clubBook = cur.first } label: { Text("Update ›").font(.sans(14, .semibold)).foregroundStyle(Color(rgb: 0xd0ceb9)) }.buttonStyle(.plain) }
         }
         .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
         if cur.isEmpty && done.isEmpty && !m.admin {
@@ -1091,7 +1090,7 @@ struct LibraryScreen: View {
                         }
                         if !gone { Button("Add to calendar") { calendar(title: "Life of the Mind — \(lshort(b.title))", start: d, place: b.place, uid: "study-\(b.id)") }.buttonStyle(PillStyle()) }
                     }
-                    if let f = b.file, let u = URL(string: f) { Button("Reading file") { UIApplication.shared.open(u) }.buttonStyle(PillStyle()) }
+                    if let f = b.file, let u = URL(string: f) { Button("Reading file") { openInApp(u) }.buttonStyle(PillStyle()) }
                 }
                 .padding(14).background(RoundedRectangle(cornerRadius: 18).fill(Color(rgb: 0x454832))).overlay(RoundedRectangle(cornerRadius: 18).stroke(T.softBd))
                 .padding(.horizontal, 16).padding(.top, 14)
@@ -1101,11 +1100,20 @@ struct LibraryScreen: View {
 }
 
 private func calendar(title: String, start: Date, place: String?, uid: String) {
-    let f = ISO8601DateFormatter()
-    var c = URLComponents(string: "https://lotmstudy.org/ics")!
-    c.queryItems = [URLQueryItem(name: "title", value: title), URLQueryItem(name: "start", value: f.string(from: start)), URLQueryItem(name: "end", value: f.string(from: start.addingTimeInterval(7200))), URLQueryItem(name: "uid", value: uid)]
-        + (place.map { [URLQueryItem(name: "location", value: $0)] } ?? [])
-    if let u = c.url { UIApplication.shared.open(u) }
+    let end = start.addingTimeInterval(2 * 3600), iso = ISO8601DateFormatter()
+    let compact: (Date) -> String = { d in let f = DateFormatter(); f.dateFormat = "yyyyMMdd'T'HHmmss'Z'"; f.timeZone = TimeZone(identifier: "UTC"); f.locale = Locale(identifier: "en_US_POSIX"); return f.string(from: d) }
+    func url(_ base: String, _ q: [(String, String)]) -> URL? { var c = URLComponents(string: base); c?.queryItems = q.map { URLQueryItem(name: $0.0, value: $0.1) }; return c?.url }
+    let loc = place ?? ""
+    let google = url("https://calendar.google.com/calendar/render", [("action", "TEMPLATE"), ("text", title), ("dates", compact(start) + "/" + compact(end)), ("location", loc)])
+    let outlook = url("https://outlook.live.com/calendar/0/deeplink/compose", [("path", "/calendar/action/compose"), ("rru", "addevent"), ("subject", title), ("startdt", iso.string(from: start)), ("enddt", iso.string(from: end)), ("location", loc)])
+    let apple = url("https://lotmstudy.org/ics", [("title", title), ("start", iso.string(from: start)), ("end", iso.string(from: end)), ("uid", uid)] + (place.map { [("location", $0)] } ?? []))
+    let sheet = UIAlertController(title: "Add to Calendar", message: nil, preferredStyle: .actionSheet)
+    for (name, u) in [("Google Calendar", google), ("Apple Calendar", apple), ("Outlook", outlook)] { if let u { sheet.addAction(UIAlertAction(title: name, style: .default) { _ in UIApplication.shared.open(u) }) } }
+    sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    let root = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first
+    var top = root; while let p = top?.presentedViewController { top = p }
+    sheet.overrideUserInterfaceStyle = .dark; sheet.popoverPresentationController?.sourceView = top?.view
+    top?.present(sheet, animated: true)
 }
 
 /// A shared link's picture: the one saved with it, else the one its page offers, else the site's name.
@@ -1211,7 +1219,7 @@ private struct EventCard: View {
                 }
                 if e.link != nil || onRemove != nil {
                     HStack(spacing: 14) {
-                        if let l = e.link, let u = URL(string: l) { Button { UIApplication.shared.open(u) } label: { HStack(spacing: 5) { GlyphView(n: "link", s: 14, w: 2); Text("Details") }.font(.sans(13.5, .semibold)).foregroundStyle(T.ink) }.buttonStyle(.plain) }
+                        if let l = e.link, let u = URL(string: l) { Button { openInApp(u) } label: { HStack(spacing: 5) { GlyphView(n: "link", s: 14, w: 2); Text("Details") }.font(.sans(13.5, .semibold)).foregroundStyle(T.ink) }.buttonStyle(.plain) }
                         Spacer()
                         if onRemove != nil { Menu { Button("Remove event", role: .destructive) { confirm = true } } label: { Text("···").font(.sans(15, .bold)).tracking(1).foregroundStyle(T.muted).frame(width: 32, height: 22) } }
                     }
@@ -1339,10 +1347,10 @@ private struct ClubBookSheet: View {
                 }
                 if let my {
                     HStack(alignment: .bottom, spacing: 10) {
-                        LField(label: "I’m on page" + (my.total.map { " (of \($0))" } ?? ""), text: $page, hint: "\(my.page)", number: true)
+                        LField(label: (m.admin ? "We’re on page" : "I’m on page") + (my.total.map { " (of \($0))" } ?? ""), text: $page, hint: "\(my.page)", number: true)
                         Button("Log") { close(); Task { await m.log(my, n) } }.buttonStyle(LBtn()).frame(width: 84).disabled(!ok).opacity(ok ? 1 : 0.4)
                     }
-                    Button("I’ve finished it") { close(); Task { await m.setStatus(my, "finished") } }.buttonStyle(LBtn(ghost: true))
+                    Button(m.admin ? "We’ve finished it" : "I’ve finished it") { close(); Task { await m.setStatus(my, "finished") } }.buttonStyle(LBtn(ghost: true))
                 } else {
                     Button("Add to my Currently reading") { close(); Task { await m.joinClub(b) } }.buttonStyle(LBtn())
                 }
@@ -1375,7 +1383,7 @@ private struct UpdateSheet: View {
                     Button("Find on Amazon") { find(d) }.font(.sans(13, .bold)).foregroundStyle(T.ink).padding(.horizontal, 12).frame(height: 32).background(Capsule().fill(Color(rgb: 0x0c0e08, 0.08)))
                 }
                 Text("A different title runs alongside as another card (e.g. the Advent devotion).").font(.sans(14)).foregroundStyle(T.muted)
-                LField(label: "Book", text: $d.title); LField(label: "Author", text: $d.author); LField(label: "Read for next time", text: $d.position)
+                LField(label: "Book", text: $d.title); LField(label: "Author", text: $d.author); LField(label: "What we’re reading for next time", text: $d.position)
                 Toggle(isOn: $d.hasDate) { Text("Next study").font(.sans(15, .semibold)).foregroundStyle(T.ink) }.tint(Color(rgb: 0x3f7d4f))
                 if d.hasDate { DatePicker("When", selection: $d.when, displayedComponents: [.date, .hourAndMinute]).font(.sans(15)).foregroundStyle(T.ink) }
                 LField(label: "Where", text: $d.place, hint: "A place or address")

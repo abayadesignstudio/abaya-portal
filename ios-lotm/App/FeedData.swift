@@ -16,7 +16,7 @@ struct FPost: Identifiable, Codable {
     var showTitle: Bool {
         if article { return !title.isEmpty }
         let n = { (t: String) in t.replacingOccurrences(of: quoteMark, with: "").lowercased().replacingOccurrences(of: #"[…\.\s"“”'‘’,:;!?-]+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces) }
-        let t = n(title); return !t.isEmpty && t != "voice note" && !n(body).hasPrefix(t)
+        let t = n(title); return !t.isEmpty && t != "voice note" && t != "photo" && !n(body).hasPrefix(t)
     }
 }
 struct FPin: Identifiable {
