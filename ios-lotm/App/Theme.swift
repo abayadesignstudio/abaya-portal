@@ -260,6 +260,8 @@ struct CaretText: UIViewRepresentable {
     var size: CGFloat = 20
     var italic = false
     var semibold = false
+    /// Apple's own text face (as in Notes and Messages) in place of Garamond.
+    var plain = false
     var color: UIColor = UIColor(T.ink)
     var minHeight: CGFloat = 0
     /// Raise this number to put the cursor here.
@@ -272,7 +274,7 @@ struct CaretText: UIViewRepresentable {
     var below: CGFloat = 30
     var onFocus: (Bool) -> Void = { _ in }
 
-    private var font: UIFont { UIFont(name: italic ? "EBGaramond-Italic" : semibold ? "EBGaramond-SemiBold" : "EBGaramond-Regular", size: size) ?? .systemFont(ofSize: size) }
+    private var font: UIFont { if plain { return .systemFont(ofSize: size) }; return UIFont(name: italic ? "EBGaramond-Italic" : semibold ? "EBGaramond-SemiBold" : "EBGaramond-Regular", size: size) ?? .systemFont(ofSize: size) }
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> UITextView {
         let v = UITextView()
@@ -296,7 +298,7 @@ struct CaretText: UIViewRepresentable {
         if context.coordinator.local == nil, v.text != text { v.text = text }
         // Styled once (and again only if the look changes), not on every letter typed.
         context.coordinator.view = v
-        let look = "\(size)|\(italic)|\(semibold)|\(color.hash)"
+        let look = "\(size)|\(italic)|\(semibold)|\(plain)|\(color.hash)"
         if context.coordinator.look != look {
             context.coordinator.look = look
             v.font = font; v.textColor = color
