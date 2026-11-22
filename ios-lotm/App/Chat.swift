@@ -25,7 +25,7 @@ struct CAtt: Equatable { let path: String, name: String, mime: String, size: Int
     var isImage: Bool { mime.hasPrefix("image/") }
     var isVideo: Bool { mime.hasPrefix("video/") }
 }
-struct CPoll: Equatable { let q: String, opts: [String] }
+struct CPoll: Equatable { let q: String, opts: [String]; var ends: Date? = nil; var closed: Bool { ends.map { $0 < Date() } ?? false } }
 /// Something about to be sent with a message: a photo, GIF, video or any file.
 struct Outgoing { let data: Data, name: String, mime: String; var thumb: UIImage? = nil }
 
@@ -408,7 +408,7 @@ final class ChatModel: ObservableObject {
                     if let a = p["att"] as? [String: Any], let path = a["p"] as? String {
                         m.att = CAtt(path: path, name: a["n"] as? String ?? "File", mime: a["m"] as? String ?? "application/octet-stream", size: a["s"] as? Int ?? 0)
                     } else if let path = p["img"] as? String { m.att = CAtt(path: path, name: "Photo.jpg", mime: "image/jpeg", size: 0) }
-                    if let q = p["poll"] as? [String: Any], let o = q["o"] as? [String] { m.poll = CPoll(q: q["q"] as? String ?? "", opts: o) }
+                    if let q = p["poll"] as? [String: Any], let o = q["o"] as? [String] { m.poll = CPoll(q: q["q"] as? String ?? "", opts: o, ends: (q["e"] as? Double).map { Date(timeIntervalSince1970: $0) }) }
                     m.ctl = p["k"] as? String; m.target = (p["m"] as? String)?.lowercased(); m.emoji = p["e"] as? String; m.option = p["o"] as? Int
                     m.unverified = !ChatCrypto.verify(r["signature"] as? String ?? "", ChatCrypto.msgText(conv: conv, epoch: e, user: m.userId, id: mid, ct: ct), signer: s.people[m.userId]?.sign)
                 } else { m.unreadable = true }
@@ -505,8 +505,8 @@ final class ChatModel: ObservableObject {
         catch { problem = error.localizedDescription }
     }
 
-    func sendPoll(_ q: String, _ opts: [String]) async {
-        do { try await post(["t": "", "poll": ["q": q, "o": opts]]); Haptic.tap(); await refresh() } catch { problem = error.localizedDescription }
+    func sendPoll(_ q: String, _ opts: [String], _ ends: Date) async {
+        do { try await post(["t": "", "poll": ["q": q, "o": opts, "e": ends.timeIntervalSince1970]]); Haptic.tap(); await refresh() } catch { problem = error.localizedDescription }
     }
     func react(_ m: CMsg, _ e: String) async {
         Haptic.tap()
@@ -518,6 +518,7 @@ final class ChatModel: ObservableObject {
         do { try await post(["k": "react", "m": m.id.lowercased(), "e": e], quiet: true); await refresh() } catch { problem = error.localizedDescription }
     }
     func vote(_ m: CMsg, _ o: Int) async {
+        if m.poll?.closed == true { return }
         Haptic.tap()
         if let i = msgs.firstIndex(where: { $0.id == m.id }) { msgs[i].votes[me] = m.votes[me] == o ? nil : o }
         do { try await post(["k": "vote", "m": m.id.lowercased(), "o": m.votes[me] == o ? -1 : o], quiet: true); await refresh() } catch { problem = error.localizedDescription }
@@ -910,7 +911,7 @@ struct ChatScreen: View {
         .confirmationDialog("Delete this message for everyone?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
             Button("Delete", role: .destructive) { if let d = deleting { Task { await m.delete(d) } } }
         }
-        .sheet(isPresented: $polling) { PollMaker { q, o in Task { await m.sendPoll(q, o) } } }
+        .sheet(isPresented: $polling) { PollMaker { q, o, e in Task { await m.sendPoll(q, o, e) } } }
         .quickLookPreview($preview)
         .photosPicker(isPresented: $picking, selection: $pick, matching: .any(of: [.images, .videos]))
         .onChange(of: pick) { _, it in
@@ -1155,9 +1156,9 @@ struct ChatScreen: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(my == i ? T.ink : T.border))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).disabled(p.closed)
             }
-            Text("\(msg.votes.count) \(msg.votes.count == 1 ? "vote" : "votes")").font(.sans(12)).foregroundStyle(T.muted)
+            Text("\(msg.votes.count) \(msg.votes.count == 1 ? "vote" : "votes")" + (p.ends.map { " · " + pollEndsText($0) } ?? "")).font(.sans(12)).foregroundStyle(T.muted)
         }
         .padding(14).frame(width: 270, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 18).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 18).stroke(T.rule))
@@ -1251,8 +1252,10 @@ struct ChatScreen: View {
 
 /// Ask the chat a question with two to six answers.
 private struct PollMaker: View {
-    let send: (String, [String]) -> Void
+    let send: (String, [String], Date) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var days = 3
+    @State private var custom: Date? = nil
     @State private var q = ""
     @State private var opts = ["", ""]
     private var clean: [String] { opts.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
@@ -1264,13 +1267,14 @@ private struct PollMaker: View {
                     ForEach(opts.indices, id: \.self) { i in TextField("Answer \(i + 1)", text: $opts[i]) }
                     if opts.count < 6 { Button("Add an answer") { opts.append("") } }
                 }
+                Section { PollEndPicker(days: $days, custom: $custom) }
             }
             .scrollContentBackground(.hidden).background(T.paper)
             .navigationTitle("New poll").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Send") { send(q.trimmingCharacters(in: .whitespacesAndNewlines), clean); dismiss() }
+                    Button("Send") { send(q.trimmingCharacters(in: .whitespacesAndNewlines), clean, custom ?? Date().addingTimeInterval(Double(days) * 86400)); dismiss() }
                         .disabled(q.trimmingCharacters(in: .whitespaces).isEmpty || clean.count < 2).fontWeight(.semibold)
                 }
             }

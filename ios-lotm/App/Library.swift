@@ -992,7 +992,7 @@ struct LibraryScreen: View {
         H2(t: "Upcoming Events", action: m.admin ? "Add" : "Suggest") { eventForm = true }
         clubCard.padding(.top, -14).padding(.bottom, 10).animation(.easeOut(duration: 0.25), value: clubKey)
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(m.events) { e in EventCard(e: e, onRemove: m.admin ? { Task { await m.removeEvent(e) } } : nil) }
+            ForEach(m.events) { e in EventCard(e: e, onRemove: m.admin ? { Task { await m.removeEvent(e) } } : nil).contentShape(Rectangle()).onTapGesture { openEvent(e) } }
             if m.events.isEmpty { Text("Nothing on the calendar yet.").font(.sans(14)).foregroundStyle(T.muted).padding(.horizontal, 4) }
             Button { pastOpen.toggle(); if pastOpen { Task { await m.loadMeetings() } } } label: { Text(pastOpen ? "Hide past meetings ▴" : "Past meetings ▾").font(.sans(14, .semibold)).foregroundStyle(T.muted).padding(.vertical, 6).padding(.horizontal, 4) }.buttonStyle(.plain)
             if pastOpen {
@@ -1067,6 +1067,17 @@ struct LibraryScreen: View {
     }
 
     /// Under the LOTM shelf: the next study for a current book, or a description of the book in the middle.
+    // The study and the events open the same page here as from the top of the feed.
+    private func openStudy(_ b: LUpdate) {
+        guard b.studyAt != nil else { return }
+        let pos = b.position.flatMap { $0 == "TBD" || $0.isEmpty ? nil : $0 }
+        let title = lshort(b.title).components(separatedBy: ":").first ?? lshort(b.title)
+        feed.detail = FPin(id: b.id, kind: .study, title: title, text: title, detail: FPin.reading(page: b.clubPage, total: b.clubTotal, pos: pos), when: b.studyAt, place: b.place,
+                           placeURL: b.placeURL.flatMap(URL.init(string:)), cover: b.cover, rsvp: true, author: b.author, notes: b.synopsis.flatMap { $0.isEmpty ? nil : $0 }, file: b.file.flatMap(URL.init(string:)))
+    }
+    private func openEvent(_ e: LEvent) {
+        feed.detail = FPin(id: e.id, kind: .event, title: e.title, text: e.title, detail: e.details, when: e.starts, place: e.place, placeURL: e.placeURL.flatMap(URL.init(string:)), link: e.link.flatMap(URL.init(string:)), rsvp: true)
+    }
     @ViewBuilder private var clubCard: some View {
         if let d = m.doneThisYear.first(where: { "done" + $0.id == clubKey }) {
             BookBio(title: lshort(d.title), author: d.author, kicker: "Read with LOTM · \(d.created.formatted(.dateTime.month(.wide).year()))", text: nil, link: amazon(d.title, d.author, d.bookURL)).id(d.id)
@@ -1093,18 +1104,19 @@ struct LibraryScreen: View {
                             }
                             Spacer(minLength: 0)
                         }
-                        if !gone { Button("Add to calendar") { calendar(title: "Life of the Mind — \(lshort(b.title))", start: d, place: b.place, uid: "study-\(b.id)") }.buttonStyle(PillStyle()) }
+                        if !gone { Button("Add to calendar") { lotmCalendar(title: "Life of the Mind — \(lshort(b.title))", start: d, place: b.place, uid: "study-\(b.id)") }.buttonStyle(PillStyle()) }
                     }
                     if let f = b.file, let u = URL(string: f) { Button("Reading file") { openInApp(u) }.buttonStyle(PillStyle()) }
                 }
                 .padding(14).background(RoundedRectangle(cornerRadius: 18).fill(Color(rgb: 0x454832))).overlay(RoundedRectangle(cornerRadius: 18).stroke(T.softBd))
+                .contentShape(Rectangle()).onTapGesture { openStudy(b) }
                 .padding(.horizontal, 16).padding(.top, 14)
             }
         }
     }
 }
 
-private func calendar(title: String, start: Date, place: String?, uid: String) {
+func lotmCalendar(title: String, start: Date, place: String?, uid: String) {
     let end = start.addingTimeInterval(2 * 3600), iso = ISO8601DateFormatter()
     let compact: (Date) -> String = { d in let f = DateFormatter(); f.dateFormat = "yyyyMMdd'T'HHmmss'Z'"; f.timeZone = TimeZone(identifier: "UTC"); f.locale = Locale(identifier: "en_US_POSIX"); return f.string(from: d) }
     func url(_ base: String, _ q: [(String, String)]) -> URL? { var c = URLComponents(string: base); c?.queryItems = q.map { URLQueryItem(name: $0.0, value: $0.1) }; return c?.url }
@@ -1184,7 +1196,7 @@ struct EventSheet: View {
             VStack(alignment: .leading, spacing: 12) {
                 EventCard(e: e)
                 if let d = e.details, !d.isEmpty { Text(d).font(.serif(17)).foregroundStyle(T.ink).lineSpacing(3).fixedSize(horizontal: false, vertical: true).padding(.horizontal, 4) }
-                if e.starts > Date() { Button("Add to calendar") { calendar(title: e.title, start: e.starts, place: e.place, uid: "event-\(e.id)") }.buttonStyle(LBtn()) }
+                if e.starts > Date() { Button("Add to calendar") { lotmCalendar(title: e.title, start: e.starts, place: e.place, uid: "event-\(e.id)") }.buttonStyle(LBtn()) }
                 if let p = e.place, !p.isEmpty {
                     Button("Directions") { if let u = e.placeURL.flatMap(URL.init(string:)) ?? URL(string: "https://maps.apple.com/?q=\(p.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")") { UIApplication.shared.open(u) } }.buttonStyle(LBtn(ghost: true))
                 }

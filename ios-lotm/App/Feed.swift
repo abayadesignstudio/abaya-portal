@@ -509,6 +509,8 @@ private struct DropCard: View {
             if let d = (it.kind == .pin ? Optional(it.text) : it.detail), !d.isEmpty {
                 Text(linked(d)).font(.serif(17)).foregroundStyle(T.ink).lineSpacing(3).textSelection(.enabled)
             }
+            if let n = it.notes, !n.isEmpty { Text(linked(n)).font(.serif(16)).foregroundStyle(T.muted).lineSpacing(3).textSelection(.enabled) }
+            if it.kind == .study || it.kind == .event { EventFiles(type: it.rsvpType, id: it.id, auth: { await m.auth() }) }
             if it.rsvp { rsvpRow }
             FlowButtons(items: buttons)
         }
@@ -516,17 +518,14 @@ private struct DropCard: View {
     private var buttons: [(String, () -> Void)] {
         var b: [(String, () -> Void)] = []
         if let w = it.when, w > Date(), it.kind != .pin { b.append(("Add to calendar", { addToCalendar(w) })) }
-        if let l = it.link { b.append(("Details ↗", { openInApp(l) })) }
+        if let p = it.place, !p.isEmpty { b.append(("Directions", { openInApp(it.placeURL ?? URL(string: "https://maps.apple.com/?q=" + (p.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""))!) })) }
+        if let f = it.file { b.append(("Reading file", { openInApp(f) })) }
+        if let l = it.link { b.append(("Details", { openInApp(l) })) }
         if let s = it.sourcePost { b.append(("Open the post", { close(); m.open(s, false) })) }
         return b
     }
     private func addToCalendar(_ w: Date) {
-        let f = ISO8601DateFormatter()
-        var c = URLComponents(string: "https://lotmstudy.org/ics")!
-        c.queryItems = [URLQueryItem(name: "title", value: it.kind == .study ? "Life of the Mind — \(it.title)" : it.title), URLQueryItem(name: "start", value: f.string(from: w)),
-                        URLQueryItem(name: "end", value: f.string(from: w.addingTimeInterval(7200))), URLQueryItem(name: "uid", value: "\(it.rsvpType)-\(it.id)")]
-            + (it.place.map { [URLQueryItem(name: "location", value: $0)] } ?? [])
-        if let u = c.url { UIApplication.shared.open(u) }
+        lotmCalendar(title: it.kind == .study ? "Life of the Mind — \(it.title)" : it.title, start: w, place: it.place, uid: "\(it.rsvpType)-\(it.id)")
     }
     private var rsvpRow: some View {
         let going = rsvps.filter { $0.value == "yes" }.map(\.key), maybe = rsvps.filter { $0.value == "maybe" }.count, no = rsvps.filter { $0.value == "no" }.count
@@ -776,7 +775,7 @@ private struct PollView: View {
                 }
                 .buttonStyle(Press(scale: 0.97)).disabled(closed)
             }
-            Text("\(total) vote\(total == 1 ? "" : "s")\(poll.closes.map { $0 < Date() ? " · Final results" : " · " + left($0) } ?? "")").font(.sans(13)).foregroundStyle(T.muted)
+            Text("\(total) vote\(total == 1 ? "" : "s")\(poll.closes.map { " · " + pollEndsText($0) } ?? "")").font(.sans(13)).foregroundStyle(T.muted)
         }
         .animation(.snappy(duration: 0.28), value: poll.votes)
     }
@@ -810,6 +809,7 @@ struct LinkCard: View {
             VStack(alignment: .leading, spacing: 0) {
                 if let img = meta?.image {
                     AsyncImage(url: img) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x2a2d1d) }.frame(maxWidth: .infinity).aspectRatio(1.91, contentMode: .fit).clipped()
+                        .overlay { if LinkMeta.youtube(url) != nil || url.host?.contains("vimeo") == true { Image(systemName: "play.circle.fill").font(.system(size: 52)).foregroundStyle(.white.opacity(0.92)).shadow(radius: 6) } }
                 } else if !tried { LinearGradient(colors: [Color(rgb: 0x3e412c), Color(rgb: 0x46492f), Color(rgb: 0x3e412c)], startPoint: .leading, endPoint: .trailing).aspectRatio(1.91, contentMode: .fit) }
                 VStack(alignment: .leading, spacing: 2) {
                     Text((meta?.publication ?? url.host?.replacingOccurrences(of: "www.", with: "") ?? "").uppercased()).font(.sans(11.5, .semibold)).tracking(0.7).foregroundStyle(T.muted)
@@ -845,7 +845,7 @@ struct PostActions: View {
             if mine {
                 Card14 {
                     Eyebrow(t: "Your post").frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 4)
-                    if Date().timeIntervalSince(p.created) < 300 { GroupRow(icon: "pencil", label: "Edit", action: { close(); web.goTop("/write/\(p.id)") }) { EmptyView() }; GroupLine() }
+                    if Date().timeIntervalSince(max(p.created, p.publishAt ?? p.created)) < 300 { GroupRow(icon: "pencil", label: "Edit", action: { close(); web.goTop("/write/\(p.id)") }) { EmptyView() }; GroupLine() }
                     GroupRow(icon: "plus", label: "Continue this thread", action: { close(); web.goTop("/write?continue=\(p.id)") }) { EmptyView() }; GroupLine()
                     GroupRow(icon: "x", label: "Hide a reply…", action: { close(); web.goTop("/post/\(p.id)?hide=1") }) { EmptyView() }; GroupLine()
                     GroupRow(icon: "reply", label: "Who can reply", action: { Task { await m.setReplies(p, on: !p.canReply) }; close() }) { Text(p.canReply ? "Everyone ›" : "No one ›").font(.sans(15)).foregroundStyle(T.muted) }; GroupLine()

@@ -261,6 +261,7 @@ private struct NoteCard: View {
             if let u = n.image.flatMap(URL.init(string:)) {
                 Color(rgb: 0x2a2d1d).frame(height: 180).overlay(AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear }).clipShape(RoundedRectangle(cornerRadius: 10)).padding(.top, 8)
             }
+            if let u = n.firstLink { LinkCard(url: u).id(u).padding(.top, 8) }
             if !n.bookTitle.isEmpty {
                 HStack(spacing: 8) {
                     NCover(title: n.bookTitle, url: n.bookCover, w: 18, h: 26)
@@ -381,6 +382,7 @@ struct NoteEntry: View {
                                 .overlay(alignment: .topTrailing) { Button { n.image = nil } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white).frame(width: 24, height: 24).background(Circle().fill(Color(rgb: 0x0a0c06, 0.72))) }.padding(6) }
                                 .padding(.top, 8)
                         }
+                        if let u = n.firstLink { LinkCard(url: u).id(u).padding(.top, 10) }
                         // the same tools, in the same order, as the post writer
                         HStack(spacing: 0) {
                             PhotosPicker(selection: $photo, matching: .images) { ntool("image") }.accessibilityLabel("Photo")
@@ -551,5 +553,19 @@ struct NoteIndex: View {
             }
         }
         .background(T.paper.ignoresSafeArea()).preferredColorScheme(.dark)
+    }
+}
+
+extension NNote {
+    /// The first web link a note carries, in its Web link field or in its words: shown as a card beneath it.
+    var firstLink: URL? {
+        func web(_ s: String) -> URL? {
+            guard let r = s.range(of: #"https?://[^\s<>\)\]]+"#, options: [.regularExpression, .caseInsensitive]) else { return nil }
+            var t = String(s[r]); while let c = t.last, ".,;:!?".contains(c) { t.removeLast() }
+            return URL(string: t)
+        }
+        let src = source.trimmingCharacters(in: .whitespaces)
+        if !src.isEmpty { return web(src) ?? (src.contains(".") && !src.contains(" ") ? URL(string: "https://" + src) : nil) }
+        return web(body) ?? web(quotation)
     }
 }

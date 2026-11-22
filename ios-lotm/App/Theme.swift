@@ -1,4 +1,6 @@
 import SwiftUI
+import UniformTypeIdentifiers
+import QuickLook
 
 // The app's own look, carried over from its stylesheet: EB Garamond and Inter, the olive palette, the cards, pills,
 // groups, toggles and page bars. Native screens are drawn from these so they look like the rest of the app.
@@ -705,4 +707,120 @@ extension View {
 func savePicture(_ url: URL) async {
     guard let d = try? await URLSession.shared.data(from: url).0, let img = UIImage(data: d) else { return }
     await MainActor.run { UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil); Haptic.tap() }
+}
+
+// MARK: - Polls
+
+/// When a poll closes: a day, three days, a week, or a moment of the writer's choosing.
+struct PollEndPicker: View {
+    @Binding var days: Int; @Binding var custom: Date?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Poll ends").font(.sans(13, .semibold)).foregroundStyle(T.muted)
+            HStack(spacing: 6) {
+                ForEach([(1, "1 day"), (3, "3 days"), (7, "1 week")], id: \.0) { d, t in chip(t, custom == nil && days == d) { custom = nil; days = d } }
+                chip("Custom", custom != nil) { if custom == nil { custom = Date().addingTimeInterval(Double(days) * 86400) } }
+            }
+            if custom != nil {
+                DatePicker("Ends", selection: Binding(get: { custom ?? Date() }, set: { custom = $0 }), in: Date().addingTimeInterval(600)...Date().addingTimeInterval(90 * 86400))
+                    .font(.sans(15)).foregroundStyle(T.ink).tint(T.ink)
+            }
+        }
+    }
+    private func chip(_ t: String, _ on: Bool, _ act: @escaping () -> Void) -> some View {
+        Button(action: act) {
+            Text(t).font(.sans(14, on ? .semibold : .regular)).foregroundStyle(T.ink).padding(.horizontal, 12).frame(height: 34)
+                .background(RoundedRectangle(cornerRadius: 10).fill(on ? T.maroon : Color.clear)).overlay(RoundedRectangle(cornerRadius: 10).stroke(on ? T.ink : T.rule))
+        }.buttonStyle(.plain)
+    }
+}
+func pollEndsText(_ d: Date) -> String {
+    d < Date() ? "Final results" : "Ends " + d.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().hour().minute())
+}
+
+// MARK: - Files attached to a study or an event
+
+struct EventFile: Identifiable, Equatable { let id: String, name: String, path: String }
+
+/// The files an administrator has attached to a study or an event. Members open them here; administrators add and remove them.
+struct EventFiles: View {
+    let type: String, id: String
+    let auth: () async -> SupaAuth?
+    @State private var files: [EventFile] = []
+    @State private var admin = false
+    @State private var picking = false
+    @State private var busy = false
+    @State private var opening: String?
+    @State private var preview: URL?
+    @State private var problem: String?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !files.isEmpty || admin { Text("FILES").font(.sans(11.5, .bold)).tracking(1.1).foregroundStyle(T.muted) }
+            ForEach(files) { f in
+                Button { Task { await open(f) } } label: {
+                    HStack(spacing: 10) {
+                        if opening == f.id { ProgressView().tint(T.ink).frame(width: 22) } else { Image(systemName: "doc.text").font(.system(size: 18)).foregroundStyle(T.ink).frame(width: 22) }
+                        Text(f.name).font(.sans(15, .semibold)).foregroundStyle(T.ink).lineLimit(2).multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 12).frame(minHeight: 46).background(RoundedRectangle(cornerRadius: 12).fill(T.paper)).overlay(RoundedRectangle(cornerRadius: 12).stroke(T.rule)).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .contextMenu { if admin { Button("Remove file", role: .destructive) { Task { await remove(f) } } } }
+            }
+            if admin {
+                Button { picking = true } label: {
+                    HStack(spacing: 8) { if busy { ProgressView().tint(T.ink) } else { Image(systemName: "paperclip") }; Text(busy ? "Uploading…" : "Attach a file") }.font(.sans(14, .semibold)).foregroundStyle(T.ink)
+                }.buttonStyle(.plain).disabled(busy).padding(.top, 2)
+            }
+            if let problem { Text(problem).font(.sans(13)).foregroundStyle(T.like) }
+        }
+        .task(id: id) { await load() }
+        .fileImporter(isPresented: $picking, allowedContentTypes: [.item], allowsMultipleSelection: true) { r in
+            if case .success(let urls) = r { Task { await add(urls) } }
+        }
+        .quickLookPreview($preview)
+    }
+    private func load() async {
+        guard let a = await auth() else { return }
+        let db = Supa(a: a)
+        let rows = (try? await db.rows("/rest/v1/event_files?target_type=eq.\(type)&target_id=eq.\(id)&select=id,name,path&order=created_at")) ?? []
+        files = rows.map { EventFile(id: $0["id"] as? String ?? "", name: $0["name"] as? String ?? "File", path: $0["path"] as? String ?? "") }
+        if let d = try? await db.req("POST", "/rest/v1/rpc/is_administrator", json: [String: Any]()) { admin = String(data: d, encoding: .utf8)?.contains("true") ?? false }
+    }
+    private func open(_ f: EventFile) async {
+        guard opening == nil, let a = await auth() else { return }
+        opening = f.id; defer { opening = nil }
+        let enc = f.path.split(separator: "/").map { $0.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0) }.joined(separator: "/")
+        guard let d = try? await Supa(a: a).req("GET", "/storage/v1/object/authenticated/event-files/\(enc)") else { problem = "Couldn’t open that file. Check your connection and try again."; return }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("event-" + f.id, isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let u = dir.appendingPathComponent(f.name)
+        do { try d.write(to: u); problem = nil; preview = u } catch { problem = "Couldn’t open that file." }
+    }
+    private func add(_ urls: [URL]) async {
+        guard let a = await auth() else { return }
+        busy = true; problem = nil; defer { busy = false }
+        let db = Supa(a: a)
+        for u in urls {
+            let ok = u.startAccessingSecurityScopedResource(); defer { if ok { u.stopAccessingSecurityScopedResource() } }
+            guard let d = try? Data(contentsOf: u) else { problem = "Couldn’t read \(u.lastPathComponent)."; continue }
+            if d.count > 50 * 1024 * 1024 { problem = "\(u.lastPathComponent) is over 50 MB."; continue }
+            let ext = u.pathExtension.isEmpty ? "" : "." + u.pathExtension.lowercased()
+            let path = "\(type)/\(id.lowercased())/\(UUID().uuidString.lowercased())\(ext)"
+            let mime = UTType(filenameExtension: u.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+            do {
+                try await db.req("POST", "/storage/v1/object/event-files/\(path)", raw: d, type: mime, prefer: nil)
+                try await db.req("POST", "/rest/v1/event_files", json: ["target_type": type, "target_id": id, "name": u.lastPathComponent, "path": path, "size_bytes": d.count, "created_by": a.me])
+            } catch { problem = "Couldn’t upload \(u.lastPathComponent): \(error.localizedDescription)" }
+        }
+        await load()
+    }
+    private func remove(_ f: EventFile) async {
+        guard let a = await auth() else { return }
+        let db = Supa(a: a)
+        _ = try? await db.req("DELETE", "/rest/v1/event_files?id=eq.\(f.id)")
+        _ = try? await db.req("DELETE", "/storage/v1/object/event-files/\(f.path)")
+        await load()
+    }
 }

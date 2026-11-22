@@ -61,6 +61,7 @@ final class ComposeModel: ObservableObject {
     @Published var tags: [String] = []
     @Published var poll: [String]? = nil
     @Published var pollDays = 3
+    @Published var pollEnds: Date? = nil
     /// Where this goes: out to the feed, or into your private notebook. One composer serves both.
     @Published var toNotes = false
     @Published var noteTitle = ""
@@ -110,7 +111,7 @@ final class ComposeModel: ObservableObject {
         let posts = self.posts, policy = self.policy
         var extras: [String: Any] = ["link": link, "quote": quote ?? "", "tags": allTags]
         if let b = book { extras["book"] = ["title": b.title, "author": b.author ?? "", "cover": b.cover?.absoluteString ?? ""] }
-        if let p = poll { extras["poll"] = ["options": p, "days": pollDays] }
+        if let p = poll { let d: Double = pollEnds.map { max(600, $0.timeIntervalSinceNow) / 86400 } ?? Double(pollDays); extras["poll"] = ["options": p, "days": d] }
         DispatchQueue.global(qos: .userInitiated).async {
             let payload: [String: Any] = ["policy": policy, "extras": extras, "posts": posts.map { ["text": $0.text, "images": $0.images.compactMap { $0.dataURL() }] }]
             let json = (try? JSONSerialization.data(withJSONObject: payload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
@@ -198,6 +199,7 @@ struct ComposeView: View {
                 Button { if m.quote == nil { withAnimation(.snappy) { m.quote = "" } } } label: { barTool("quote2") }.foregroundStyle(m.quote == nil ? C.muted : C.ink)
                 Button { focus = nil; sheet = .book } label: { barTool("book") }.foregroundStyle(m.book == nil ? C.muted : C.ink)
                 Button { if focus == nil { focus = target.id }; insertTool("#") } label: { barTool("hash") }
+                if !m.toNotes { Button { withAnimation(.snappy) { if m.poll == nil { m.poll = ["", ""] } } } label: { barTool("pollbars") }.foregroundStyle(m.poll == nil ? C.muted : C.ink).accessibilityLabel("Poll") }
                 Button { listTool("bullet") } label: { Image(systemName: "list.bullet").font(.system(size: 19)).frame(maxWidth: .infinity).frame(height: 44).contentShape(Rectangle()) }.accessibilityLabel("Bullet list")
                 Button { listTool("number") } label: { Image(systemName: "list.number").font(.system(size: 19)).frame(maxWidth: .infinity).frame(height: 44).contentShape(Rectangle()) }.accessibilityLabel("Numbered list")
                 if !m.toNotes {
@@ -396,11 +398,9 @@ private struct PostRow: View {
                     .font(.sans(15)).foregroundStyle(C.ink).padding(.horizontal, 12).frame(height: 42)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Color(rgb: 0x3b3e2a))).overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(rgb: 0x50533a)))
             }
+            PollEndPicker(days: $m.pollDays, custom: $m.pollEnds).padding(.top, 4)
             HStack(spacing: 8) {
                 if p.count < 4 { Button("Add choice") { m.poll?.append("") }.buttonStyle(SmallGhost()) }
-                Menu {
-                    ForEach([1, 3, 7], id: \.self) { d in Button("\(d) day\(d > 1 ? "s" : "")") { m.pollDays = d } }
-                } label: { Text("\(m.pollDays) day\(m.pollDays > 1 ? "s" : "") ▾").font(.sans(14)).foregroundStyle(C.ink).padding(.horizontal, 12).frame(height: 32).overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(rgb: 0x50533a))) }
                 Spacer()
                 Button("Remove") { withAnimation(.snappy) { m.poll = nil } }.buttonStyle(SmallGhost())
             }

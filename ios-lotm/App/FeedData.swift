@@ -23,7 +23,14 @@ struct FPin: Identifiable {
     enum Kind { case read, study, event, pin }
     let id: String, kind: Kind, title: String, text: String
     var detail: String? = nil, when: Date? = nil, place: String? = nil, placeURL: URL? = nil, link: URL? = nil
-    var slug: String? = nil, cover: URL? = nil, sourcePost: String? = nil, rsvp = false, by: String? = nil, author: String? = nil
+    var slug: String? = nil, cover: URL? = nil, sourcePost: String? = nil, rsvp = false, by: String? = nil, author: String? = nil, notes: String? = nil, file: URL? = nil
+    /// What the group reads for the study: the page the schedule sets, and any note on it.
+    static func reading(page: Int?, total: Int?, pos: String?) -> String? {
+        var parts: [String] = []
+        if let page { parts.append("Read through page \(page)" + (total.map { " of \($0)" } ?? "")) }
+        if let pos, !pos.isEmpty, pos != "TBD" { parts.append(page == nil ? "Read \(pos)" : pos) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
     var rsvpType: String { switch kind { case .study: "study"; case .event: "event"; case .pin: "pin"; case .read: "read" } }
 }
 
@@ -139,7 +146,7 @@ final class FeedModel: ObservableObject {
         let now = ISO8601DateFormatter().string(from: Date()), soon = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-3 * 3600))
         let today = String(now.prefix(10))
         async let P = db.rows("/rest/v1/weekly_pins?expires_at=gt.\(now)&select=id,user_id,body,source_aside_id,link_url,rsvp_enabled&order=created_at.desc")
-        async let S = db.rows("/rest/v1/club_updates?study_at=gte.\(soon)&select=id,book_title,book_author,cover_url,cover_image_url,reading_position,study_at,study_location,study_location_url&order=study_at.asc,created_at.desc&limit=1")
+        async let S = db.rows("/rest/v1/club_updates?study_at=gte.\(soon)&select=id,book_title,book_author,cover_url,cover_image_url,reading_position,club_page,club_total,synopsis,reading_file_url,study_at,study_location,study_location_url&order=study_at.asc,created_at.desc&limit=1")
         async let R = db.rows("/rest/v1/devotionals?show_from=lte.\(today)&show_until=gte.\(today)&select=slug,title,subtitle")
         async let E = db.rows("/rest/v1/club_events?starts_at=gte.\(soon)&select=id,title,description,location,location_url,starts_at,external_url&order=starts_at&limit=8")
         let (pins, study, own, events) = try await (P, S, R, E)
@@ -154,9 +161,9 @@ final class FeedModel: ObservableObject {
             let book = (s["book_title"] as? String ?? "").replacingOccurrences(of: #"^Amazon\.com:\s*"#, with: "", options: .regularExpression).components(separatedBy: ":").first ?? ""
             let pos = (s["reading_position"] as? String).flatMap { $0 == "TBD" || $0.isEmpty ? nil : $0 }
             out.append(FPin(id: s["id"] as? String ?? "", kind: .study, title: book, text: [book, pos].compactMap { $0 }.joined(separator: ", "),
-                            detail: pos.map { "Read \($0)" }, when: parseDate(at), place: s["study_location"] as? String,
+                            detail: FPin.reading(page: s["club_page"] as? Int, total: s["club_total"] as? Int, pos: pos), when: parseDate(at), place: s["study_location"] as? String,
                             placeURL: (s["study_location_url"] as? String).flatMap(URL.init(string:)),
-                            cover: ((s["cover_url"] as? String) ?? (s["cover_image_url"] as? String)).flatMap(URL.init(string:)), rsvp: true, author: s["book_author"] as? String))
+                            cover: ((s["cover_url"] as? String) ?? (s["cover_image_url"] as? String)).flatMap(URL.init(string:)), rsvp: true, author: s["book_author"] as? String, notes: (s["synopsis"] as? String).flatMap { $0.isEmpty ? nil : $0 }, file: (s["reading_file_url"] as? String).flatMap(URL.init(string:))))
         }
         for e in events {
             out.append(FPin(id: e["id"] as? String ?? "", kind: .event, title: e["title"] as? String ?? "", text: e["title"] as? String ?? "",
