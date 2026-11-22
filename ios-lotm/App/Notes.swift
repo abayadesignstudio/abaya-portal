@@ -329,6 +329,8 @@ private struct BookPicker: View {
 struct NoteEntry: View {
     /// Only a note that already has a title shows the title line.
     @State private var titled = false
+    @FocusState private var linkFocus: Bool
+    private func ntool(_ g: String) -> some View { GlyphView(n: g, s: 24).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }
     @ObservedObject var m: NotesModel
     @ObservedObject var web: WebModel
     let id: String?
@@ -377,12 +379,19 @@ struct NoteEntry: View {
                                 .overlay(alignment: .topTrailing) { Button { n.image = nil } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white).frame(width: 24, height: 24).background(Circle().fill(Color(rgb: 0x0a0c06, 0.72))) }.padding(6) }
                                 .padding(.top, 8)
                         }
-                        HStack(spacing: 8) {
-                            Button { listTool("bullet") } label: { Image(systemName: "list.bullet") }.buttonStyle(PillStyle()).accessibilityLabel("Bullet list")
-                            Button { listTool("number") } label: { Image(systemName: "list.number") }.buttonStyle(PillStyle()).accessibilityLabel("Numbered list")
-                            PhotosPicker(selection: $photo, matching: .images) { Text("Photo") }.buttonStyle(PillStyle())
-                            Button("Camera") { camera = true }.buttonStyle(PillStyle())
-                            Button("Paste") { flushTyping(); if let s = UIPasteboard.general.string, !s.isEmpty { if n.kind == "quote" { n.quotation += (n.quotation.isEmpty ? "" : " ") + s } else { n.body += (n.body.isEmpty ? "" : "\n") + s } } }.buttonStyle(PillStyle())
+                        // the same tools, in the same order, as the post writer
+                        HStack(spacing: 0) {
+                            PhotosPicker(selection: $photo, matching: .images) { ntool("image") }.accessibilityLabel("Photo")
+                            Button { camera = true } label: { ntool("camera") }.accessibilityLabel("Camera")
+                            Button { linkFocus = true } label: { ntool("link") }.foregroundStyle(n.source.isEmpty ? T.muted : T.ink).accessibilityLabel("Web link")
+                            Button { flushTyping(); n.kind = n.kind == "quote" ? "thought" : "quote" } label: { ntool("quote2") }.foregroundStyle(n.kind == "quote" ? T.ink : T.muted).accessibilityLabel("Quote")
+                            Button { pick = "book" } label: { ntool("book") }.foregroundStyle(n.bookTitle.isEmpty ? T.muted : T.ink).accessibilityLabel("Book")
+                            Button { newTag = ""; pick = "tag" } label: { ntool("hash") }.foregroundStyle(n.tags.isEmpty ? T.muted : T.ink).accessibilityLabel("Topics")
+                            Button { listTool("bullet") } label: { Image(systemName: "list.bullet").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Bullet list")
+                            Button { listTool("number") } label: { Image(systemName: "list.number").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Numbered list")
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundStyle(T.muted).buttonStyle(.plain).padding(.leading, -8)
                         }.padding(.top, 10)
                     }
                     .padding(.horizontal, 16).padding(.vertical, 14).frame(maxWidth: .infinity, alignment: .leading)
@@ -419,7 +428,7 @@ struct NoteEntry: View {
                         }.rowBox()
                         line
                         HStack(spacing: 10) { Text("Web link").font(.sans(14)).foregroundStyle(T.ink)
-                            TextField("", text: $n.source, prompt: Text("Where it’s from (optional)").foregroundColor(T.muted)).multilineTextAlignment(.trailing).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().font(.sans(14)).foregroundStyle(T.ink) }.rowBox()
+                            TextField("", text: $n.source, prompt: Text("Where it’s from (optional)").foregroundColor(T.muted)).focused($linkFocus).multilineTextAlignment(.trailing).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().font(.sans(14)).foregroundStyle(T.ink) }.rowBox()
                         line
                         Button { pick = "link" } label: { HStack { Text("Link to another note").font(.sans(14)).foregroundStyle(T.ink); Spacer(); Text(n.linked.isEmpty ? "None ›" : "\(n.linked.count) linked ›").font(.sans(14)).foregroundStyle(T.chev) }.rowBox() }.buttonStyle(.plain)
                         line

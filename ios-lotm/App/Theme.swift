@@ -307,8 +307,12 @@ struct CaretText: UIViewRepresentable {
         if let l = v.viewWithTag(7) as? UILabel { if l.text != hint { l.text = hint }; l.isHidden = !text.isEmpty }
         if focus != context.coordinator.seen { context.coordinator.seen = focus; DispatchQueue.main.async { v.becomeFirstResponder() } }
         if let active {
-            if active, !v.isFirstResponder, v.window != nil, Date().timeIntervalSince(context.coordinator.endedAt) > 0.6 { DispatchQueue.main.async { if !v.isFirstResponder { v.becomeFirstResponder() } } }
-            else if !active, v.isFirstResponder { DispatchQueue.main.async { v.resignFirstResponder() } }
+            let c = context.coordinator
+            if active != c.wasActive {
+                c.wasActive = active
+                if active { c.take(v, tries: 8) }
+                else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { if c.wasActive == false, v.isFirstResponder { v.resignFirstResponder() } } }
+            }
         }
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView v: UITextView, context: Context) -> CGSize? {
@@ -393,6 +397,14 @@ struct CaretText: UIViewRepresentable {
         // scrolled or the cursor was placed by hand, so a finger moving the page is left alone.
         func textViewDidBeginEditing(_ v: UITextView) { parent.onFocus(true); follow(v, after: [0.45]) }
         var endedAt = Date.distantPast
+        var wasActive: Bool?
+        /// Take the keyboard once the box is on screen (it may not be yet when its turn begins).
+        func take(_ v: UITextView, tries: Int) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + (v.window == nil ? 0.08 : 0)) { [weak self, weak v] in
+                guard let self, let v, self.wasActive == true, !v.isFirstResponder else { return }
+                if v.window != nil { v.becomeFirstResponder() } else if tries > 0 { self.take(v, tries: tries - 1) }
+            }
+        }
         func textViewDidEndEditing(_ v: UITextView) { endedAt = Date(); flush(); parent.onFocus(false) }
         private var following: [DispatchWorkItem] = []
         /// Where the cursor's line is, in the text view's own space. At the very end of the writing (where typing nearly
