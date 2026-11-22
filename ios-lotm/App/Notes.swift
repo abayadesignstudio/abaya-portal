@@ -331,7 +331,8 @@ private struct BookPicker: View {
 struct NoteEntry: View {
     /// Only a note that already has a title shows the title line.
     @State private var titled = false
-    /// A note already written opens to be read; a new one opens ready to type.
+    /// A note's page shows its words in Apple's text face from the start: a note already written waits for a tap
+    /// before the keyboard comes up; a new one opens ready to type. (The Garamond reading view is not used.)
     @State private var editing = true
     @FocusState private var linkFocus: Bool
     private func ntool(_ g: String) -> some View { GlyphView(n: g, s: 24).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }
@@ -367,7 +368,7 @@ struct NoteEntry: View {
             .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 10)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    Seg(options: ["Quote", "Note"], value: Binding(get: { n.kind == "quote" ? "Quote" : "Note" }, set: { flushTyping(); n.kind = $0 == "Quote" ? "quote" : "thought" })).padding(.horizontal, 16).onAppear { titled = !n.title.trimmingCharacters(in: .whitespaces).isEmpty; editing = id == nil }
+                    Seg(options: ["Quote", "Note"], value: Binding(get: { n.kind == "quote" ? "Quote" : "Note" }, set: { flushTyping(); n.kind = $0 == "Quote" ? "quote" : "thought" })).padding(.horizontal, 16).onAppear { titled = !n.title.trimmingCharacters(in: .whitespaces).isEmpty }
                     VStack(alignment: .leading, spacing: 0) {
                         if titled { CaretText(text: $n.title, hint: "Title", size: 19, plain: true).padding(.bottom, 8) }
                         if !editing {
