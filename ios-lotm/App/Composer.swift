@@ -83,6 +83,8 @@ final class ComposeModel: ObservableObject {
     func saveDraft() { UserDefaults.standard.set(["texts": posts.map(\.text), "policy": policy], forKey: Self.key) }
     func clearDraft() { UserDefaults.standard.removeObject(forKey: Self.key) }
 
+    /// The topics: any chosen before, and every #word typed into the writing.
+    private var allTags: [String] { var t = tags; for h in hashtags(posts.map(\.text).joined(separator: "\n")) where !t.contains(h) { t.append(h) }; return t }
     /// Kept in the notebook instead: the words as a thought (or, with a passage, a quote), with its photo, book, topics and link.
     private func saveNote() {
         busy = true; error = nil
@@ -91,7 +93,7 @@ final class ComposeModel: ObservableObject {
         n.kind = qt.isEmpty ? "thought" : "quote"; n.quotation = qt
         n.body = posts.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.joined(separator: "\n\n")
         n.bookTitle = book?.title ?? ""; n.bookAuthor = book?.author ?? ""; n.bookCover = book?.cover?.absoluteString
-        n.tags = tags; n.source = link.trimmingCharacters(in: .whitespaces)
+        n.tags = allTags; n.source = link.trimmingCharacters(in: .whitespaces)
         let photo = posts.flatMap(\.images).first
         Task { @MainActor in
             let notes = NotesModel.shared
@@ -106,7 +108,7 @@ final class ComposeModel: ObservableObject {
         if toNotes { saveNote(); return }
         busy = true; error = nil
         let posts = self.posts, policy = self.policy
-        var extras: [String: Any] = ["link": link, "quote": quote ?? "", "tags": tags]
+        var extras: [String: Any] = ["link": link, "quote": quote ?? "", "tags": allTags]
         if let b = book { extras["book"] = ["title": b.title, "author": b.author ?? "", "cover": b.cover?.absoluteString ?? ""] }
         if let p = poll { extras["poll"] = ["options": p, "days": pollDays] }
         DispatchQueue.global(qos: .userInitiated).async {
@@ -396,7 +398,7 @@ private struct PostRow: View {
                 Button { openSheet(.link) } label: { tool("link") }.foregroundStyle(m.link.isEmpty ? C.muted : C.ink)
                 Button { withAnimation(.snappy) { if m.quote == nil { m.quote = "" } else { quoteFocus = true } } } label: { tool("quote2") }
                 Button { openSheet(.book) } label: { tool("book") }.foregroundStyle(m.book == nil ? C.muted : C.ink)
-                Button { openSheet(.tags) } label: { tool("hash") }.foregroundStyle(m.tags.isEmpty ? C.muted : C.ink)
+                Button { if focus == nil { focus = post.id }; insertTool("#") } label: { tool("hash") }
             }
             Button { listTool("bullet") } label: { Image(systemName: "list.bullet").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Bullet list")
             Button { listTool("number") } label: { Image(systemName: "list.number").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Numbered list")

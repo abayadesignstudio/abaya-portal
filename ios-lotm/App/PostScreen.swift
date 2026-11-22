@@ -589,6 +589,10 @@ func linked(_ s: String) -> AttributedString {
               let lo = AttributedString.Index(r.lowerBound, within: out), let hi = AttributedString.Index(r.upperBound, within: out) else { continue }
         out[lo..<hi].link = url; out[lo..<hi].underlineStyle = .single
     }
+    // a #topic stands out, as a member tagged with @ does
+    if s.contains("#"), let re = try? NSRegularExpression(pattern: #"(?<![\p{L}\d_#])#[\p{L}\d_-]{2,40}"#) {
+        for m in re.matches(in: s, range: NSRange(s.startIndex..., in: s)) { if let r = Range(m.range, in: s), let lo = AttributedString.Index(r.lowerBound, within: out), let hi = AttributedString.Index(r.upperBound, within: out) { out[lo..<hi].foregroundColor = Color(rgb: 0xe2c37a) } }
+    }
     // a member tagged with @ stands out
     if s.contains("@") {
         for name in Roster.names {

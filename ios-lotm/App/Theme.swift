@@ -252,7 +252,16 @@ func quoteMarked(_ body: String, _ html: String?) -> String {
 @MainActor func flushTyping() { NotificationCenter.default.post(name: .lotmFlushTyping, object: nil) }
 /// Start or end a list on the line being written, in whichever writing box has the keyboard: "bullet" or "number".
 @MainActor func listTool(_ kind: String) { NotificationCenter.default.post(name: .lotmList, object: kind) }
-extension Notification.Name { static let lotmFlushTyping = Notification.Name("lotm.flushTyping"); static let lotmList = Notification.Name("lotm.list") }
+/// Type something at the cursor of whichever writing box has the keyboard (the # tool).
+@MainActor func insertTool(_ s: String) { NotificationCenter.default.post(name: .lotmInsert, object: s) }
+/// The topics written into a text as #words, as on X: lowercased, without the #, each once.
+func hashtags(_ s: String) -> [String] {
+    guard s.contains("#"), let re = try? NSRegularExpression(pattern: #"(?<![\p{L}\d_#])#([\p{L}\d_-]{2,40})"#) else { return [] }
+    var out: [String] = []
+    for m in re.matches(in: s, range: NSRange(s.startIndex..., in: s)) { if let r = Range(m.range(at: 1), in: s) { let t = s[r].lowercased(); if !out.contains(t) { out.append(t) } } }
+    return out
+}
+extension Notification.Name { static let lotmFlushTyping = Notification.Name("lotm.flushTyping"); static let lotmList = Notification.Name("lotm.list"); static let lotmInsert = Notification.Name("lotm.insert") }
 
 struct CaretText: UIViewRepresentable {
     @Binding var text: String
@@ -334,9 +343,11 @@ struct CaretText: UIViewRepresentable {
         init(_ p: CaretText) {
             parent = p; super.init()
             watch = NotificationCenter.default.addObserver(forName: .lotmFlushTyping, object: nil, queue: nil) { [weak self] _ in MainActor.assumeIsolated { self?.flush() } }
+            inserts = NotificationCenter.default.addObserver(forName: .lotmInsert, object: nil, queue: nil) { [weak self] n in let t = n.object as? String ?? ""; MainActor.assumeIsolated { if let v = self?.view, v.isFirstResponder { v.insertText(t) } } }
             lists = NotificationCenter.default.addObserver(forName: .lotmList, object: nil, queue: nil) { [weak self] n in let k = n.object as? String ?? "bullet"; MainActor.assumeIsolated { self?.list(k) } }
         }
-        deinit { if let watch { NotificationCenter.default.removeObserver(watch) }; if let lists { NotificationCenter.default.removeObserver(lists) } }
+        deinit { if let watch { NotificationCenter.default.removeObserver(watch) }; if let lists { NotificationCenter.default.removeObserver(lists) }; if let inserts { NotificationCenter.default.removeObserver(inserts) } }
+        private var inserts: NSObjectProtocol?
         weak var view: UITextView?
         private var lists: NSObjectProtocol?
         // MARK: lists

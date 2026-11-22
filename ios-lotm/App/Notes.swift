@@ -278,7 +278,9 @@ private struct NoteCard: View {
                     (Text(n.bookTitle).font(.serif(14, italic: true)).foregroundColor(T.ink) + Text((n.bookAuthor.isEmpty ? "" : " · \(n.bookAuthor)") + (n.page.isEmpty ? "" : " · p. \(n.page)")).font(.sans(13)).foregroundColor(T.sub)).lineLimit(2).multilineTextAlignment(.leading)
                 }.padding(.top, 10)
             }
-            if !n.tags.isEmpty { Wrap(spacing: 6) { ForEach(n.tags, id: \.self) { TagChip(t: $0) } }.padding(.top, 8) }
+            // (a topic typed into the words as #topic already shows there)
+            let chips = n.tags.filter { !(n.body + " " + n.quotation).lowercased().contains("#" + $0.lowercased()) }
+            if !chips.isEmpty { Wrap(spacing: 6) { ForEach(chips, id: \.self) { TagChip(t: $0) } }.padding(.top, 8) }
             if !n.linked.isEmpty {
                 let names = n.linked.compactMap { id in all.first { $0.id == id } }.map { x in (x.bookAuthor.isEmpty ? (x.bookTitle.isEmpty ? (x.title.isEmpty ? "entry" : x.title) : x.bookTitle) : x.bookAuthor).split(whereSeparator: { " ,:".contains($0) }).last.map(String.init) ?? "entry" }
                 Text("Linked to \(n.linked.count) \(n.linked.count == 1 ? "entry" : "entries")" + (names.isEmpty ? "" : " · " + names.joined(separator: ", "))).font(.sans(13)).foregroundStyle(T.sub).padding(.top, 8)
@@ -329,6 +331,8 @@ private struct BookPicker: View {
 struct NoteEntry: View {
     /// Only a note that already has a title shows the title line.
     @State private var titled = false
+    /// A note already written opens to be read; a new one opens ready to type.
+    @State private var editing = true
     @FocusState private var linkFocus: Bool
     private func ntool(_ g: String) -> some View { GlyphView(n: g, s: 24).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }
     @ObservedObject var m: NotesModel
@@ -363,16 +367,24 @@ struct NoteEntry: View {
             .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 10)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    Seg(options: ["Quote", "Note"], value: Binding(get: { n.kind == "quote" ? "Quote" : "Note" }, set: { flushTyping(); n.kind = $0 == "Quote" ? "quote" : "thought" })).padding(.horizontal, 16).onAppear { titled = !n.title.trimmingCharacters(in: .whitespaces).isEmpty }
+                    Seg(options: ["Quote", "Note"], value: Binding(get: { n.kind == "quote" ? "Quote" : "Note" }, set: { flushTyping(); n.kind = $0 == "Quote" ? "quote" : "thought" })).padding(.horizontal, 16).onAppear { titled = !n.title.trimmingCharacters(in: .whitespaces).isEmpty; editing = id == nil }
                     VStack(alignment: .leading, spacing: 0) {
-                        if titled { CaretText(text: $n.title, hint: "Title", size: 23, semibold: true).padding(.bottom, 8) }
-                        if n.kind == "quote" {
+                        if titled { CaretText(text: $n.title, hint: "Title", size: 19, plain: true).padding(.bottom, 8) }
+                        if !editing {
+                            // A note opens to be read, in Garamond; a tap on the words begins editing them.
+                            VStack(alignment: .leading, spacing: 12) {
+                                if n.kind == "quote", !n.quotation.isEmpty { Text(n.quotation).font(.serif(21, italic: true)).padding(.leading, 12).overlay(alignment: .leading) { T.ink.frame(width: 3) } }
+                                if !n.body.isEmpty { Text(linked(n.body)).font(.serif(20)) }
+                            }
+                            .foregroundStyle(T.ink).lineSpacing(5).frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading).contentShape(Rectangle())
+                            .onTapGesture { editing = true; tick += 1 }
+                        } else if n.kind == "quote" {
                             Text("THE PASSAGE").font(.sans(11, .bold)).tracking(0.9).foregroundStyle(T.muted)
-                            CaretText(text: $n.quotation, hint: "Type or paste the passage", size: 21, italic: true, minHeight: 96, focus: tick)
+                            CaretText(text: $n.quotation, hint: "Type or paste the passage", size: 17, plain: true, minHeight: 96, focus: tick)
                                 .padding(.leading, 12).overlay(alignment: .leading) { T.ink.frame(width: 3) }.padding(.top, 6)
-                            CaretText(text: $n.body, hint: "Your thought on it (optional)", size: 19, color: UIColor(T.sub), minHeight: 44).padding(.top, 10)
+                            CaretText(text: $n.body, hint: "Your thought on it (optional)", size: 17, plain: true, color: UIColor(T.sub), minHeight: 44).padding(.top, 10)
                         } else {
-                            CaretText(text: $n.body, hint: "A thought worth keeping…", size: 21, minHeight: 160, focus: tick)
+                            CaretText(text: $n.body, hint: "What’s on your mind?", size: 17, plain: true, minHeight: 160, focus: tick)
                         }
                         if let u = n.image.flatMap(URL.init(string:)) {
                             AsyncImage(url: u) { $0.resizable().scaledToFit() } placeholder: { T.soft.frame(height: 160) }.clipShape(RoundedRectangle(cornerRadius: 10))
@@ -386,7 +398,7 @@ struct NoteEntry: View {
                             Button { linkFocus = true } label: { ntool("link") }.foregroundStyle(n.source.isEmpty ? T.muted : T.ink).accessibilityLabel("Web link")
                             Button { flushTyping(); n.kind = n.kind == "quote" ? "thought" : "quote" } label: { ntool("quote2") }.foregroundStyle(n.kind == "quote" ? T.ink : T.muted).accessibilityLabel("Quote")
                             Button { pick = "book" } label: { ntool("book") }.foregroundStyle(n.bookTitle.isEmpty ? T.muted : T.ink).accessibilityLabel("Book")
-                            Button { newTag = ""; pick = "tag" } label: { ntool("hash") }.foregroundStyle(n.tags.isEmpty ? T.muted : T.ink).accessibilityLabel("Topics")
+                            Button { if !editing { editing = true; tick += 1 }; insertTool("#") } label: { ntool("hash") }.accessibilityLabel("Topic")
                             Button { listTool("bullet") } label: { Image(systemName: "list.bullet").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Bullet list")
                             Button { listTool("number") } label: { Image(systemName: "list.number").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Numbered list")
                             Spacer(minLength: 0)
@@ -410,21 +422,6 @@ struct NoteEntry: View {
                                 TextField("", text: $n.page).multilineTextAlignment(.trailing).keyboardType(.numbersAndPunctuation).font(.sans(14)).foregroundStyle(T.ink).padding(.horizontal, 8).frame(width: 70, height: 32)
                                     .background(RoundedRectangle(cornerRadius: 8).fill(T.group)).overlay(RoundedRectangle(cornerRadius: 8).stroke(T.softBd)) }.rowBox()
                         }
-                        line
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack { Text("Topics").font(.sans(14)).foregroundStyle(T.ink); Spacer()
-                                Button { newTag = ""; pick = "tag" } label: { Text("+ add").font(.sans(12, .semibold)).foregroundStyle(T.sub).padding(.horizontal, 9).padding(.vertical, 3).overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(rgb: 0x626546), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))) }.buttonStyle(.plain) }
-                            if !n.tags.isEmpty {
-                                Wrap(spacing: 8) {
-                                    ForEach(n.tags, id: \.self) { t in
-                                        Button { n.tags.removeAll { $0 == t } } label: {
-                                            HStack(spacing: 5) { Text("#\(t)").font(.sans(13, .semibold)).foregroundStyle(T.ink); Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(T.muted) }
-                                                .padding(.horizontal, 10).frame(height: 28).background(Capsule().fill(Color(rgb: 0x4d5038)))
-                                        }.buttonStyle(.plain).accessibilityLabel("Remove \(t)")
-                                    }
-                                }
-                            }
-                        }.rowBox()
                         line
                         HStack(spacing: 10) { Text("Web link").font(.sans(14)).foregroundStyle(T.ink)
                             TextField("", text: $n.source, prompt: Text("Where it’s from (optional)").foregroundColor(T.muted)).focused($linkFocus).multilineTextAlignment(.trailing).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().font(.sans(14)).foregroundStyle(T.ink) }.rowBox()
@@ -493,6 +490,7 @@ struct NoteEntry: View {
         var x = n
         x.body = x.body.trimmingCharacters(in: .whitespacesAndNewlines); x.title = x.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if x.kind != "quote" { x.kind = x.title.isEmpty ? "thought" : "entry" }
+        for h in hashtags(x.body + "\n" + x.quotation) where !x.tags.contains(h) { x.tags.append(h) }
         if x.body != original { x.html = nil }        // the words changed here, so any formatting set on the web no longer fits them
         busy = true
         Task { if await m.save(x, new: id == nil) { close() }; busy = false }
