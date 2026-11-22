@@ -297,8 +297,8 @@ private struct PostRow: View {
                     if let remove { Button(action: remove) { Text("×").font(.sans(20)).foregroundStyle(C.muted).frame(width: 28, height: 28) } }
                 }
                 // Apple's own text view: as the writing grows, the page keeps the cursor's line above the keyboard.
-                CaretText(text: $post.text, hint: index == 0 ? "What’s on your mind?" : "Say more…", size: 17, plain: true, active: focus == post.id, bar: false, below: 84,
-                          onFocus: { on in let id = post.id; DispatchQueue.main.async { if on { focus = id } else if focus == id { focus = nil } } })
+                WriteField(text: $post.text, hint: index == 0 ? "What’s on your mind?" : "Say more…", size: 20, active: focus == post.id,
+                           onFocus: { on in let id = post.id; DispatchQueue.main.async { if on { focus = id } else if focus == id { focus = nil } } })
                     .padding(.trailing, 14)      // room between the words and the edge of the screen
                 if index == 0 { extras }
                 if !post.images.isEmpty {
@@ -337,7 +337,7 @@ private struct PostRow: View {
             HStack(alignment: .top, spacing: 0) {
                 C.ink.frame(width: 3)
                 TextField("Quote a passage", text: Binding(get: { q }, set: { m.quote = $0 }), axis: .vertical)
-                    .font(.system(size: 17)).italic().foregroundStyle(C.ink).focused($quoteFocus).padding(.leading, 14)
+                    .font(.serif(20, italic: true)).foregroundStyle(C.ink).focused($quoteFocus).padding(.leading, 14)
                 Button { withAnimation(.snappy) { m.quote = nil }; focus = post.id } label: {
                     Text("×").font(.sans(15)).foregroundStyle(C.ink).frame(width: 24, height: 24).background(Circle().fill(Color(rgb: 0x0c0e08, 0.08)))
                 }

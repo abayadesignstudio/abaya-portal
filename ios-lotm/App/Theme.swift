@@ -567,3 +567,105 @@ struct MentionBar: View {
         }
     }
 }
+
+
+// MARK: - The writing field (Apple's own SwiftUI text field)
+
+/// The list mark a line begins with ("• " or "12. "): its length, and its number if it is a numbered one.
+func listMark(_ line: Substring) -> (len: Int, n: Int?)? {
+    if line.hasPrefix("• ") { return (2, nil) }
+    let digits = line.prefix { $0.isNumber }
+    if !digits.isEmpty, digits.count < 4, line.dropFirst(digits.count).hasPrefix(". "), let n = Int(digits) { return (digits.count + 2, n) }
+    return nil
+}
+
+/// Every place words are written. It is Apple's standard text field, so the keyboard, the cursor, selection and
+/// scrolling are the system's own; this view only sets the face (EB Garamond, as the words will be published), keeps
+/// the typing in its own small state (so a keystroke redraws nothing else, and typing stays quick), and answers the
+/// list, # and @ tools.
+struct WriteField: View {
+    @Binding var text: String
+    var hint = ""
+    var size: CGFloat = 20
+    var italic = false
+    var color: Color = T.ink
+    var minHeight: CGFloat = 0
+    /// Bump to bring the keyboard here.
+    var focus = 0
+    /// When set, the field takes the keyboard as this turns true and gives it up as it turns false.
+    var active: Bool? = nil
+    var onFocus: (Bool) -> Void = { _ in }
+
+    @State private var local = ""
+    @State private var sel: TextSelection?
+    @State private var push: DispatchWorkItem?
+    @FocusState private var on: Bool
+
+    var body: some View {
+        TextField("", text: $local, selection: $sel, prompt: Text(hint).foregroundColor(T.muted), axis: .vertical)
+            .font(.serif(size, italic: italic)).foregroundStyle(color).tint(T.ink).lineSpacing(size * 0.16)
+            .focused($on)
+            .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
+            .contentShape(Rectangle()).onTapGesture { on = true }
+            .onAppear { local = text; if active == true { DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { on = true } } }
+            .onChange(of: text) { _, v in if v != local { local = v } }
+            .onChange(of: local) { old, new in carryList(old, new); later() }
+            .onChange(of: on) { _, v in onFocus(v); if !v { flush() } }
+            .onChange(of: active) { _, v in if let v, v != on { on = v } }
+            .onChange(of: focus) { _, _ in on = true }
+            .onReceive(NotificationCenter.default.publisher(for: .lotmFlushTyping)) { _ in flush() }
+            .onReceive(NotificationCenter.default.publisher(for: .lotmList)) { n in if on { list(n.object as? String ?? "bullet") } }
+            .onReceive(NotificationCenter.default.publisher(for: .lotmInsert)) { n in if on, let s = n.object as? String { put(s) } }
+    }
+    /// What has been typed reaches the rest of the screen when the typing pauses (or at once, before a save).
+    private func later() {
+        push?.cancel()
+        let w = DispatchWorkItem { if text != local { text = local } }
+        push = w; DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: w)
+    }
+    private func flush() { push?.cancel(); if text != local { text = local } }
+    /// Where the cursor is (the end, if the system has not said).
+    private var caret: String.Index {
+        if let s = sel, case let .selection(r) = s.indices, r.lowerBound <= local.endIndex { return r.lowerBound }
+        return local.endIndex
+    }
+    private func lineStart(_ i: String.Index) -> String.Index { local[..<i].lastIndex(of: "\n").map { local.index(after: $0) } ?? local.startIndex }
+    private func put(_ s: String) {
+        let i = caret; local.insert(contentsOf: s, at: i)
+        sel = TextSelection(insertionPoint: local.index(i, offsetBy: s.count))
+    }
+    /// The list tools: make the cursor's line an item of that kind, change its kind, or (the same kind again) plain.
+    private func list(_ kind: String) {
+        let a = lineStart(caret), had = listMark(local[a...])
+        var want = ""
+        if !(had != nil && (had!.n != nil) == (kind == "number")) {
+            if kind == "number" {
+                var n = 1
+                if a > local.startIndex { let p = lineStart(local.index(before: a)); if let m = listMark(local[p...]), let k = m.n { n = k + 1 } }
+                want = "\(n). "
+            } else { want = "• " }
+        }
+        let b = local.index(a, offsetBy: had?.len ?? 0)
+        local.replaceSubrange(a..<b, with: want)
+        let end = local[a...].firstIndex(of: "\n") ?? local.endIndex
+        sel = TextSelection(insertionPoint: end); Haptic.tap()
+    }
+    /// Return inside a list begins the next item; Return on an empty item ends the list.
+    private func carryList(_ old: String, _ new: String) {
+        guard new.count == old.count + 1 else { return }
+        var p = new.startIndex, q = old.startIndex                    // where the one new character went in
+        while q < old.endIndex, new[p] == old[q] { p = new.index(after: p); q = old.index(after: q) }
+        guard p < new.endIndex, new[p] == "\n" else { return }
+        let a = new[..<p].lastIndex(of: "\n").map { new.index(after: $0) } ?? new.startIndex
+        guard let m = listMark(new[a..<p]) else { return }
+        var t = new
+        if new.distance(from: a, to: p) == m.len {
+            t.removeSubrange(a...p)                                   // an empty item: the list ends here
+            local = t; sel = TextSelection(insertionPoint: min(a, t.endIndex))
+        } else {
+            let mark = m.n.map { "\($0 + 1). " } ?? "• ", at = t.index(after: p)
+            t.insert(contentsOf: mark, at: at)
+            local = t; sel = TextSelection(insertionPoint: t.index(at, offsetBy: mark.count))
+        }
+    }
+}

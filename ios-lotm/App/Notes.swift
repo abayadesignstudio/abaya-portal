@@ -370,7 +370,7 @@ struct NoteEntry: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Seg(options: ["Quote", "Note"], value: Binding(get: { n.kind == "quote" ? "Quote" : "Note" }, set: { flushTyping(); n.kind = $0 == "Quote" ? "quote" : "thought" })).padding(.horizontal, 16).onAppear { titled = !n.title.trimmingCharacters(in: .whitespaces).isEmpty }
                     VStack(alignment: .leading, spacing: 0) {
-                        if titled { CaretText(text: $n.title, hint: "Title", size: 19, plain: true).padding(.bottom, 8) }
+                        if titled { WriteField(text: $n.title, hint: "Title", size: 22).padding(.bottom, 8) }
                         if !editing {
                             // A note opens to be read, in Garamond; a tap on the words begins editing them.
                             VStack(alignment: .leading, spacing: 12) {
@@ -381,11 +381,11 @@ struct NoteEntry: View {
                             .onTapGesture { editing = true; tick += 1 }
                         } else if n.kind == "quote" {
                             Text("THE PASSAGE").font(.sans(11, .bold)).tracking(0.9).foregroundStyle(T.muted)
-                            CaretText(text: $n.quotation, hint: "Type or paste the passage", size: 17, plain: true, minHeight: 96, focus: tick)
+                            WriteField(text: $n.quotation, hint: "Type or paste the passage", size: 20, italic: true, minHeight: 96, focus: tick)
                                 .padding(.leading, 12).overlay(alignment: .leading) { T.ink.frame(width: 3) }.padding(.top, 6)
-                            CaretText(text: $n.body, hint: "Your thought on it (optional)", size: 17, plain: true, color: UIColor(T.sub), minHeight: 44).padding(.top, 10)
+                            WriteField(text: $n.body, hint: "Your thought on it (optional)", size: 19, color: T.sub, minHeight: 44).padding(.top, 10)
                         } else {
-                            CaretText(text: $n.body, hint: "What’s on your mind?", size: 17, plain: true, minHeight: 160, focus: tick)
+                            WriteField(text: $n.body, hint: "What’s on your mind?", size: 20, minHeight: 160, focus: tick)
                         }
                         if let u = n.image.flatMap(URL.init(string:)) {
                             AsyncImage(url: u) { $0.resizable().scaledToFit() } placeholder: { T.soft.frame(height: 160) }.clipShape(RoundedRectangle(cornerRadius: 10))
