@@ -706,14 +706,14 @@ struct PhotoRow: View {
             if urls.count == 1 {
                 AsyncImage(url: urls[0]) { $0.resizable().scaledToFit() } placeholder: { Color(rgb: 0x2a2d1d).frame(height: 240) }
                     .frame(maxWidth: .infinity, maxHeight: 560).clipShape(RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.rule))
-                    .onTapGesture { openAt = 0 }
+                    .onTapGesture { openAt = 0 }.imageMenu(urls[0])
             } else if urls.count > 1 {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(Array(urls.enumerated()), id: \.offset) { i, u in
                             AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x2a2d1d) }
                                 .frame(width: 240, height: 300).clipShape(RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.rule))
-                                .onTapGesture { openAt = i }
+                                .onTapGesture { openAt = i }.imageMenu(u)
                         }
                     }
                     .scrollTargetLayout()
@@ -845,7 +845,7 @@ struct PostActions: View {
             if mine {
                 Card14 {
                     Eyebrow(t: "Your post").frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 4)
-                    GroupRow(icon: "pencil", label: "Edit", action: { close(); web.goTop("/write/\(p.id)") }) { EmptyView() }; GroupLine()
+                    if Date().timeIntervalSince(p.created) < 300 { GroupRow(icon: "pencil", label: "Edit", action: { close(); web.goTop("/write/\(p.id)") }) { EmptyView() }; GroupLine() }
                     GroupRow(icon: "plus", label: "Continue this thread", action: { close(); web.goTop("/write?continue=\(p.id)") }) { EmptyView() }; GroupLine()
                     GroupRow(icon: "x", label: "Hide a reply…", action: { close(); web.goTop("/post/\(p.id)?hide=1") }) { EmptyView() }; GroupLine()
                     GroupRow(icon: "reply", label: "Who can reply", action: { Task { await m.setReplies(p, on: !p.canReply) }; close() }) { Text(p.canReply ? "Everyone ›" : "No one ›").font(.sans(15)).foregroundStyle(T.muted) }; GroupLine()

@@ -1075,16 +1075,17 @@ struct ChatScreen: View {
         }
         .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
         .opacity(msg.pending ? 0.72 : 1)
-        // swipe a message to the right to reply to it
-        .offset(x: dragId == msg.id ? dragX : 0)
-        .background(alignment: .leading) {
-            if dragId == msg.id { Image(systemName: "arrowshape.turn.up.left.fill").font(.system(size: 16)).foregroundStyle(T.muted).opacity(Double(min(1, dragX / 44))).padding(.leading, 2) }
+        // swipe a message from the outside in to reply to it: yours (on the right) leftward, theirs rightward
+        .offset(x: dragId == msg.id ? (mine ? -dragX : dragX) : 0)
+        .background(alignment: mine ? .trailing : .leading) {
+            if dragId == msg.id { Image(systemName: mine ? "arrowshape.turn.up.right.fill" : "arrowshape.turn.up.left.fill").font(.system(size: 16)).foregroundStyle(T.muted).opacity(Double(min(1, dragX / 44))).padding(.horizontal, 2) }
         }
         .contentShape(Rectangle())
         .simultaneousGesture(DragGesture(minimumDistance: 22).onChanged { v in
-            guard !msg.deleted, !msg.unreadable, v.translation.width > 0, abs(v.translation.width) > abs(v.translation.height) * 1.6 else { return }
+            let w = mine ? -v.translation.width : v.translation.width
+            guard !msg.deleted, !msg.unreadable, w > 0, abs(v.translation.width) > abs(v.translation.height) * 1.6 else { return }
             if dragId != msg.id { dragId = msg.id }
-            let x = min(72, v.translation.width * 0.55)
+            let x = min(72, w * 0.55)
             if x >= 44 && dragX < 44 { Haptic.tap() }
             dragX = x
         }.onEnded { _ in
@@ -1103,7 +1104,7 @@ struct ChatScreen: View {
                 if img.images != nil { GIFView(img: img) } else { Image(uiImage: img).resizable().scaledToFill() }
             }
             .frame(width: size.width, height: size.height).clipShape(RoundedRectangle(cornerRadius: 16))
-            .onTapGesture { if img.images == nil { zoom = img } }
+            .onTapGesture { if img.images == nil { zoom = img } }.imageMenu(image: img)
         } else {
             RoundedRectangle(cornerRadius: 16).fill(T.card).frame(width: 200, height: 150).overlay(ProgressView().tint(T.muted))
                 .task { await m.photo(msg) }

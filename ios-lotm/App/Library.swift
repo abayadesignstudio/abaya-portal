@@ -989,9 +989,8 @@ struct LibraryScreen: View {
         } else {
             Shelf(items: clubItems(), w: 150, start: m.admin ? 1 : 0, onCenter: { clubKey = $0 }, onDrag: { shelfDrag = $0 }, onReorder: { ids in Task { await m.reorderClub(ids) } })
         }
-        clubCard.animation(.easeOut(duration: 0.25), value: clubKey)
-
-        H2(t: "Upcoming", action: m.admin ? "Add" : "Suggest") { eventForm = true }
+        H2(t: "Upcoming Events", action: m.admin ? "Add" : "Suggest") { eventForm = true }
+        clubCard.padding(.top, -14).padding(.bottom, 10).animation(.easeOut(duration: 0.25), value: clubKey)
         VStack(alignment: .leading, spacing: 10) {
             ForEach(m.events) { e in EventCard(e: e, onRemove: m.admin ? { Task { await m.removeEvent(e) } } : nil) }
             if m.events.isEmpty { Text("Nothing on the calendar yet.").font(.sans(14)).foregroundStyle(T.muted).padding(.horizontal, 4) }
@@ -1274,9 +1273,11 @@ private struct BookSearch: View {
                     HStack(spacing: 8) {
                         TextField("", text: $q, prompt: Text("Title, author, ISBN or Amazon link").foregroundColor(T.muted)).focused($typing).submitLabel(.search).onSubmit { find() }.autocorrectionDisabled()
                             .font(.sans(16)).foregroundStyle(T.ink).padding(.horizontal, 14).frame(height: 46).background(RoundedRectangle(cornerRadius: 12).fill(T.paper)).overlay(RoundedRectangle(cornerRadius: 12).stroke(T.softBd))
-                        Button(busy ? "…" : "Find") { find() }.buttonStyle(LBtn()).frame(width: 80).disabled(busy)
+                        Button { find() } label: { if busy { ProgressView().tint(Color(rgb: 0x2a2d1d)) } else { Text("Find") } }.buttonStyle(LBtn()).frame(width: 80).disabled(busy)
                     }
-                    if results == nil { Button("Paste an Amazon link") { if let s = UIPasteboard.general.string, !s.isEmpty { q = s; find() } }.buttonStyle(LBtn(ghost: true)) }
+                    if busy { HStack(spacing: 10) { ProgressView().tint(T.ink); Text("Looking for your book…").font(.sans(14)).foregroundStyle(T.muted) }.frame(maxWidth: .infinity).padding(.vertical, 14) }
+                    else if results?.isEmpty == true { Text("No match. Check the title, or paste the book’s Amazon link.").font(.sans(14)).foregroundStyle(T.muted).frame(maxWidth: .infinity).padding(.vertical, 10) }
+                    if results == nil, !busy { Button("Paste an Amazon link") { if let s = UIPasteboard.general.string, !s.isEmpty { q = s; find() } }.buttonStyle(LBtn(ghost: true)) }
                     if let results {
                         VStack(spacing: 0) {
                             ForEach(Array(results.enumerated()), id: \.element.id) { i, f in
@@ -1308,7 +1309,7 @@ private struct BookSearch: View {
     }
     private func find() {
         let t = q.trimmingCharacters(in: .whitespaces); guard !t.isEmpty, !busy else { return }
-        busy = true; chosen = nil
+        busy = true; chosen = nil; results = nil
         Task { let r = await LibraryModel.search(t); results = r; busy = false
             if t.range(of: #"^https?:|amzn\.|a\.co/"#, options: [.regularExpression, .caseInsensitive]) != nil, let f = r.first { chosen = f; pages = f.pages.map(String.init) ?? "" } }
     }
@@ -1353,25 +1354,10 @@ private struct ClubBookSheet: View {
                         Button("Amazon ↗") { UIApplication.shared.open(amazon(b.title, b.author, b.bookURL)) }.font(.sans(13, .semibold)).foregroundStyle(T.ink).padding(.top, 4)
                     }
                 }
-                if m.admin {
-                    HStack(alignment: .bottom, spacing: 10) {
-                        LField(label: "We’re on page", text: $clubPage, hint: b.clubPage.map(String.init) ?? "0", number: true)
-                        LField(label: "of", text: $clubTotal, hint: (b.clubTotal ?? m.myFor(b)?.total).map(String.init) ?? "pages", number: true)
-                        Button("Set") { let pg = Int(clubPage) ?? b.clubPage ?? 0, tot = Int(clubTotal) ?? b.clubTotal ?? m.myFor(b)?.total ?? 0; close(); Task { await m.setClubPage(b, pg, tot) } }.buttonStyle(LBtn()).frame(width: 84)
-                    }
-                    Text("This sets where LOTM is in the book, for everyone.").font(.sans(12)).foregroundStyle(T.muted)
-                } else if let cp = b.clubPage {
-                    Text("LOTM is on page \(cp)" + (b.clubTotal.map { " of \($0)" } ?? "")).font(.sans(14, .semibold)).foregroundStyle(T.ink)
-                }
-                if let my {
-                    HStack(alignment: .bottom, spacing: 10) {
-                        LField(label: "I’m on page" + (my.total.map { " (of \($0))" } ?? ""), text: $page, hint: "\(my.page)", number: true)
-                        Button("Log") { close(); Task { await m.log(my, n) } }.buttonStyle(LBtn()).frame(width: 84).disabled(!ok).opacity(ok ? 1 : 0.4)
-                    }
-                    Button("I’ve finished it") { close(); Task { await m.setStatus(my, "finished") } }.buttonStyle(LBtn(ghost: true))
-                } else {
-                    Button("Add to my Currently reading") { close(); Task { await m.joinClub(b) } }.buttonStyle(LBtn())
-                }
+                if let cp = b.clubPage {
+                    Text("Read through page \(cp)" + (b.clubTotal.map { " of \($0)" } ?? "") + (b.studyAt.map { " by " + $0.formatted(.dateTime.weekday(.wide).month(.wide).day()) } ?? "")).font(.sans(15, .semibold)).foregroundStyle(T.ink)
+                } else if let pos = b.position, !pos.isEmpty, pos != "TBD" { Text("Reading: \(pos)").font(.sans(15, .semibold)).foregroundStyle(T.ink) }
+                if m.myFor(b) == nil { Button("Add to my library") { close(); Task { await m.joinClub(b) } }.buttonStyle(LBtn()) }
                 if m.admin { Button("Mark complete for LOTM") { confirm = true }.buttonStyle(LBtn(ghost: true)) }
             }
             .padding(.horizontal, 20)
@@ -1383,7 +1369,7 @@ private struct ClubBookSheet: View {
     }
 }
 
-struct UpdateDraft: Identifiable { let id = UUID(); var title = "", author = "", cover: String? = nil, bookURL: String? = nil, publisher: String? = nil, place = "", position = "", file = "", notes = "", hasDate = false, when = Date() }
+struct UpdateDraft: Identifiable { let id = UUID(); var title = "", author = "", cover: String? = nil, bookURL: String? = nil, publisher: String? = nil, place = "", position = "", page = "", file = "", notes = "", hasDate = false, when = Date() }
 
 /// Administrators: post the club's reading (book, what to read, when and where the next study is).
 private struct UpdateSheet: View {
@@ -1401,7 +1387,7 @@ private struct UpdateSheet: View {
                     Button("Find on Amazon") { find(d) }.font(.sans(13, .bold)).foregroundStyle(T.ink).padding(.horizontal, 12).frame(height: 32).background(Capsule().fill(Color(rgb: 0x0c0e08, 0.08)))
                 }
                 Text("A different title runs alongside as another card (e.g. the Advent devotion).").font(.sans(14)).foregroundStyle(T.muted)
-                LField(label: "Book", text: $d.title); LField(label: "Author", text: $d.author); LField(label: "What we’re reading for next time", text: $d.position)
+                LField(label: "Book", text: $d.title); LField(label: "Author", text: $d.author); LField(label: "Read through page", text: $d.page, hint: "the page we read to for next time", number: true); LField(label: "Note on the reading (optional)", text: $d.position, hint: "such as Chapters 4–6")
                 Toggle(isOn: $d.hasDate) { Text("Next study").font(.sans(15, .semibold)).foregroundStyle(T.ink) }.tint(Color(rgb: 0x3f7d4f))
                 if d.hasDate { DatePicker("When", selection: $d.when, displayedComponents: [.date, .hourAndMinute]).font(.sans(15)).foregroundStyle(T.ink) }
                 LField(label: "Where", text: $d.place, hint: "A place or address")
@@ -1409,7 +1395,7 @@ private struct UpdateSheet: View {
                 Button("Post update") {
                     guard !d.title.trimmingCharacters(in: .whitespaces).isEmpty else { m.say("Book title is required"); return }
                     func v(_ s: String?) -> Any { (s ?? "").isEmpty ? NSNull() as Any : s! }
-                    let row: [String: Any] = ["book_title": d.title, "book_author": v(d.author), "book_publisher": v(d.publisher), "reading_position": v(d.position), "book_url": v(d.bookURL), "cover_url": v(d.cover),
+                    let row: [String: Any] = ["book_title": d.title, "book_author": v(d.author), "book_publisher": v(d.publisher), "reading_position": v(d.position), "club_page": Int(d.page).map { $0 as Any } ?? NSNull() as Any, "club_total": (m.current.first.flatMap { m.myFor($0)?.total } ?? m.current.first?.clubTotal).map { $0 as Any } ?? NSNull() as Any, "book_url": v(d.bookURL), "cover_url": v(d.cover),
                                               "reading_file_url": v(d.file), "synopsis": v(d.notes), "study_at": d.hasDate ? liso(d.when) as Any : NSNull(), "study_location": v(d.place),
                                               "study_location_url": d.place.isEmpty ? NSNull() as Any : "https://www.google.com/maps/search/?api=1&query=\(d.place.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")"]
                     Task { if await m.postUpdate(row) { close() } }

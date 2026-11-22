@@ -261,7 +261,7 @@ func hashtags(_ s: String) -> [String] {
     for m in re.matches(in: s, range: NSRange(s.startIndex..., in: s)) { if let r = Range(m.range(at: 1), in: s) { let t = s[r].lowercased(); if !out.contains(t) { out.append(t) } } }
     return out
 }
-extension Notification.Name { static let lotmFlushTyping = Notification.Name("lotm.flushTyping"); static let lotmList = Notification.Name("lotm.list"); static let lotmInsert = Notification.Name("lotm.insert"); static let lotmMention = Notification.Name("lotm.mention") }
+extension Notification.Name { static let lotmFlushTyping = Notification.Name("lotm.flushTyping"); static let lotmList = Notification.Name("lotm.list"); static let lotmInsert = Notification.Name("lotm.insert"); static let lotmMention = Notification.Name("lotm.mention"); static let lotmTypedAtEnd = Notification.Name("lotm.typedAtEnd") }
 /// Whether one of the app's writing fields has the keyboard (so a tool acts through the field, at its cursor).
 enum WriteFocus { static var on = false }
 
@@ -612,7 +612,7 @@ struct WriteField: View {
             .contentShape(Rectangle()).onTapGesture { on = true }
             .onAppear { local = text; if active == true { DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { on = true } } }
             .onChange(of: text) { _, v in if v != local { local = v; sel = TextSelection(insertionPoint: v.endIndex) } }
-            .onChange(of: local) { old, new in carryList(old, new); later() }
+            .onChange(of: local) { old, new in carryList(old, new); later(); if on, new.count >= old.count, caret == local.endIndex { NotificationCenter.default.post(name: .lotmTypedAtEnd, object: nil) } }
             .onChange(of: on) { _, v in WriteFocus.on = v; onFocus(v); if !v { flush() } }
             .onReceive(NotificationCenter.default.publisher(for: .lotmMention)) { n in if on, let s = n.object as? String { mention(s) } }
             .onChange(of: active) { _, v in if let v, v != on { on = v } }
@@ -679,4 +679,30 @@ struct WriteField: View {
             local = t; sel = TextSelection(insertionPoint: t.index(at, offsetBy: mark.count))
         }
     }
+}
+
+
+// MARK: - Saving a shared picture
+
+extension View {
+    /// Hold a picture that someone has posted to save it, copy it or pass it on.
+    func imageMenu(_ url: URL?) -> some View {
+        contextMenu {
+            if let url {
+                Button { Task { await savePicture(url) } } label: { Label("Save to Photos", systemImage: "square.and.arrow.down") }
+                Button { Task { if let d = try? await URLSession.shared.data(from: url).0, let i = UIImage(data: d) { UIPasteboard.general.image = i } } } label: { Label("Copy", systemImage: "doc.on.doc") }
+                ShareLink(item: url) { Label("Share", systemImage: "square.and.arrow.up") }
+            }
+        }
+    }
+    func imageMenu(image: UIImage) -> some View {
+        contextMenu {
+            Button { UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil); Haptic.tap() } label: { Label("Save to Photos", systemImage: "square.and.arrow.down") }
+            Button { UIPasteboard.general.image = image } label: { Label("Copy", systemImage: "doc.on.doc") }
+        }
+    }
+}
+func savePicture(_ url: URL) async {
+    guard let d = try? await URLSession.shared.data(from: url).0, let img = UIImage(data: d) else { return }
+    await MainActor.run { UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil); Haptic.tap() }
 }

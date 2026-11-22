@@ -549,13 +549,13 @@ struct PhotoStrip: View {
             if urls.count == 1 {
                 AsyncImage(url: urls[0]) { $0.resizable().scaledToFit() } placeholder: { P.soft.frame(height: 220) }
                     .frame(maxWidth: .infinity, maxHeight: 460, alignment: .leading).clipShape(RoundedRectangle(cornerRadius: 14))
-                    .onTapGesture { openAt = 0 }
+                    .onTapGesture { openAt = 0 }.imageMenu(urls[0])
             } else if urls.count > 1 {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(Array(urls.enumerated()), id: \.offset) { i, u in
                             AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { P.soft }
-                                .frame(width: 220, height: 280).clipShape(RoundedRectangle(cornerRadius: 14)).onTapGesture { openAt = i }
+                                .frame(width: 220, height: 280).clipShape(RoundedRectangle(cornerRadius: 14)).onTapGesture { openAt = i }.imageMenu(u)
                         }
                     }
                     .scrollTargetLayout()

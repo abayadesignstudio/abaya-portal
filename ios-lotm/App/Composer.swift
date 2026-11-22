@@ -133,6 +133,11 @@ struct ComposeView: View {
     @State private var cameraFor: UUID?
 
     private var current: DraftPost { m.posts.first { $0.id == focus } ?? m.posts[0] }
+    /// The post the tools act on: the one being written, else the one written in last, else the latest.
+    private var target: DraftPost { m.posts.first { $0.id == (focus ?? lastFocus) } ?? m.posts[m.posts.count - 1] }
+    @State private var picks: [PhotosPickerItem] = []
+    @State private var lastFocus: UUID?
+    private func barTool(_ n: String) -> some View { GlyphView(n: n, s: 24).frame(maxWidth: .infinity).frame(height: 44).contentShape(Rectangle()) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -172,34 +177,51 @@ struct ComposeView: View {
                                     m: m, openSheet: { focus = nil; sheet = $0 }, camera: { cameraFor = p.id })
                                 .id(p.id)
                         }
-                        // Like Threads: a faded "Add to thread" under the last post
-                        if !m.toNotes {
-                            let canAdd = !(m.posts.last?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) || (m.posts.last?.images.isEmpty == false)
-                            Button {
-                                flushTyping(); guard canAdd else { return }
-                                let n = DraftPost(); withAnimation(.snappy) { m.posts.append(n) }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focus = n.id; withAnimation { proxy.scrollTo(n.id, anchor: .bottom) } }
-                            } label: {
-                                HStack(spacing: 22) {
-                                    Avatar(url: m.avatar, name: m.name, size: 22).opacity(0.55).frame(width: 40)
-                                    Text("Add to thread").font(.sans(16, .semibold)).foregroundStyle(C.muted)
-                                    Spacer()
-                                }
-                            }
-                            .opacity(canAdd ? 1 : 0.45)
-                            .padding(.leading, 16).padding(.top, 4).padding(.bottom, 24)
-                        }
+                        Color.clear.frame(height: 24).id("foot")
                     }
                     .padding(.top, 16)
                 }
                 // The keyboard stays while the page is scrolled, as in X: Cancel or Post puts it away.
                 .scrollDismissesKeyboard(.never)
+                // typing at the end of the last post keeps that line clear of the bars pinned below
+                .onReceive(NotificationCenter.default.publisher(for: .lotmTypedAtEnd)) { _ in if (focus ?? lastFocus) == m.posts.last?.id { proxy.scrollTo("foot", anchor: .bottom) } }
             }
         }
         .background(C.card.ignoresSafeArea())
         // The bottom bar sits on the keyboard and moves with it, as in X and Threads.
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                PhotosPicker(selection: $picks, maxSelectionCount: max(1, 10 - target.images.count), matching: .images) { barTool("image") }.disabled(target.images.count >= 10)
+                Button { cameraFor = target.id } label: { barTool("camera") }
+                Button { focus = nil; sheet = .link } label: { barTool("link") }.foregroundStyle(m.link.isEmpty ? C.muted : C.ink)
+                Button { if m.quote == nil { withAnimation(.snappy) { m.quote = "" } } } label: { barTool("quote2") }.foregroundStyle(m.quote == nil ? C.muted : C.ink)
+                Button { focus = nil; sheet = .book } label: { barTool("book") }.foregroundStyle(m.book == nil ? C.muted : C.ink)
+                Button { if focus == nil { focus = target.id }; insertTool("#") } label: { barTool("hash") }
+                Button { listTool("bullet") } label: { Image(systemName: "list.bullet").font(.system(size: 19)).frame(maxWidth: .infinity).frame(height: 44).contentShape(Rectangle()) }.accessibilityLabel("Bullet list")
+                Button { listTool("number") } label: { Image(systemName: "list.number").font(.system(size: 19)).frame(maxWidth: .infinity).frame(height: 44).contentShape(Rectangle()) }.accessibilityLabel("Numbered list")
+                if !m.toNotes {
+                    let canAdd = !(m.posts.last?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) || (m.posts.last?.images.isEmpty == false)
+                    Button {
+                        flushTyping(); guard canAdd else { return }
+                        let n = DraftPost(); withAnimation(.snappy) { m.posts.append(n) }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focus = n.id }
+                    } label: { Image(systemName: "plus.circle").font(.system(size: 21)).frame(maxWidth: .infinity).frame(height: 44).contentShape(Rectangle()) }
+                    .opacity(canAdd ? 1 : 0.4).accessibilityLabel("Add to thread")
+                }
+            }
+            .foregroundStyle(C.muted).buttonStyle(.plain).padding(.horizontal, 8)
+            .background(C.card).overlay(alignment: .top) { C.rule.frame(height: 0.5) }
+            .onChange(of: focus) { _, f in if let f { lastFocus = f } }
+            .onChange(of: picks) { _, items in
+                guard !items.isEmpty else { return }
+                let id = target.id
+                Task {
+                    var out: [UIImage] = []
+                    for it in items { if let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) { out.append(img) } }
+                    await MainActor.run { if let k = m.posts.firstIndex(where: { $0.id == id }) { withAnimation(.snappy) { m.posts[k].images.append(contentsOf: out.prefix(10 - m.posts[k].images.count)) } }; picks = [] }
+                }
+            }
             MentionBar(text: Binding(get: { current.text }, set: { v in if let k = m.posts.firstIndex(where: { $0.id == current.id }) { m.posts[k].text = v } })).background(C.card)
             HStack(spacing: 12) {
                 // Who can reply: one tap switches between Anyone and No one.
@@ -323,7 +345,7 @@ private struct PostRow: View {
                         Text("Over \(LIMIT) words — continue as a thread").font(.sans(15, .semibold)).foregroundStyle(C.red)
                     }.padding(.top, 4)
                 }
-                tools
+                Color.clear.frame(height: 14)
             }
         }
         .padding(.horizontal, 16)
