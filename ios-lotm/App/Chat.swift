@@ -573,7 +573,7 @@ final class ChatModel: ObservableObject {
 /// The chat list slides in (the dock's chat button); a notification or a profile's Message button can go straight to a chat.
 /// Chat is built but not yet opened to members: while this is off its tab reads "Coming soon", nothing of it loads,
 /// and the ways into a conversation lead to that page.
-let chatOpen = false
+let chatOpen = true
 
 struct ChatSoon: View {
     var body: some View {
