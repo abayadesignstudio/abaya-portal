@@ -27,6 +27,8 @@ export type DocState = {
   /** 'standard' (default): general clauses use the firm's standard wording and can't be edited or omitted here.
    *  'custom': every clause is editable (e.g. a consulting / plan-review agreement). */
   terms?: 'standard' | 'custom'
+  /** standard clauses unlocked (by an admin) for this agreement only, so they can be edited or omitted */
+  unlocked?: string[]
 }
 
 export const PHN: [string, string][] = [['CE', 'Conceptual / Exploratory'], ['SD', 'Schematic Design'], ['DD', 'Design Development'], ['CD', 'Construction Documents'], ['BN', 'Bidding & Negotiation'], ['PM', 'Permitting'], ['CA', 'Construction Administration']]
