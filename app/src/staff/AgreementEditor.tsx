@@ -54,8 +54,8 @@ function diff(a: string, b: string): Run[] {
 }
 
 type SigRow = { signer_name: string; signer_title: string | null; signer_email: string; signature: string; initials_img: string; initials: Record<string, string>; signed_at: string; ip: string | null; user_agent: string | null; doc_hash: string; method: string }
-type UI = { fillable: boolean; pages: boolean; mode: 'draft' | 'final'; changesIn: 'text' | 'report'; check: boolean; openSec: number; openCl: string; editing: string; draft: string; addFor: string; nTitle: string; nBody: string; newSecTitle: string; exNew: string }
-const UI0: UI = { fillable: false, pages: false, mode: 'draft', changesIn: 'text', check: false, openSec: 0, openCl: '', editing: '', draft: '', addFor: '', nTitle: '', nBody: '', newSecTitle: '', exNew: '' }
+type UI = { fillable: boolean; pages: boolean; mode: 'draft' | 'final'; check: boolean; openSec: number; openCl: string; editing: string; draft: string; addFor: string; nTitle: string; nBody: string; newSecTitle: string; exNew: string }
+const UI0: UI = { fillable: false, pages: false, mode: 'draft', check: false, openSec: 0, openCl: '', editing: '', draft: '', addFor: '', nTitle: '', nBody: '', newSecTitle: '', exNew: '' }
 
 type CView = Clause & { num: string; sec: number; cur: string; added: boolean; customIdx?: number; off: boolean; modified: boolean; missing: string[]; locked?: boolean; unlocked?: boolean }
 type SView = { n: number; title: string; initial?: boolean; clauses: CView[] }
@@ -230,7 +230,7 @@ export default function AgreementEditor() {
     if (!doc) return
     const t = setTimeout(() => { document.fonts.ready.then(() => { const src = sourceDoc(); if (src) setTocPages((old) => { const n = sectionStartPages(src); return JSON.stringify(n) === JSON.stringify(old) ? old : n }) }) }, 400)
     return () => clearTimeout(t)
-  }, [doc, ui.mode, ui.changesIn])
+  }, [doc, ui.mode])
 
   // "Pages" view: rebuild the print layout shortly after the document changes.
   const pagesRef = useRef<HTMLDivElement>(null)
@@ -239,7 +239,7 @@ export default function AgreementEditor() {
     if (!ui.pages) return
     const t = setTimeout(() => { document.fonts.ready.then(() => { const src = sourceDoc(), host = pagesRef.current; if (src && host) setPageCount(buildPages(src, host)) }) }, 200)
     return () => clearTimeout(t)
-  }, [ui.pages, doc, ui.mode, ui.changesIn])
+  }, [ui.pages, doc, ui.mode])
 
   if (err && !doc) return <p className="err">{err}</p>
   if (!doc || !model || !row) return <p>Loading…</p>
@@ -249,7 +249,8 @@ export default function AgreementEditor() {
     setDoc((d) => { const c: DocState = JSON.parse(JSON.stringify(d)); f(c); return c }) }
   const setV = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => { const val = e.target.value; up((d) => { d.v[k] = val }) }
   const draft = ui.mode === 'draft'
-  const showMarks = draft || ui.changesIn === 'text'
+  const marks = doc.marks ?? 'none'
+  const showMarks = marks === 'text'
   const openClause = (sec: number, cl: string) => patchUi({ openSec: sec, openCl: cl, check: false })
 
   const publish = async () => {
@@ -301,7 +302,7 @@ export default function AgreementEditor() {
         <HeldCtx.Provider value={held}><Outline doc={doc} model={model} ui={ui} patchUi={patchUi} up={up} setV={setV} firmLogo={firmLogo} setFirmLogo={setFirmLogo} /></HeldCtx.Provider>
         <main className="ag-main">
           <div className={ui.pages ? 'ag-src-offscreen' : undefined} aria-hidden={ui.pages || undefined}>
-            <Document tocPages={tocPages} logo={doc.v.logo || firmLogo} doc={doc} model={model} draft={draft} showMarks={showMarks} changesIn={ui.changesIn} onOpen={openClause}
+            <Document tocPages={tocPages} logo={doc.v.logo || firmLogo} doc={doc} model={model} draft={draft} showMarks={showMarks} changesIn={marks} onOpen={openClause}
               breaks={doc.pb ?? []} onToggleBreak={(id) => up((d) => { const b = new Set(d.pb ?? []); if (b.has(id)) b.delete(id); else b.add(id); d.pb = [...b] })} sign={signView} />
           </div>
           {ui.pages && <div ref={pagesRef} className="ag-screen-pages" aria-label="Agreement, print layout" />}
@@ -320,10 +321,12 @@ export default function AgreementEditor() {
               <button type="button" aria-pressed={draft} onClick={() => patchUi({ mode: 'draft' })}>Draft</button>
               <button type="button" aria-pressed={!draft} onClick={() => patchUi({ mode: 'final' })}>Final</button>
             </div>
-            {!draft && <><span className="l" style={{ margin: '6px 0 0' }}>Changes</span>
-              <div className="ag-seg" role="group" aria-label="Show changes">
-                <button type="button" aria-pressed={ui.changesIn === 'text'} onClick={() => patchUi({ changesIn: 'text' })}>In the text</button>
-                <button type="button" aria-pressed={ui.changesIn === 'report'} onClick={() => patchUi({ changesIn: 'report' })}>Report only</button></div></>}
+            <span className="l" style={{ margin: '6px 0 0' }}>Revision marks</span>
+            <div className="ag-seg" role="group" aria-label="Revision marks">
+              <button type="button" aria-pressed={marks === 'none'} onClick={() => up((d) => { delete d.marks })} title="Edited wording reads as normal text; no strike-outs and no Modifications Report">None</button>
+              <button type="button" aria-pressed={marks === 'text'} onClick={() => up((d) => { d.marks = 'text' })} title="Additions underlined, deletions struck through, plus a Modifications Report">In the text</button>
+              <button type="button" aria-pressed={marks === 'report'} onClick={() => up((d) => { d.marks = 'report' })} title="Clean text with a Modifications Report at the end">Report</button></div>
+            <span className="muted" style={{ fontSize: 12 }}>Applies to the PDF and the client portal.</span>
             <span className="l" style={{ margin: '6px 0 0' }}>Layout</span>
             <div className="ag-seg" role="group" aria-label="Layout">
               <button type="button" aria-pressed={!ui.pages} onClick={() => patchUi({ pages: false })}>Continuous</button>
@@ -340,7 +343,7 @@ export default function AgreementEditor() {
                   <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {model.issues.map((i, k) => <li key={k}><button type="button" className="linkbtn" style={{ textDecoration: 'underline', textAlign: 'left' }} onClick={() => openClause(i.sec, i.cl)}>{i.t}</button></li>)}</ul>
                 </> : <p style={{ margin: 0, fontWeight: 700, color: 'var(--green)' }}>All fill points are complete and the payments add up to 100%.</p>}
-                <p className="muted" style={{ margin: '6px 0 0' }}>{model.changes.length} change(s) to the standard text will be listed in the Modifications Report.</p>
+                <p className="muted" style={{ margin: '6px 0 0' }}>{model.changes.length} change(s) to the standard text{marks === 'none' ? ' (revision marks are off, so they read as normal text).' : ' will be listed in the Modifications Report.'}</p>
               </div>)}
           </div>
           <div className="ag-tool">
@@ -525,7 +528,7 @@ function ClausePanel({ c, doc, model, ui, patchUi, up, setV }: OutlineProps & { 
           {c.added && <RowMenu label="Clause actions" items={[{ label: 'Delete clause', danger: true, onSelect: () => { up((d) => { d.custom.splice(c.customIdx!, 1) }); patchUi({ openCl: '' }) } }]} />}
         </div>
       ) : (<>
-        <Field id={'ed-' + c.id} label="Wording" hint="Words in curly braces are fill points — keep them as they are. Changes show as underlined additions and struck deletions, and go in the Modifications Report.">
+        <Field id={'ed-' + c.id} label="Wording" hint="Words in curly braces are fill points — keep them as they are. Changes read as normal text unless Revision marks are turned on.">
           <textarea id={'ed-' + c.id} className="input" rows={9} value={ui.draft} onChange={(e) => patchUi({ draft: e.target.value })} /></Field>
         <div className="row"><button type="button" className="btn small" onClick={() => { saveEdit(); patchUi({ editing: '' }) }}>Save wording</button>
           <button type="button" className="btn small secondary" onClick={() => patchUi({ editing: '' })}>Cancel</button></div>
@@ -739,7 +742,7 @@ export function Document({ tocPages, logo, doc, model, draft, showMarks, changes
   const Segs = ({ segs, force = false, onClick }: { segs: Seg[]; force?: boolean; onClick?: () => void }) => <>{segs.map((s, i) => {
     const sm = force || showMarks
     const deco = s.k === 'add' ? (sm ? 'underline' : 'none') : s.k === 'del' ? 'line-through' : 'none'
-    const color = s.k === 'add' && draft ? BLUE : s.k === 'del' && draft ? '#6b7280' : undefined
+    const color = s.k === 'add' && draft && sm ? BLUE : s.k === 'del' && draft ? '#6b7280' : undefined
     if (s.fp) {
       const val = FP[s.fp][1]
       return <span key={i} className="ag-fp" onClick={onClick} style={{ background: draft ? (val ? '#e4e4e4' : '#fde7c4') : 'transparent', textDecoration: deco, color: val ? color : (draft ? '#8a4b00' : RED), fontStyle: val ? 'normal' : 'italic' }}>{val || `[${s.fp}]`}</span>
@@ -829,7 +832,7 @@ export function Document({ tocPages, logo, doc, model, draft, showMarks, changes
               <span style={{ fontSize: 26, letterSpacing: '.18em' }}>ABAYA</span><span style={{ fontSize: 9, letterSpacing: '.32em' }}>DESIGN STUDIO</span></div>}
         <div style={{ fontSize: 12, lineHeight: 1.35 }}><strong className="ag-hd">Abaya Design Studio, LLC.</strong><br />215 S Denton Tap Road, Suite 215<br />Coppell, Texas 75019<br />info@abayadesignstudio.com<br />Abayadesignstudio.com</div>
       </header>
-      <div style={{ margin: '14px 0 0', padding: '8px 10px', border: '1px solid #000', fontSize: 11, lineHeight: 1.35 }}><strong>MODIFICATIONS:</strong> {notice}</div>
+      {changesIn !== 'none' && <div style={{ margin: '14px 0 0', padding: '8px 10px', border: '1px solid #000', fontSize: 11, lineHeight: 1.35 }}><strong>MODIFICATIONS:</strong> {notice}</div>}
       <h1 style={{ margin: '18px 0 0', fontSize: 19 }}>Standard Agreement between Owner and Architect</h1>
       <p style={{ margin: '2px 0 16px', fontStyle: 'italic', fontSize: 15 }}>This Agreement is made <span className="ag-fp" style={fpStyle(longDate)}>{longDate || '[Agreement date]'}</span> between…</p>
       <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 24, fontSize: 12.5 }}>
@@ -915,7 +918,7 @@ export function Document({ tocPages, logo, doc, model, draft, showMarks, changes
           <p style={{ marginTop: 8 }}><em>The fingerprint was recorded when the Agreement was sent and checked again at signing; any change to the text would change it.</em></p>
         </section>)}
 
-      {!draft && report.length > 0 && (
+      {!draft && changesIn !== 'none' && report.length > 0 && (
         <section aria-label="Modifications report" className="ag-pagebreak" style={{ marginTop: 36, paddingTop: 18, borderTop: RULE, breakBefore: 'page' }}>
           <h2 style={{ margin: '0 0 8px', paddingBottom: 6, borderBottom: RULE, textAlign: 'center', fontSize: 14.5 }}>MODIFICATIONS REPORT</h2>
           <p style={{ textAlign: 'center', fontSize: 12 }}><em>Changes to the Abaya Design Studio standard form text. Additions are underlined; deletions are struck through.</em></p>

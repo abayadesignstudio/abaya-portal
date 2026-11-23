@@ -29,6 +29,8 @@ export type DocState = {
   terms?: 'standard' | 'custom'
   /** standard clauses unlocked (by an admin) for this agreement only, so they can be edited or omitted */
   unlocked?: string[]
+  /** how changes to the standard text appear: none (default, clean text), 'text' (underline/strike + report), 'report' (report at the end only) */
+  marks?: 'text' | 'report'
 }
 
 export const PHN: [string, string][] = [['CE', 'Conceptual / Exploratory'], ['SD', 'Schematic Design'], ['DD', 'Design Development'], ['CD', 'Construction Documents'], ['BN', 'Bidding & Negotiation'], ['PM', 'Permitting'], ['CA', 'Construction Administration']]

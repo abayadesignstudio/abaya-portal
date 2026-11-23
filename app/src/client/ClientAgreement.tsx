@@ -132,7 +132,7 @@ export default function ClientAgreement({ previewId }: { previewId?: string } = 
             {err && <p className="err" role="alert" style={{ margin: 0 }}>{err}</p>}
           </div>}
       <div className="cs-doc">
-        <Document tocPages={toc} logo={doc.v.logo || row.published_logo || ''} doc={doc} model={model} draft={false} showMarks changesIn="text"
+        <Document tocPages={toc} logo={doc.v.logo || row.published_logo || ''} doc={doc} model={model} draft={false} showMarks={doc.marks === 'text'} changesIn={doc.marks ?? 'none'}
           onOpen={() => {}} breaks={doc.pb ?? []} onToggleBreak={() => {}} sign={view} />
       </div>
       {adopt && <AdoptDialog defaultName={adopted?.name ?? profile?.full_name ?? ''} defaultTitle={adopted?.title ?? ''} onCancel={() => setAdopt(null)} onAdopt={adopt.then} />}
