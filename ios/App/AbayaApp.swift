@@ -1,4 +1,5 @@
 import ActivityKit
+import ObjectiveC
 import AuthenticationServices
 import SwiftUI
 import UIKit
@@ -103,6 +104,7 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
         refresh.addTarget(self, action: #selector(reload(_:)), for: .valueChanged)
         web.scrollView.refreshControl = refresh
         view.addSubview(web)
+        web.hideKeyboardAccessoryBar() // native feel: no "‹ › Done" bar above the keyboard
         web.load(URLRequest(url: portalURL))
 
         PortalController.current = self
@@ -359,5 +361,26 @@ final class LiveTimer {
     func end() {
         last = nil
         Task { for a in Activity<TimerAttributes>.activities { await a.end(nil, dismissalPolicy: .immediate) } }
+    }
+}
+
+// iOS puts its own "‹ › Done" bar above the keyboard for web text fields; a native app doesn't have one.
+// Swap WebKit's content view for a subclass that returns no accessory view (same as the Life of the Mind app).
+private final class NoAccessory: NSObject { @objc var inputAccessoryView: AnyObject? { nil } }
+extension WKWebView {
+    func hideKeyboardAccessoryBar() {
+        guard let content = scrollView.subviews.first(where: { String(describing: type(of: $0)).hasPrefix("WKContent") }),
+              let base = object_getClass(content) else { return }
+        let name = "\(base)_AbayaNoAccessory"
+        var cls: AnyClass? = NSClassFromString(name)
+        if cls == nil, let c = objc_allocateClassPair(base, name, 0) {
+            if let m = class_getInstanceMethod(NoAccessory.self, #selector(getter: NoAccessory.inputAccessoryView)) {
+                class_addMethod(c, #selector(getter: NoAccessory.inputAccessoryView), method_getImplementation(m), method_getTypeEncoding(m))
+            }
+            objc_registerClassPair(c); cls = c
+        }
+        if let cls { object_setClass(content, cls) }
+        content.inputAssistantItem.leadingBarButtonGroups = []
+        content.inputAssistantItem.trailingBarButtonGroups = []
     }
 }

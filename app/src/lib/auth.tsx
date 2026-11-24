@@ -24,13 +24,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [recovering, setRecovering] = useState(false) // opened a password-reset link: ask for a new password first
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setResolved(true) })
+    // A saved sign-in whose access token has expired is refreshed over the network first; until that settles,
+    // "no session" isn't the answer (the app would flash the sign-in page on launch). Wait for it, up to 10 s.
+    const saved = (() => { try { return Object.keys(localStorage).some((k) => k.startsWith('sb-') && k.endsWith('-auth-token')) } catch { return false } })()
+    let wait: ReturnType<typeof setTimeout> | undefined
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session)
+      if (data.session || !saved) setResolved(true)
+      else wait = setTimeout(() => setResolved(true), 10000)
+    })
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      if (s) { if (wait) clearTimeout(wait); setResolved(true) }
+      else if (event === 'SIGNED_OUT') { if (wait) clearTimeout(wait); setResolved(true) }
       if (event === 'PASSWORD_RECOVERY') setRecovering(true)
       // keep the same object when nothing that matters changed, so screens don't re-render for nothing
       setSession((old) => (old && s && old.user.id === s.user.id && old.access_token === s.access_token ? old : s))
     })
-    return () => sub.subscription.unsubscribe()
+    return () => { sub.subscription.unsubscribe(); if (wait) clearTimeout(wait) }
   }, [])
 
   const uid = session?.user.id ?? null
