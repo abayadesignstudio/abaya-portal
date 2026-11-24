@@ -700,13 +700,19 @@ function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model
   }
   if (c.kind === 'rates') return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
     {([['rP', 'Principal'], ['rPA', 'Proj. Arch.'], ['rD', 'Designer']] as const).map(([k, l]) => <Field key={k} id={'ag-' + k} label={l + ' $/hr'}><input id={'ag-' + k} type="number" className="input" value={v[k]} onChange={setV(k)} /></Field>)}
-    <div style={{ gridColumn: '1 / -1' }}><Field id="ag-cmult" label="Consultants’ additional services ×" hint={hasConsultants(v.consultants) ? 'Their bill × this. Printed in 8.1 because consultants are listed in 2.3.' : 'Printed in 8.1 once consultants are listed in 2.3.'}><input id="ag-cmult" className="input num" style={{ maxWidth: 120 }} inputMode="decimal" value={v.cMult ?? ''} placeholder="1.15" onChange={setV('cMult')} /></Field></div>
+    <div style={{ gridColumn: '1 / -1' }}><Field id="ag-cmult" label="Consultants’ additional services ×" hint={(hasConsultants(v.consultants) ? 'Printed in 8.1 as their bill plus ' : 'Once consultants are listed in 2.3, 8.1 prints their bill plus ') + markupText(v.cMult) + '.'}><input id="ag-cmult" className="input num" style={{ maxWidth: 120 }} inputMode="decimal" value={v.cMult ?? ''} placeholder="1.15" onChange={setV('cMult')} /></Field></div>
   </div>
   if (c.kind === 'dispute') return <Field id="ag-dis" label="After mediation"><select id="ag-dis" className="input" value={v.dispute} onChange={setV('dispute')}><option value="a">(a) Arbitration</option><option value="b">(b) Litigation</option></select></Field>
   return null
 }
 
 // ---------------------------------------------------------------- document
+/** Consultant multiplier as a markup: 1.15 → "fifteen percent (15%)"; 1.125 → "12.5%". */
+const markupText = (m?: string) => {
+  const pct = Math.round(((Number(m) >= 1 ? Number(m) : 1.15) - 1) * 1000) / 10
+  const P: Record<number, string> = { 5: 'five', 10: 'ten', 12: 'twelve', 15: 'fifteen', 18: 'eighteen', 20: 'twenty', 25: 'twenty-five', 30: 'thirty', 35: 'thirty-five', 40: 'forty', 50: 'fifty' }
+  return P[pct] ? `${P[pct]} percent (${pct}%)` : `${pct}%`
+}
 /** Consultants are listed in 2.3 (anything but blank or N/A). */
 const hasConsultants = (x?: string) => !!x && !/^\s*(n\/?a|none)\.?\s*$/i.test(x)
 type Seg = { t: string; k: Run['k']; fp?: string }
@@ -814,7 +820,7 @@ export function Document({ tocPages, logo, doc, model, draft, showMarks, changes
       <table className="ag-tbl" style={{ width: 360 }}>
         <thead><tr className="ag-hd"><th>Role</th><th>Hourly Rate</th></tr></thead>
         <tbody>{[['Principal', v.rP], ['Project Architect', v.rPA], ['Designer', v.rD]].map(([r, x]) => <tr key={r}><td>{r}</td><td className="num">{money(x)}/hr</td></tr>)}</tbody>
-      </table>{hasConsultants(v.consultants) && <p style={{ marginTop: 10 }}>Additional Services provided by the Architect’s consultants shall be compensated at <span className="ag-fp" style={{ background: draft ? '#e4e4e4' : 'transparent' }}>{Number(v.cMult) >= 1 ? Number(v.cMult) : 1.15}</span> times the amounts billed to the Architect for such services.</p>}</>)
+      </table>{hasConsultants(v.consultants) && <p style={{ marginTop: 10 }}>Additional Services provided by the Architect’s consultants shall be compensated at the amounts billed to the Architect for such services plus <span className="ag-fp" style={{ background: draft ? '#e4e4e4' : 'transparent' }}>{markupText(v.cMult)}</span> for the Architect’s coordination and administration.</p>}</>)
     if (c.kind === 'prints') return <>
       <table className="ag-tbl" style={{ width: 460 }}>
         <thead><tr className="ag-hd"><th>Size</th><th>Color</th><th>Black &amp; White</th></tr></thead>
