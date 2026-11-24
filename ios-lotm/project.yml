@@ -13,6 +13,15 @@ settings:
     SWIFT_VERSION: "5.0"
     DEVELOPMENT_TEAM: ${LOTM_TEAM_ID}
     CODE_SIGN_STYLE: Automatic
+schemes:
+  LOTMWalk:
+    build:
+      targets:
+        LifeOfTheMind: all
+        LOTMUITests: [test]
+    test:
+      config: Debug
+      targets: [LOTMUITests]
 targets:
   LifeOfTheMind:
     type: application
@@ -71,7 +80,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: org.lotmstudy.app.uitests
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: LifeOfTheMind
-    scheme: {}
   LOTMShare:
     type: app-extension
     platform: iOS
