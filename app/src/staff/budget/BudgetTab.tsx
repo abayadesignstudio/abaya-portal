@@ -124,7 +124,7 @@ export default function BudgetTab({ projectId }: { projectId: string }) {
       {overPhases.length > 0 && <div className="err" role="alert"><strong>Over budget.</strong> {overPhases.map((p) => p.code).join(', ')} {overPhases.length === 1 ? 'has' : 'have'} more team hours budgeted than our fee for {overPhases.length === 1 ? 'that phase' : 'those phases'} covers. Lower hours on the Overview’s phase team, or move consultants to the phases they actually work in.</div>}
 
       <div className="pb-subtabs" role="tablist" aria-label="Budget sections">
-        {([['firm', 'By phase'], ['consultants', 'Consultants'], ['expenses', 'Expenses'], ['pay', 'Team']] as const).map(([k, l]) =>
+        {([['firm', 'By phase'], ['pay', 'Team'], ['consultants', 'Consultants'], ['expenses', 'Expenses']] as const).map(([k, l]) =>
           <button key={k} role="tab" type="button" aria-selected={sub === k} onClick={() => setSub(k)}>{l}</button>)}
       </div>
       {err && <p className="err" role="alert">{err}</p>}
