@@ -82,3 +82,5 @@ tr.ph-drop.below td{box-shadow:inset 0 -2px 0 #02253d}
 .fc-steps li.done{color:#027a48}
 .fc-edit{min-width:720px}
 .fc-edit tr.fc-changed td{background:#fbf8ef}
+.pb-stats-sm .v{font-size:20px}
+@media (min-width:1101px){.pb-stats-sm{grid-template-columns:repeat(4,minmax(0,1fr))}}

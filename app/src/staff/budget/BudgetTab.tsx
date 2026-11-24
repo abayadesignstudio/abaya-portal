@@ -5,6 +5,7 @@ import { useLoad, must } from '../../lib/useQuery'
 import { sortPhases, fmtDate } from '../../lib/projectContent'
 import RowMenu from '../../components/RowMenu'
 import { linkedAgreements, contractFee, MULTIPLIER } from '../../lib/fees'
+import { useConsultantMultiplier } from '../../components/ConsultantFee'
 
 type Phase = { id: string; code: string; name?: string | null; parent_phase_id?: string | null; fee: number; status: string; start_date: string | null; end_date: string | null }
 export type Person = { id: string; full_name: string | null; email: string; initials: string | null; title: string | null; bill_rate: number | null; avatar_url?: string | null }
@@ -49,6 +50,8 @@ export function RoleRateDialog({ name, role, rate, rates, onSave, onClose }: { n
 export type Alloc = { phase_id: string; profile_id: string; hours: number }
 export type Logged = { phase_id: string | null; profile_id: string; minutes: number; bill_rate?: number | null }
 type Consultant = { id: string; phase_id: string | null; name: string; discipline: string | null; fee: number; billed: number; markup_pct: number }
+/** What the owner pays for a consultant: their fee plus our markup. */
+const toClient = (c: Consultant) => Number(c.fee) * (1 + Number(c.markup_pct) / 100)
 type Expense = { id: string; phase_id: string | null; description: string; amount: number; spent_on: string; reimbursable: boolean; planned: boolean; invoice_id: string | null }
 
 export const ROLE_OPTIONS = ['Principal', 'Project Architect', 'Designer', 'Drafter', 'Intern']
@@ -59,7 +62,7 @@ const nameOf = (p?: Person) => p?.full_name || p?.email || 'Someone'
 const initialsOf = (p?: Person) => p?.initials || nameOf(p).split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
 
 export default function BudgetTab({ projectId }: { projectId: string }) {
-  const [sub, setSub] = useState<'pay' | 'consultants' | 'expenses'>('pay')
+  const [sub, setSub] = useState<'firm' | 'consultants' | 'expenses' | 'pay'>('firm')
   const [err, setErr] = useState('')
   const { data, error, reload } = useLoad(async () => {
     const phases = sortPhases(must(await supabase.from('phases').select('id, code, sort, name, parent_phase_id, fee, status, start_date, end_date').eq('project_id', projectId)) as Phase[])
@@ -82,37 +85,76 @@ export default function BudgetTab({ projectId }: { projectId: string }) {
   const rateOf = (pid: string) => Number(mById[pid]?.bill_rate ?? pById[pid]?.bill_rate ?? 0)
   const roleOf = (pid: string) => mById[pid]?.role_label ?? pById[pid]?.title ?? ''
 
-  const serviceFees = phases.reduce((a, p) => a + Number(p.fee), 0)
-  const projectFee = fee ?? serviceFees
+  // ---- fee allocation: the total fee splits into the firm's services and the consultants' (their fee + markup)
+  const mains = phases.filter((p) => p.code !== 'AS')
+  const asSum = phases.filter((p) => p.code === 'AS').reduce((a, p) => a + Number(p.fee), 0)
+  const projectFee = (fee ?? mains.reduce((a, p) => a + Number(p.fee), 0)) + asSum // agreements + additional services
+  const consByPhase = (pid: string) => consultants.filter((c) => c.phase_id === pid).reduce((a, c) => a + toClient(c), 0)
+  const consTotal = consultants.reduce((a, c) => a + toClient(c), 0)
+  const consultantCost = consultants.reduce((a, c) => a + Number(c.fee), 0)
+  const firmOf = (ph: Phase) => Number(ph.fee) - consByPhase(ph.id) // what's left of a phase fee for our own work
+  const firmTotal = phases.reduce((a, p) => a + firmOf(p), 0)
+  const unalloc = round2(projectFee - firmTotal - consTotal)
+  const allocPct = projectFee ? Math.round((firmTotal + consTotal) / projectFee * 100) : 0
+  // ---- cost and profit
+  const teamOf = (ph: Phase) => allocs.filter((a) => a.phase_id === ph.id).reduce((s, a) => s + Number(a.hours) * rateOf(a.profile_id), 0)
   const allocated = allocs.reduce((a, x) => a + Number(x.hours) * rateOf(x.profile_id), 0)
   const teamPay = allocated / MULTIPLIER
-  const consultantCost = consultants.reduce((a, c) => a + Number(c.fee), 0)
   const expenseCost = expenses.filter((e) => !e.reimbursable).reduce((a, e) => a + Number(e.amount), 0)
   const remaining = projectFee - teamPay - consultantCost - expenseCost
-  const diff = serviceFees - allocated
-  const pct = serviceFees ? Math.round(allocated / serviceFees * 100) : 0
-  const overPhases = phases.filter((ph) => allocs.filter((a) => a.phase_id === ph.id).reduce((s, a) => s + Number(a.hours) * rateOf(a.profile_id), 0) > Number(ph.fee) + 0.5)
+  const diff = firmTotal - allocated // team budgets are measured against the firm's share, not the consultants'
+  const pct = firmTotal ? Math.round(allocated / firmTotal * 100) : 0
+  const overPhases = phases.filter((ph) => teamOf(ph) > firmOf(ph) + 0.5)
+  const overCons = phases.filter((ph) => firmOf(ph) < -0.005)
 
   const run = async (fn: () => Promise<unknown>) => { try { await fn(); setErr(''); reload() } catch (e) { setErr(errText(e)) } }
 
   return (
     <div className="stack">
-      <section className="card pb-stats" aria-label="Budget summary">
-        <div><div className="muted" style={{ fontSize: 14 }}>Fee (brings in)</div><div className="v num">{money(projectFee)}</div><div className="muted" style={{ fontSize: 12 }}><em>{fee === null ? 'Sum of phase fees' : 'From the linked agreements'}</em></div></div>
-        <div><div className="muted" style={{ fontSize: 14 }}>Team pay</div><div className="v num">{money(teamPay)}</div><div className="muted" style={{ fontSize: 12 }}><em>Budgeted hours × rate ÷ {MULTIPLIER}</em></div></div>
-        <div><div className="muted" style={{ fontSize: 14 }}>Consultants &amp; expenses</div><div className="v num">{money(consultantCost + expenseCost)}</div><div className="muted" style={{ fontSize: 12 }}><em>Consultant fees + non-reimbursable costs</em></div></div>
-        <div><div className="muted" style={{ fontSize: 14 }}>Left for overhead &amp; profit</div><div className="v num" style={{ color: remaining < 0 ? 'var(--red)' : 'var(--green)' }}>{money(remaining)}</div>
-          <div className="muted" style={{ fontSize: 12 }}><em>{projectFee ? Math.round(remaining / projectFee * 100) : 0}% of the fee</em></div></div>
-        <div><div className="muted" style={{ fontSize: 14 }}>Phases staffed</div><div className="v num" style={{ color: diff < -0.5 ? 'var(--red)' : diff > 0.5 ? 'var(--amber)' : 'var(--green)' }}>{pct}%</div>
-          <div className="muted" style={{ fontSize: 12 }}><em>{diff < -0.5 ? `${money(-diff)} over the phase fees` : diff > 0.5 ? `${money(diff)} of phase fees not yet staffed` : 'Team budgets match the phase fees'}</em></div></div>
+      <section className="card pb-stats" aria-label="Fee allocation">
+        <div><div className="muted" style={{ fontSize: 14 }}>Total project fee</div><div className="v num">{money(projectFee)}</div><div className="muted" style={{ fontSize: 12 }}><em>{fee === null ? 'Sum of phase fees' : 'From the linked agreements'}{asSum ? ' + additional services' : ''}</em></div></div>
+        <div><div className="muted" style={{ fontSize: 14 }}>Firm services</div><div className="v num">{money(firmTotal)}</div><div className="muted" style={{ fontSize: 12 }}><em>Phase fees less consultants</em></div></div>
+        <div><div className="muted" style={{ fontSize: 14 }}>Consultant fees</div><div className="v num">{money(consTotal)}</div><div className="muted" style={{ fontSize: 12 }}><em>{money(consultantCost)} + {money(consTotal - consultantCost)} markup</em></div></div>
+        <div><div className="muted" style={{ fontSize: 14 }}>Unallocated</div><div className="v num" style={{ color: Math.abs(unalloc) < 0.5 ? undefined : 'var(--amber)' }}>{money(unalloc)}</div><div className="muted" style={{ fontSize: 12 }}><em>{Math.abs(unalloc) < 0.5 ? 'Every dollar is assigned' : unalloc > 0 ? 'Not yet in a phase or consultant' : 'Assigned beyond the total'}</em></div></div>
+        <div><div className="muted" style={{ fontSize: 14 }}>Allocated</div><div className="v num" style={{ color: allocPct === 100 ? 'var(--green)' : 'var(--amber)' }}>{allocPct}%</div><div className="muted" style={{ fontSize: 12 }}><em>Firm + consultants ÷ total</em></div></div>
       </section>
-      {overPhases.length > 0 && <div className="err" role="alert"><strong>Over budget.</strong> {overPhases.map((p) => p.code).join(', ')} {overPhases.length === 1 ? 'is' : 'are'} staffed beyond the phase fee. Lower hours on the Overview’s phase team, or raise the fee.</div>}
+      <section className="card pb-stats pb-stats-sm" aria-label="Profit">
+        <div><div className="muted" style={{ fontSize: 13 }}>Team pay</div><div className="v num">{money(teamPay)}</div><div className="muted" style={{ fontSize: 12 }}><em>Budgeted hours × rate ÷ {MULTIPLIER}</em></div></div>
+        <div><div className="muted" style={{ fontSize: 13 }}>Consultants &amp; expenses (cost)</div><div className="v num">{money(consultantCost + expenseCost)}</div><div className="muted" style={{ fontSize: 12 }}><em>What you pay them + non-reimbursable costs</em></div></div>
+        <div><div className="muted" style={{ fontSize: 13 }}>Left for overhead &amp; profit</div><div className="v num" style={{ color: remaining < 0 ? 'var(--red)' : 'var(--green)' }}>{money(remaining)}</div>
+          <div className="muted" style={{ fontSize: 12 }}><em>{projectFee ? Math.round(remaining / projectFee * 100) : 0}% of the fee, markup included</em></div></div>
+        <div><div className="muted" style={{ fontSize: 13 }}>Firm services staffed</div><div className="v num" style={{ color: diff < -0.5 ? 'var(--red)' : diff > 0.5 ? 'var(--amber)' : 'var(--green)' }}>{pct}%</div>
+          <div className="muted" style={{ fontSize: 12 }}><em>{diff < -0.5 ? `${money(-diff)} over the firm’s share` : diff > 0.5 ? `${money(diff)} of the firm’s share not yet staffed` : 'Team budgets match the firm’s share'}</em></div></div>
+      </section>
+      {overCons.length > 0 && <div className="err" role="alert"><strong>Consultants exceed the phase fee.</strong> {overCons.map((p) => p.code === 'CU' ? p.name : p.code).join(', ')}: the consultants’ fees with markup are more than the phase fee, so the firm’s share is negative. Move a consultant to another phase or raise the fee.</div>}
+      {overPhases.length > 0 && <div className="err" role="alert"><strong>Over budget.</strong> {overPhases.map((p) => p.code).join(', ')} {overPhases.length === 1 ? 'is' : 'are'} staffed beyond the firm’s share of the phase fee. Lower hours on the Overview’s phase team, or raise the fee.</div>}
 
       <div className="pb-subtabs" role="tablist" aria-label="Budget sections">
-        {([['pay', 'Team pay & overhead'], ['consultants', 'Consultant fees'], ['expenses', 'Direct expenses']] as const).map(([k, l]) =>
+        {([['firm', 'Firm services'], ['consultants', 'Consultant fees'], ['expenses', 'Direct expenses'], ['pay', 'Team pay & overhead']] as const).map(([k, l]) =>
           <button key={k} role="tab" type="button" aria-selected={sub === k} onClick={() => setSub(k)}>{l}</button>)}
       </div>
       {err && <p className="err" role="alert">{err}</p>}
+
+      {sub === 'firm' && <section className="card pad stack">
+        <div className="row between"><h3 style={{ margin: 0 }}>Firm services</h3><strong className="num">{money(firmTotal)}</strong></div>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>Each phase fee comes from the agreement. Consultants assigned to a phase (Consultant fees tab) take their fee plus markup out of it; the rest is the firm’s to staff.</p>
+        <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 760 }}>
+          <thead><tr><th>Phase</th><th>Dates</th><th className="r">Phase fee</th><th className="r">Consultants</th><th className="r">Firm services</th><th className="r">Team budget</th><th className="r">Staffed</th></tr></thead>
+          <tbody>{phases.map((ph) => { const c = consByPhase(ph.id), fs = firmOf(ph), t = teamOf(ph), sp = fs > 0 ? Math.round(t / fs * 100) : 0
+            return <tr key={ph.id}>
+              <td>{ph.code === 'AS' ? <><span className="muted">↳ AS</span> {ph.name}</> : ph.code === 'CU' ? <strong>{ph.name}</strong> : <strong>{ph.code}</strong>}</td>
+              <td className="muted" style={{ fontSize: 13 }}>{ph.start_date ? fmtDate(ph.start_date) : '—'}{ph.end_date ? ` – ${fmtDate(ph.end_date)}` : ''}</td>
+              <td className="r num">{money(Number(ph.fee))}</td>
+              <td className="r num muted">{c ? `− ${money(c)}` : '—'}</td>
+              <td className="r num" style={{ fontWeight: 700, color: fs < -0.005 ? 'var(--red)' : undefined }}>{money(fs)}</td>
+              <td className="r num">{t ? money(t) : '—'}</td>
+              <td className="r num" style={{ color: t > fs + 0.5 ? 'var(--red)' : sp >= 99 ? 'var(--green)' : 'var(--muted)' }}>{fs > 0 ? `${sp}%` : '—'}</td></tr> })}</tbody>
+          <tfoot><tr style={{ fontWeight: 700 }}><td colSpan={2}>Total</td><td className="r num">{money(phases.reduce((a, p) => a + Number(p.fee), 0))}</td>
+            <td className="r num muted">{money(phases.reduce((a, p) => a + consByPhase(p.id), 0))}</td><td className="r num">{money(firmTotal)}</td><td className="r num">{money(allocated)}</td><td className="r num">{pct}%</td></tr></tfoot>
+        </table></div>
+        {consultants.some((c) => !c.phase_id) && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Project-wide consultants ({money(consultants.filter((c) => !c.phase_id).reduce((a, c) => a + toClient(c), 0))}) aren’t tied to a phase, so they count against the unallocated amount instead.</p>}
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Team budget = hours set on the Overview’s phase team × each person’s billable rate.</em></p>
+      </section>}
 
       {sub === 'pay' && <>
         <TeamPay people={people} allocs={allocs} time={logged} rateOf={rateOf} roleOf={roleOf} />
@@ -254,39 +296,44 @@ function NumIn({ value, onCommit, label, prefix, suffix, width, disabled }: { va
 
 /* ---------- consultants ---------- */
 function ConsultantsPanel({ projectId, phases, rows, run }: { projectId: string; phases: Phase[]; rows: Consultant[]; run: (fn: () => Promise<unknown>) => void }) {
-  const [f, setF] = useState({ name: '', discipline: '', phase_id: '', fee: '', markup_pct: '0' })
-  const total = rows.reduce((a, c) => a + Number(c.fee), 0)
-  const withMarkup = rows.reduce((a, c) => a + Number(c.fee) * (1 + Number(c.markup_pct) / 100), 0)
-  const billed = rows.reduce((a, c) => a + Number(c.billed), 0)
+  const mult = useConsultantMultiplier()
+  const dflt = String(Math.round((mult - 1) * 1000) / 10)
+  const [f, setF] = useState({ name: '', discipline: '', phase_id: '', fee: '', markup_pct: '' })
+  const cost = rows.reduce((a, c) => a + Number(c.fee), 0)
+  const owner = rows.reduce((a, c) => a + toClient(c), 0)
+  const label = (p: Phase) => p.code === 'AS' ? `AS · ${p.name ?? ''}` : p.code === 'CU' ? (p.name ?? 'Custom') : p.code
   const add = () => { if (!f.name.trim()) return; run(async () => {
-    must(await supabase.from('project_consultants').insert({ project_id: projectId, name: f.name.trim(), discipline: f.discipline || null, phase_id: f.phase_id || null, fee: num(f.fee), markup_pct: num(f.markup_pct) }))
-    setF({ name: '', discipline: '', phase_id: '', fee: '', markup_pct: '0' }) }) }
+    must(await supabase.from('project_consultants').insert({ project_id: projectId, name: f.name.trim(), discipline: f.discipline || null, phase_id: f.phase_id || null, fee: num(f.fee), markup_pct: num(f.markup_pct || dflt) }))
+    setF({ name: '', discipline: '', phase_id: '', fee: '', markup_pct: '' }) }) }
   const upd = (id: string, patch: Partial<Consultant>) => run(async () => { must(await supabase.from('project_consultants').update(patch).eq('id', id)) })
   return (
     <section className="card pad stack">
-      <div className="row between"><h3 style={{ margin: 0 }}>Consultant fees</h3><strong className="num">{money(withMarkup)}</strong></div>
-      <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 820 }}>
-        <thead><tr><th>Consultant</th><th>Discipline</th><th>Phase</th><th className="r">Fee</th><th className="r">Markup</th><th className="r">Billed to client</th><th /></tr></thead>
+      <div className="row between"><h3 style={{ margin: 0 }}>Consultant fees</h3><strong className="num">{money(owner)}</strong></div>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}>Pick the phase whose fee includes the consultant: their fee plus markup comes out of that phase, and the rest stays with the firm. <strong>Project-wide</strong> consultants aren’t part of a phase fee.</p>
+      <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 860 }}>
+        <thead><tr><th>Consultant</th><th>Discipline</th><th>Phase</th><th className="r">Their fee</th><th className="r">Markup</th><th className="r">Markup $</th><th className="r">To owner</th><th /></tr></thead>
         <tbody>
-          {rows.length === 0 && <tr><td colSpan={7} className="muted"><em>No consultants on this project.</em></td></tr>}
+          {rows.length === 0 && <tr><td colSpan={8} className="muted"><em>No consultants on this project.</em></td></tr>}
           {rows.map((c) => <tr key={c.id}>
             <td><strong>{c.name}</strong></td><td>{c.discipline ?? '—'}</td>
-            <td><label className="sr" htmlFor={`cph-${c.id}`}>Phase</label><select id={`cph-${c.id}`} className="input" value={c.phase_id ?? ''} onChange={(e) => upd(c.id, { phase_id: e.target.value || null })}><option value="">—</option>{phases.map((p) => <option key={p.id} value={p.id}>{p.code}</option>)}</select></td>
+            <td><label className="sr" htmlFor={`cph-${c.id}`}>Phase</label><select id={`cph-${c.id}`} className="input" value={c.phase_id ?? ''} onChange={(e) => upd(c.id, { phase_id: e.target.value || null })}><option value="">Project-wide</option>{phases.map((p) => <option key={p.id} value={p.id}>{label(p)}</option>)}</select></td>
             <td className="r"><NumIn label={`Fee for ${c.name}`} prefix="$" width={120} value={Number(c.fee)} onCommit={(v) => upd(c.id, { fee: v })} /></td>
             <td className="r"><NumIn label={`Markup for ${c.name}`} suffix="%" width={80} value={Number(c.markup_pct)} onCommit={(v) => upd(c.id, { markup_pct: v })} /></td>
-            <td className="r"><NumIn label={`Billed for ${c.name}`} prefix="$" width={120} value={Number(c.billed)} onCommit={(v) => upd(c.id, { billed: v })} /></td>
+            <td className="r num muted">{money(toClient(c) - Number(c.fee))}</td>
+            <td className="r num"><strong>{money(toClient(c))}</strong></td>
             <td><RowMenu label={`Actions for ${c.name}`} items={[{ label: 'Delete', danger: true, onSelect: () => { if (window.confirm(`Remove ${c.name} from this project? This can’t be undone.`)) run(async () => { must(await supabase.from('project_consultants').delete().eq('id', c.id)) }) } }]} /></td>
           </tr>)}
-          {rows.length > 0 && <tr style={{ fontWeight: 700 }}><td colSpan={3}>Total</td><td className="r num">{money(total)}</td><td className="r num">{money(withMarkup - total)}</td><td className="r num">{money(billed)}</td><td /></tr>}
+          {rows.length > 0 && <tr style={{ fontWeight: 700 }}><td colSpan={3}>Total</td><td className="r num">{money(cost)}</td><td /><td className="r num">{money(owner - cost)}</td><td className="r num">{money(owner)}</td><td /></tr>}
         </tbody></table></div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px,1.4fr) minmax(140px,1fr) 120px 130px 100px auto', gap: 8, alignItems: 'end' }}>
-        <div><label className="l" htmlFor="cn-n">Consultant</label><input id="cn-n" className="input" placeholder="e.g. MEP engineer" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
-        <div><label className="l" htmlFor="cn-d">Discipline</label><input id="cn-d" className="input" value={f.discipline} onChange={(e) => setF({ ...f, discipline: e.target.value })} /></div>
-        <div><label className="l" htmlFor="cn-p">Phase</label><select id="cn-p" className="input" value={f.phase_id} onChange={(e) => setF({ ...f, phase_id: e.target.value })}><option value="">—</option>{phases.map((p) => <option key={p.id} value={p.id}>{p.code}</option>)}</select></div>
-        <div><label className="l" htmlFor="cn-f">Fee ($)</label><input id="cn-f" className="input num" inputMode="decimal" value={f.fee} onChange={(e) => setF({ ...f, fee: e.target.value })} /></div>
-        <div><label className="l" htmlFor="cn-m">Markup %</label><input id="cn-m" className="input num" inputMode="decimal" value={f.markup_pct} onChange={(e) => setF({ ...f, markup_pct: e.target.value })} /></div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px,1.4fr) minmax(140px,1fr) 140px 130px 100px auto', gap: 8, alignItems: 'end' }}>
+        <div><label className="l" htmlFor="cn-n">Consultant</label><input id="cn-n" className="input" placeholder="e.g. ODG Engineering" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
+        <div><label className="l" htmlFor="cn-d">Discipline</label><input id="cn-d" className="input" placeholder="e.g. MEP Engineering" value={f.discipline} onChange={(e) => setF({ ...f, discipline: e.target.value })} /></div>
+        <div><label className="l" htmlFor="cn-p">Phase</label><select id="cn-p" className="input" value={f.phase_id} onChange={(e) => setF({ ...f, phase_id: e.target.value })}><option value="">Project-wide</option>{phases.map((p) => <option key={p.id} value={p.id}>{label(p)}</option>)}</select></div>
+        <div><label className="l" htmlFor="cn-f">Their fee ($)</label><input id="cn-f" className="input num" inputMode="decimal" value={f.fee} onChange={(e) => setF({ ...f, fee: e.target.value })} /></div>
+        <div><label className="l" htmlFor="cn-m">Markup %</label><input id="cn-m" className="input num" inputMode="decimal" placeholder={dflt} value={f.markup_pct} onChange={(e) => setF({ ...f, markup_pct: e.target.value })} /></div>
         <button type="button" className="btn" onClick={add} disabled={!f.name.trim()}>Add</button>
       </div>
+      <p className="muted" style={{ margin: 0, fontSize: 12 }}>Markup defaults to the firm’s consultant multiplier ({dflt}%, Settings → Firm).</p>
     </section>)
 }
 
