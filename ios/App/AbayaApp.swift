@@ -68,8 +68,14 @@ struct PortalView: UIViewControllerRepresentable {
 }
 
 final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, ASWebAuthenticationPresentationContextProviding {
+    /// The one portal on screen; native screens use its web view for the signed-in session.
+    static weak var current: PortalController?
     private var web: WKWebView!
+    var webView: WKWebView? { web }
     private var authSession: ASWebAuthenticationSession?
+    /// Native Time tab, drawn over the portal's Time tab between its header and tab bar.
+    private var timeHost: UIHostingController<TimeScreen>?
+    private var timeInsets: (top: CGFloat, bottom: CGFloat) = (0, 0)
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -99,9 +105,13 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
         view.addSubview(web)
         web.load(URLRequest(url: portalURL))
 
+        PortalController.current = self
         NotificationCenter.default.addObserver(self, selector: #selector(openedFromURL(_:)), name: .abayaOpenURL, object: nil)
         if let u = PendingURL.value { PendingURL.value = nil; handle(u) }
-        TripTracker.shared.onChange = { [weak self] in self?.send($0) }
+        TripTracker.shared.onChange = { [weak self] msg in
+            self?.send(msg)
+            Task { @MainActor in TimeModel.shared.gpsChanged() }
+        }
         Recorder.shared.onChange = { [weak self] in self?.send($0) }
         LiveTimer.shared.report = { [weak self] in NSLog("ABAYA-LIVE %@", "\($0)"); self?.send($0) }
         // CI diagnostics: start a test timer island on launch and log the result
@@ -119,7 +129,51 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
         web?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('abaya-native',{detail:\(s)}))", completionHandler: nil)
     }
 
-    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) { pageReady = false }
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) { pageReady = false; showTime(false) }
+
+    // MARK: native Time tab
+
+    private func showTime(_ show: Bool) {
+        if show && timeHost == nil {
+            let host = UIHostingController(rootView: TimeScreen(m: TimeModel.shared))
+            host.view.backgroundColor = UIColor(red: 243 / 255, green: 243 / 255, blue: 242 / 255, alpha: 1)
+            addChild(host); view.addSubview(host.view); host.didMove(toParent: self)
+            timeHost = host
+        }
+        guard let host = timeHost else { return }
+        host.view.frame = CGRect(x: 0, y: timeInsets.top, width: view.bounds.width, height: max(0, view.bounds.height - timeInsets.top - timeInsets.bottom))
+        host.view.autoresizingMask = [.flexibleWidth]
+        if show && host.view.isHidden { Task { await TimeModel.shared.load() } }
+        host.view.isHidden = !show
+    }
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if let host = timeHost, !host.view.isHidden { host.view.frame = CGRect(x: 0, y: timeInsets.top, width: view.bounds.width, height: max(0, view.bounds.height - timeInsets.top - timeInsets.bottom)) }
+    }
+    private var reloadPending = false
+    /// The portal changed time or the timer: refresh the native Time tab (coalesced).
+    private func reloadTimeSoon() {
+        guard let host = timeHost, !host.view.isHidden, !reloadPending else { return }
+        reloadPending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.reloadPending = false
+            Task { await TimeModel.shared.load() }
+        }
+    }
+    /// The native screen changed time: the portal's timer (and with it the Dynamic Island and widget) catches up.
+    func timeChangedNatively() {
+        web?.evaluateJavaScript("window.dispatchEvent(new Event('abaya:time-changed'))", completionHandler: nil)
+        WidgetCenter.shared.reloadTimelines(ofKind: "AbayaAgenda")
+    }
+    /// Sheets that stay web for now (manual entry, edit a day's hours): the portal opens them over its Time tab.
+    func openWebSheet(_ name: String) { send(["type": "openSheet", "sheet": name]) }
+    func openEditCard(_ c: TCard, day: String) {
+        let t = c.task
+        let card: [String: Any] = ["key": t.key, "project_id": t.projectId, "phase_id": orNull(t.phaseId), "role_label": orNull(t.role), "activity": orNull(t.activity),
+                                   "minutes": c.minutes, "day": day, "projects": ["number": c.number, "name": c.name, "sector": orNull(c.sector)] as [String: Any],
+                                   "phases": c.phaseCode.map { ["code": $0, "name": orNull(c.phaseName)] as [String: Any] as Any } ?? NSNull()]
+        send(["type": "editCard", "card": card])
+    }
 
     override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
 
@@ -151,12 +205,20 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
         case "timer":
             LiveTimer.shared.apply(body["timer"] as? [String: Any])
             WidgetCenter.shared.reloadTimelines(ofKind: "AbayaAgenda")
+            reloadTimeSoon()
         case "widgetToken":
             if let t = body["token"] as? String, t.count == 64 { WidgetLink.save(t); WidgetCenter.shared.reloadAllTimelines() }
             send(["type": "widget", "linked": WidgetLink.token != nil])
         case "oauth": if let s = body["url"] as? String, let url = URL(string: s) { signIn(with: url) }
+        case "nativeTime":
+            let show = (body["show"] as? Bool) ?? false
+            timeInsets = (CGFloat((body["top"] as? NSNumber)?.doubleValue ?? 0), CGFloat((body["bottom"] as? NSNumber)?.doubleValue ?? 0))
+            showTime(show)
+        case "timeChanged":
+            reloadTimeSoon()
         case "ready":
             pageReady = true
+            send(["type": "caps", "nativeTime": true])
             TripTracker.shared.emit(); Recorder.shared.emit()
             send(["type": "widget", "linked": WidgetLink.token != nil])
             if let a = pendingAction { pendingAction = nil; send(["type": "action", "action": a]) }

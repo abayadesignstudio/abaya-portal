@@ -1,3 +1,4 @@
+import { toNative } from './native'
 import { supabase } from './supabase'
 import { must } from './useQuery'
 import { sortPhases } from './projectContent'
@@ -16,4 +17,4 @@ export const hrs = (min: number) => { const h = Math.round(min / 60 * 100) / 100
 
 // a timer change anywhere tells the timesheet to refresh
 export const TIME_CHANGED = 'abaya:time-changed'
-export const announceTimeChange = () => window.dispatchEvent(new Event(TIME_CHANGED))
+export const announceTimeChange = () => { window.dispatchEvent(new Event(TIME_CHANGED)); toNative({ type: 'timeChanged' }) } // the app's native Time screen reloads too

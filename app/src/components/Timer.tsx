@@ -11,7 +11,7 @@ import RolePicker from './RolePicker'
 import { useTimerPip, TimerPipView, pipSupported } from './TimerPip'
 
 /** The time-entry form and recent list, shared by the sidebar popover and the phone sheet. */
-export function TimerPanel({ api, idPrefix, onDone, onCancel }: { api: TimerApi; idPrefix: string; onDone: () => void; onCancel: () => void }) {
+export function TimerPanel({ api, idPrefix, onDone, onCancel, extra }: { api: TimerApi; idPrefix: string; onDone: () => void; onCancel: () => void; extra?: React.ReactNode }) {
   const [view, setView] = useState<'form' | 'recent'>('form')
   const { v, setField, setV, err, busy, running, clock, projects, proj, isOverhead } = api
   const set = (k: keyof TimerFields) => (e: React.ChangeEvent<HTMLSelectElement | HTMLTextAreaElement>) => setField(k, e.target.value)
@@ -45,6 +45,7 @@ export function TimerPanel({ api, idPrefix, onDone, onCancel }: { api: TimerApi;
           </div>
           <label className="sr" htmlFor={id('n')}>Note</label>
           <textarea id={id('n')} className="input" rows={2} placeholder="Add a note (optional)" value={v.note} onChange={set('note')} style={{ background: '#f6f5f2', border: 0 }} />
+          {extra}
           {err && <p className="err" role="alert">{err}</p>}
           {!running ? (
             <div className="row between"><button type="button" className="btn secondary" onClick={onCancel}>Cancel</button>
