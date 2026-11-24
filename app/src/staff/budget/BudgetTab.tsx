@@ -283,7 +283,7 @@ function NumIn({ value, onCommit, label, prefix, suffix, width, disabled }: { va
   const [t, setT] = useState(String(value))
   useEffect(() => setT(String(value)), [value])
   return (
-    <span style={{ position: 'relative', display: 'block', width }}>
+    <span style={{ position: 'relative', display: 'inline-block', verticalAlign: 'middle', width, maxWidth: '100%' }}>
       {prefix && <span aria-hidden="true" style={{ position: 'absolute', left: 9, top: 10, color: 'var(--muted)' }}>{prefix}</span>}
       <input aria-label={label} className="pb-in" inputMode="decimal" disabled={disabled} value={t}
         style={{ paddingLeft: prefix ? 20 : undefined, paddingRight: suffix ? 24 : undefined }}
