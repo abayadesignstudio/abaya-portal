@@ -19,6 +19,7 @@ import '@fontsource/lato/700.css'
 import '@fontsource/lato/700-italic.css'
 import './agreement.css'
 import RowMenu from '../components/RowMenu'
+import AgreementNotes from './AgreementNotes'
 
 // ---------- helpers
 const W = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve']
@@ -320,6 +321,7 @@ export default function AgreementEditor() {
           <ProjectLink agreementId={row.id} projectId={row.project_id} clientId={row.client_id} cover={doc.v}
             onLinked={(project_id, client_id) => setRow((r) => (r ? { ...r, project_id, client_id } : r))}
             fillCover={(vals) => up((d) => { Object.assign(d.v, vals) })} />
+          <AgreementNotes agreementId={row.id} />
           <div className="ag-tool">
             <span className="l">View</span>
             <div className="ag-seg" role="group" aria-label="View">
