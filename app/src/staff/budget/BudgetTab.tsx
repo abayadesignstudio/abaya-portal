@@ -62,9 +62,8 @@ const nameOf = (p?: Person) => p?.full_name || p?.email || 'Someone'
 const initialsOf = (p?: Person) => p?.initials || nameOf(p).split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
 
 export default function BudgetTab({ projectId }: { projectId: string }) {
-  const [sub, setSub] = useState<'firm' | 'consultants' | 'expenses' | 'pay'>('firm')
-  const [err, setErr] = useState('')
-  const { data, error, reload } = useLoad(async () => {
+  const [err] = useState('')
+  const { data, error } = useLoad(async () => {
     const phases = sortPhases(must(await supabase.from('phases').select('id, code, sort, name, parent_phase_id, fee, status, start_date, end_date').eq('project_id', projectId)) as Phase[])
     const ids = phases.map((p) => p.id)
     const people = must(await supabase.from('profiles').select('id, full_name, email, initials, title, bill_rate, avatar_url').in('role', ['admin', 'staff']).order('full_name')) as Person[]
@@ -96,16 +95,12 @@ export default function BudgetTab({ projectId }: { projectId: string }) {
   const firmTotal = phases.reduce((a, p) => a + firmOf(p), 0)
   const unalloc = round2(projectFee - firmTotal - consTotal)
   // ---- cost and profit
-  const teamOf = (ph: Phase) => allocs.filter((a) => a.phase_id === ph.id).reduce((s, a) => s + Number(a.hours) * rateOf(a.profile_id), 0)
   const allocated = allocs.reduce((a, x) => a + Number(x.hours) * rateOf(x.profile_id), 0)
   const teamPay = allocated / MULTIPLIER
   const expenseCost = expenses.filter((e) => !e.reimbursable).reduce((a, e) => a + Number(e.amount), 0)
   const remaining = projectFee - teamPay - consultantCost - expenseCost
-  const pct = firmTotal ? Math.round(allocated / firmTotal * 100) : 0
-  const overPhases = phases.filter((ph) => teamOf(ph) > firmOf(ph) + 0.5)
   const overCons = phases.filter((ph) => firmOf(ph) < -0.005)
 
-  const run = async (fn: () => Promise<unknown>) => { try { await fn(); setErr(''); reload() } catch (e) { setErr(errText(e)) } }
 
   return (
     <div className="stack">
@@ -120,42 +115,41 @@ export default function BudgetTab({ projectId }: { projectId: string }) {
           <div className="pb-s">{projectFee ? Math.round(remaining / projectFee * 100) : 0}% of the total, after team pay ({money(teamPay)}){expenseCost ? `, expenses` : ''} and consultants</div></div>
       </section>
       {Math.abs(unalloc) >= 0.5 && <div className="err" role="alert" style={{ background: '#fff7e6', borderColor: '#f1d7a4', color: '#7a4b00' }}><strong>{money(Math.abs(unalloc))} {unalloc > 0 ? 'isn’t assigned' : 'too much is assigned'}.</strong> {unalloc > 0 ? 'The phases and project-wide consultants add up to less than the total fee.' : 'Phases and project-wide consultants add up to more than the total fee.'}</div>}
-      {overCons.length > 0 && <div className="err" role="alert"><strong>Consultants exceed the phase fee.</strong> {overCons.map((p) => p.code === 'CU' ? p.name : p.code).join(', ')}: the consultants cost the client more than that phase’s fee, so our fee there is negative. Move a consultant to another phase or raise the fee.</div>}
-      {overPhases.length > 0 && <div className="err" role="alert"><strong>Over budget.</strong> {overPhases.map((p) => p.code).join(', ')} {overPhases.length === 1 ? 'has' : 'have'} more team hours budgeted than our fee for {overPhases.length === 1 ? 'that phase' : 'those phases'} covers. Lower hours on the Overview’s phase team, or move consultants to the phases they actually work in.</div>}
-
-      <div className="pb-subtabs" role="tablist" aria-label="Budget sections">
-        {([['firm', 'By phase'], ['pay', 'Team'], ['consultants', 'Consultants'], ['expenses', 'Expenses']] as const).map(([k, l]) =>
-          <button key={k} role="tab" type="button" aria-selected={sub === k} onClick={() => setSub(k)}>{l}</button>)}
-      </div>
       {err && <p className="err" role="alert">{err}</p>}
+      {overCons.length > 0 && <div className="err" role="alert"><strong>Consultants exceed the phase fee.</strong> {overCons.map((p) => p.code === 'CU' ? p.name : p.code).join(', ')}: the consultants cost the client more than that phase’s fee, so our fee there is negative. Fix it on the Overview → Fees → Consultants.</div>}
 
-      {sub === 'firm' && <section className="card pad stack">
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}>What the client pays for each phase, less the consultants on that phase, is our fee for it. The team budget should fit inside our fee.</p>
-        <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 760 }}>
-          <thead><tr><th>Phase</th><th>Dates</th><th className="r">Client pays</th><th className="r">Consultants</th><th className="r">Our fee</th><th className="r">Team budget</th><th className="r">Used</th></tr></thead>
-          <tbody>{phases.map((ph) => { const c = consByPhase(ph.id), fs = firmOf(ph), t = teamOf(ph), sp = fs > 0 ? Math.round(t / fs * 100) : 0
-            return <tr key={ph.id}>
-              <td>{ph.code === 'AS' ? <><span className="muted">↳ AS</span> {ph.name}</> : ph.code === 'CU' ? <strong>{ph.name}</strong> : <strong>{ph.code}</strong>}</td>
-              <td className="muted" style={{ fontSize: 13 }}>{ph.start_date ? fmtDate(ph.start_date) : '—'}{ph.end_date ? ` – ${fmtDate(ph.end_date)}` : ''}</td>
-              <td className="r num">{money(Number(ph.fee))}</td>
-              <td className="r num muted">{c ? `− ${money(c)}` : '—'}</td>
-              <td className="r num" style={{ fontWeight: 700, color: fs < -0.005 ? 'var(--red)' : undefined }}>{money(fs)}</td>
-              <td className="r num">{t ? money(t) : '—'}</td>
-              <td className="r num" style={{ color: t > fs + 0.5 ? 'var(--red)' : sp >= 99 ? 'var(--green)' : 'var(--muted)' }}>{fs > 0 ? `${sp}%` : '—'}</td></tr> })}</tbody>
-          <tfoot><tr style={{ fontWeight: 700 }}><td colSpan={2}>Total</td><td className="r num">{money(phases.reduce((a, p) => a + Number(p.fee), 0))}</td>
-            <td className="r num muted">{money(phases.reduce((a, p) => a + consByPhase(p.id), 0))}</td><td className="r num">{money(firmTotal)}</td><td className="r num">{money(allocated)}</td><td className="r num">{pct}%</td></tr></tfoot>
+      <section className="card pad stack" aria-labelledby="bf-h">
+        <h3 id="bf-h" style={{ margin: 0 }}>Fee by firm</h3>
+        <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 720 }}>
+          <thead><tr><th>Firm</th><th>Discipline</th><th>Phase</th><th className="r">Their fee</th><th className="r">Our markup</th><th className="r">Client pays</th><th className="r">Share</th></tr></thead>
+          <tbody>
+            <tr style={{ background: '#f6f8fb' }}><td><strong>Abaya Design Studio</strong></td><td>Architecture</td><td className="muted">{phases.filter((p) => firmOf(p) > 0.005).map((p) => p.code === 'CU' ? p.name : p.code).join(', ') || '—'}</td>
+              <td className="r muted">—</td><td className="r muted">—</td><td className="r num"><strong>{money(firmTotal)}</strong></td><td className="r num">{projectFee ? Math.round(firmTotal / projectFee * 100) : 0}%</td></tr>
+            {consultants.map((c) => { const ph = phases.find((p) => p.id === c.phase_id)
+              return <tr key={c.id}><td><strong>{c.name}</strong></td><td>{c.discipline ?? '—'}</td><td className="muted">{ph ? (ph.code === 'CU' ? ph.name : ph.code) : 'Project-wide'}</td>
+                <td className="r num">{money(Number(c.fee))}</td><td className="r num muted">{money(toClient(c) - Number(c.fee))} <span style={{ fontSize: 12 }}>({Number(c.markup_pct)}%)</span></td>
+                <td className="r num"><strong>{money(toClient(c))}</strong></td><td className="r num">{projectFee ? Math.round(toClient(c) / projectFee * 100) : 0}%</td></tr> })}
+          </tbody>
+          <tfoot><tr style={{ fontWeight: 700 }}><td colSpan={3}>Total fee</td><td className="r num">{consultants.length ? money(consultantCost) : ''}</td><td className="r num">{consultants.length ? money(consTotal - consultantCost) : ''}</td><td className="r num">{money(firmTotal + consTotal)}</td><td className="r num">100%</td></tr></tfoot>
         </table></div>
-        {consultants.some((c) => !c.phase_id) && <p className="muted" style={{ margin: 0, fontSize: 13 }}>Project-wide consultants ({money(consultants.filter((c) => !c.phase_id).reduce((a, c) => a + toClient(c), 0))}) aren’t in any phase; they come out of the total instead.</p>}
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Team budget = hours set on the Overview’s phase team × each person’s billable rate.</em></p>
-      </section>}
+        {consultants.length === 0 && <p className="muted" style={{ margin: 0, fontSize: 13 }}>No consultants yet: add them on the Overview → Fees → Consultants.</p>}
+      </section>
 
-      {sub === 'pay' && <>
+      <section className="card pad stack" aria-labelledby="bp-h">
+        <h3 id="bp-h" style={{ margin: 0 }}>Profit</h3>
+        <table className="table" style={{ maxWidth: 560 }}><tbody>
+          <tr><td>Total fee</td><td className="r num">{money(projectFee)}</td></tr>
+          <tr><td>Paid to consultants</td><td className="r num">− {money(consultantCost)}</td></tr>
+          <tr><td>Team pay <span className="muted" style={{ fontSize: 12 }}>(budgeted hours × rate ÷ {MULTIPLIER})</span></td><td className="r num">− {money(teamPay)}</td></tr>
+          {expenseCost > 0 && <tr><td>Expenses we absorb</td><td className="r num">− {money(expenseCost)}</td></tr>}
+          <tr style={{ fontWeight: 700 }}><td>Left for overhead &amp; profit</td><td className="r num" style={{ color: remaining < 0 ? 'var(--red)' : 'var(--green)' }}>{money(remaining)}</td></tr>
+        </tbody></table>
+      </section>
+
+      <section aria-label="Team pay" className="stack">
         <TeamPay people={people} allocs={allocs} time={logged} rateOf={rateOf} roleOf={roleOf} />
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Who’s on each phase and their share are set on the Overview (Team column).</em></p>
-      </>}
-
-      {sub === 'consultants' && <ConsultantsPanel projectId={projectId} phases={phases} rows={consultants} run={run} />}
-      {sub === 'expenses' && <ExpensesPanel projectId={projectId} phases={phases} rows={expenses} run={run} />}
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>Who’s on each phase and their hours are set on the Overview (Team column).</em></p>
+      </section>
     </div>
   )
 }
@@ -287,6 +281,25 @@ function NumIn({ value, onCommit, label, prefix, suffix, width, disabled }: { va
     </span>)
 }
 
+/* ---------- Overview → Fees: consultants and expenses, each loading its own rows ---------- */
+function usePanel<T>(table: string, cols: string, projectId: string, order: string, asc: boolean) {
+  return useLoad(async () => must(await supabase.from(table).select(cols).eq('project_id', projectId).order(order, { ascending: asc })) as unknown as T[], [projectId])
+}
+export function ProjectConsultants({ projectId, phases, onChanged }: { projectId: string; phases: Phase[]; onChanged?: () => void }) {
+  const rows = usePanel<Consultant>('project_consultants', 'id, phase_id, name, discipline, fee, billed, markup_pct', projectId, 'created_at', true)
+  const [err, setErr] = useState('')
+  const run = async (fn: () => Promise<unknown>) => { try { await fn(); setErr(''); rows.reload(); onChanged?.() } catch (e) { setErr(errText(e)) } }
+  if (rows.error) return <p className="err">{rows.error}</p>
+  return <>{err && <p className="err" role="alert" style={{ margin: 0 }}>{err}</p>}<ConsultantsPanel projectId={projectId} phases={phases} rows={rows.data ?? []} run={run} /></>
+}
+export function ProjectExpenses({ projectId, phases, onChanged }: { projectId: string; phases: Phase[]; onChanged?: () => void }) {
+  const rows = usePanel<Expense>('expenses', 'id, phase_id, description, amount, spent_on, reimbursable, planned, invoice_id', projectId, 'spent_on', false)
+  const [err, setErr] = useState('')
+  const run = async (fn: () => Promise<unknown>) => { try { await fn(); setErr(''); rows.reload(); onChanged?.() } catch (e) { setErr(errText(e)) } }
+  if (rows.error) return <p className="err">{rows.error}</p>
+  return <>{err && <p className="err" role="alert" style={{ margin: 0 }}>{err}</p>}<ExpensesPanel projectId={projectId} phases={phases} rows={rows.data ?? []} run={run} /></>
+}
+
 /* ---------- consultants ---------- */
 function ConsultantsPanel({ projectId, phases, rows, run }: { projectId: string; phases: Phase[]; rows: Consultant[]; run: (fn: () => Promise<unknown>) => void }) {
   const mult = useConsultantMultiplier()
@@ -300,7 +313,7 @@ function ConsultantsPanel({ projectId, phases, rows, run }: { projectId: string;
     setF({ name: '', discipline: '', phase_id: '', fee: '', markup_pct: '' }) }) }
   const upd = (id: string, patch: Partial<Consultant>) => run(async () => { must(await supabase.from('project_consultants').update(patch).eq('id', id)) })
   return (
-    <section className="card pad stack">
+    <section className="stack">
       <p className="muted" style={{ margin: 0, fontSize: 13 }}>Put each consultant on the phase they work in. What the client pays for them (their fee + our markup) comes out of that phase’s fee.</p>
       <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 860 }}>
         <thead><tr><th>Consultant</th><th>Discipline</th><th>Phase</th><th className="r">Their fee</th><th className="r">Markup</th><th className="r">Markup $</th><th className="r">Client pays</th><th /></tr></thead>
@@ -356,7 +369,7 @@ function ExpensesPanel({ projectId, phases, rows, run }: { projectId: string; ph
         </tbody></table></div>
     </div>)
   return (
-    <section className="card pad stack">
+    <section className="stack">
       <h3 style={{ margin: 0 }}>Direct expenses</h3>
       {list('Budgeted (planned)', planned)}
       {list('Incurred', actual)}

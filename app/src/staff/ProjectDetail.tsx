@@ -15,7 +15,7 @@ import { supabase, money, SECTOR_COLOR, CATEGORY_NAME, PHASES, PHASE_NAME, phase
 import { useLoad, must } from '../lib/useQuery'
 import { useAuth } from '../lib/auth'
 import UpdateCard from '../client/UpdateCard'
-import BudgetTab, { TeamTable, type Person as TeamPerson } from './budget/BudgetTab'
+import BudgetTab, { TeamTable, ProjectConsultants, ProjectExpenses, type Person as TeamPerson } from './budget/BudgetTab'
 import './budget.css'
 import { linkedAgreements, contractFee, syncPctPhases, round2, perPhaseSchedule, hasFeeSplit, agreementCodes as codesOf } from '../lib/fees'
 import FeeChanges from './FeeChanges'
@@ -50,6 +50,7 @@ export default function ProjectDetail() {
   const [dragOver, setDragOver] = useState<string | null>(null)
   const [reorderErr, setReorderErr] = useState('')
   const [dup, setDup] = useState(false)
+  const [feeTab, setFeeTab] = useState<'arch' | 'cons' | 'exp'>('arch')
   useEffect(() => { setTab(startTab) }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
   const { data, error, reload } = useLoad(async () => {
     const p = must(await supabase.from('projects').select('id, number, name, status, category, categories, sector, address, next_milestone, client_id, clients(name), outside_firm').eq('id', id!).single()) as unknown as Project
@@ -63,7 +64,8 @@ export default function ProjectDetail() {
     const allocs = phases.length ? must(await supabase.from('phase_allocations').select('phase_id, profile_id, hours').in('phase_id', phases.map((x) => x.id))) as { phase_id: string; profile_id: string; hours: number }[] : []
     const people = must(await supabase.from('profiles').select('id, full_name, email, initials, title, bill_rate, avatar_url').in('role', ['admin', 'staff']).order('full_name')) as TeamPerson[]
     const members = must(await supabase.from('project_members').select('profile_id, role_label, bill_rate').eq('project_id', id!)) as { profile_id: string; role_label: string | null; bill_rate: number | null }[]
-    return { p, phases, billed, time, invoices, agreements, allocs, people, members, estimates }
+    const cons = must(await supabase.from('project_consultants').select('phase_id, fee, markup_pct').eq('project_id', id!)) as { phase_id: string | null; fee: number; markup_pct: number }[]
+    return { p, phases, billed, time, invoices, agreements, allocs, people, members, estimates, cons }
   }, [id])
   // coming back to the Overview after changing things on another tab (team, budget): show the latest
   const firstTab = useRef(true)
@@ -78,7 +80,10 @@ export default function ProjectDetail() {
   }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
   if (error) return <p className="err">{error}</p>
   if (!data) return <p>Loading…</p>
-  const { p, phases, billed, time, invoices, agreements, allocs, people, members, estimates } = data
+  const { p, phases, billed, time, invoices, agreements, allocs, people, members, estimates, cons } = data
+  // consultants on a phase (their fee + markup) are part of its fee; the rest is our architecture fee
+  const consOn = (phId: string) => round2(cons.filter((c) => c.phase_id === phId).reduce((a, c) => a + Number(c.fee) * (1 + Number(c.markup_pct) / 100), 0))
+  const archOf = (ph: { id: string; fee: number }) => round2(Number(ph.fee) - consOn(ph.id))
   const mains = phases.filter((x) => x.code !== 'AS')
   const reorder = async (fromId: string, toId: string) => {
     const ids = mains.map((x) => x.id), from = ids.indexOf(fromId), to = ids.indexOf(toId)
@@ -111,13 +116,14 @@ export default function ProjectDetail() {
   const teamOf = (ph: Phase) => allocs.filter((a) => a.phase_id === ph.id).map((a) => {
     const who = people.find((x) => x.id === a.profile_id)
     return { id: a.profile_id, name: who?.full_name || who?.email || 'Someone', avatar: who?.avatar_url ?? null, initials: who?.initials || (who?.full_name || who?.email || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase(),
-      hours: Number(a.hours), pct: Number(ph.fee) ? Number(a.hours) * rateOf(a.profile_id) / Number(ph.fee) * 100 : 0 }
+      hours: Number(a.hours), pct: archOf(ph) > 0 ? Number(a.hours) * rateOf(a.profile_id) / archOf(ph) * 100 : 0 }
   })
   const billedBy = Object.fromEntries(billed.map((b) => [b.phase_id, Number(b.billed)]))
   const used = (phaseId: string) => time.filter((t) => t.phase_id === phaseId).reduce((a, t) => ({ hrs: a.hrs + t.minutes / 60, cost: a.cost + (t.minutes / 60) * Number(t.profiles?.bill_rate ?? 0) }), { hrs: 0, cost: 0 })
   // contract phases vs additional services (AS lines are billed on top of the agreement)
   const phaseSum = round2(phases.filter((x) => x.code !== 'AS').reduce((a, x) => a + Number(x.fee), 0))
   const asSum = round2(phases.filter((x) => x.code === 'AS').reduce((a, x) => a + Number(x.fee), 0))
+  const phasesCons = round2(phases.filter((x) => x.code !== 'AS').reduce((a, x) => a + consOn(x.id), 0))
   const cf = contractFee(agreements) // null when no agreement is linked
   const totFee = (cf ?? phaseSum) + asSum
   const agreementCodes = [...new Set(agreements.flatMap((g) => Object.entries(g.ph ?? {}).filter(([, v]) => v?.on).map(([k]) => k)))]
@@ -226,11 +232,14 @@ export default function ProjectDetail() {
       <FeeChanges projectId={p.id} signed={!!signedAg} onChanged={reload}
         phases={phases.filter((x) => signedCodes.includes(x.code) || !STD.includes(x.code)).map((x) => ({ id: x.id, code: x.code, name: x.name ?? null, fee: Number(x.fee), billing: x.billing ?? 'fixed', parent_phase_id: x.parent_phase_id ?? null }))} />
       <section className="card pad stack">
-        <h2>Phases</h2>{reorderErr && <p className="err" role="alert" style={{ margin: 0 }}>{reorderErr}</p>}
+        <div className="row between" style={{ flexWrap: 'wrap', gap: 10 }}><h2 style={{ margin: 0 }}>Fees</h2>
+          <div className="pb-subtabs" role="tablist" aria-label="Fees" style={{ borderBottom: 0 }}>
+            {([['arch', 'Architecture'], ['cons', 'Consultants'], ['exp', 'Expenses']] as const).map(([k, l]) => <button key={k} role="tab" type="button" aria-selected={feeTab === k} onClick={() => setFeeTab(k)}>{l}</button>)}</div></div>
+        {feeTab === 'arch' && <>{reorderErr && <p className="err" role="alert" style={{ margin: 0 }}>{reorderErr}</p>}
         <div style={{ overflowX: 'auto' }}><table className="table" style={{ minWidth: 1150 }}>
           <thead><tr><th>Phase</th><th>Status</th><th>Start</th><th>End</th><th className="r">Fee</th><th>Team</th><th className="r">Billed</th><th className="r">Hours</th><th>Fee used (labor at rates)</th><th></th></tr></thead>
           <tbody>{phases.map((ph) => <Fragment key={ph.id}>
-            <PhaseRow key={ph.id + ph.fee + (ph.fee_pct ?? '')} drag={dragFor(ph)} ph={ph} total={cf} feeLock={lockFor(ph.code)} team={teamOf(ph)} teamOpen={teamOpen === ph.id} onTeam={() => setTeamOpen(teamOpen === ph.id ? null : ph.id)} billed={billedBy[ph.id] ?? 0} ahead={aheadOf(ph)} used={used(ph.id)} onSaved={reload} />
+            <PhaseRow key={ph.id + ph.fee + (ph.fee_pct ?? '') + consOn(ph.id)} cons={consOn(ph.id)} drag={dragFor(ph)} ph={ph} total={cf} feeLock={lockFor(ph.code)} team={teamOf(ph)} teamOpen={teamOpen === ph.id} onTeam={() => setTeamOpen(teamOpen === ph.id ? null : ph.id)} billed={billedBy[ph.id] ?? 0} ahead={aheadOf(ph)} used={used(ph.id)} onSaved={reload} />
             {teamOpen === ph.id && <tr className="ph-team-row"><td colSpan={10}>
               <div className="ph-team-edit">
                 <div className="row between"><strong>{ph.code} team</strong><button type="button" className="linkbtn" onClick={() => setTeamOpen(null)}>Done</button></div>
@@ -240,8 +249,8 @@ export default function ProjectDetail() {
               </div>
             </td></tr>}
           </Fragment>)}</tbody>
-          {phases.length > 0 && <tfoot><tr><td colSpan={4} style={{ fontWeight: 700 }}>Phases total</td>
-            <td className="r num" style={{ fontWeight: 700, color: cf !== null && Math.abs(phaseSum - cf) >= 0.005 ? 'var(--amber)' : undefined }}>{money(phaseSum)}{cf !== null && <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>of {money(cf)}</div>}</td><td colSpan={5} /></tr>
+          {phases.length > 0 && <tfoot><tr><td colSpan={4} style={{ fontWeight: 700 }}>Architecture total</td>
+            <td className="r num" style={{ fontWeight: 700, color: cf !== null && Math.abs(phaseSum - cf) >= 0.005 ? 'var(--amber)' : undefined }}>{money(round2(phaseSum - phasesCons))}{(phasesCons > 0 || cf !== null) && <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>{phasesCons > 0 ? `+ ${money(phasesCons)} consultants = ${money(phaseSum)}` : ''}{cf !== null ? `${phasesCons > 0 ? ' ' : ''}of ${money(cf)}` : ''}</div>}</td><td colSpan={5} /></tr>
             {asSum > 0 && <tr><td colSpan={4} className="muted">Additional services (on top of the contract)</td><td className="r num">{money(asSum)}</td><td colSpan={5} /></tr>}</tfoot>}
         </table></div>
         {fromAgreement.length > 0 && !signedAg && !sentAg && !fromSchedule && <div className="row" style={{ gap: 8 }}>
@@ -251,6 +260,9 @@ export default function ProjectDetail() {
         {signedAg ? <p className="muted" style={{ margin: 0, fontSize: 13 }}>New phases and additional services with a fee are added through <strong>Change fee</strong> above, so the client signs them.</p>
           : sentAg ? null : <AddPhase projectId={p.id} codes={missing.map(([c]) => c)} total={cf} onSaved={reload} />}
         <p className="muted" style={{ margin: 0, fontSize: 13 }}><em>A phase fee is a fixed amount ($) or a percentage of the total fee (%); percentage phases update automatically when the agreement’s fee changes. Fee used = hours × each person’s billable rate. The bar turns orange at 75% and red at 90%. Phase start and end dates drive the client’s schedule. Assign the team and hours on the Budget page.</em></p>
+        </>}
+        {feeTab === 'cons' && <ProjectConsultants projectId={p.id} phases={phases} onChanged={reload} />}
+        {feeTab === 'exp' && <ProjectExpenses projectId={p.id} phases={phases} onChanged={reload} />}
       </section>
       </>}
       {tab === 'budget' && <BudgetTab key={p.id + phases.map((x) => x.id + x.fee + x.status).join()} projectId={p.id} />}
@@ -702,20 +714,21 @@ function FeeInput({ id, mode, amt, pct, total, onMode, onAmt, onPct }: { id: str
 
 type TeamMember = { id: string; name: string; initials: string; avatar: string | null; hours: number; pct: number }
 type PhaseDrag = { handle: React.ReactNode; row: React.HTMLAttributes<HTMLTableRowElement> & { draggable?: boolean } }
-function PhaseRow({ ph, total, feeLock, team, teamOpen, onTeam, billed, ahead, used, onSaved, drag }: { ph: Phase; total: number | null; feeLock: string | null; team: TeamMember[]; teamOpen: boolean; onTeam: () => void; billed: number; ahead: number; used: { hrs: number; cost: number }; onSaved: () => void; drag?: PhaseDrag }) {
+function PhaseRow({ ph, cons = 0, total, feeLock, team, teamOpen, onTeam, billed, ahead, used, onSaved, drag }: { ph: Phase; cons?: number; total: number | null; feeLock: string | null; team: TeamMember[]; teamOpen: boolean; onTeam: () => void; billed: number; ahead: number; used: { hrs: number; cost: number }; onSaved: () => void; drag?: PhaseDrag }) {
   const startMode = ph.fee_pct != null && total !== null ? 'pct' : 'amt'
-  const fromPh = () => ({ mode: startMode as 'amt' | 'pct', fee: String(ph.fee), pct: ph.fee_pct != null ? String(Number(ph.fee_pct)) : total ? String(Math.round(Number(ph.fee) / total * 10000) / 100) : '',
+  const fromPh = () => ({ mode: startMode as 'amt' | 'pct', fee: String(round2(Number(ph.fee) - cons)), pct: ph.fee_pct != null ? String(Number(ph.fee_pct)) : total ? String(Math.round(Number(ph.fee) / total * 10000) / 100) : '',
     status: ph.status, start_date: ph.start_date ?? '', end_date: ph.end_date ?? '' })
   const [f, setF] = useState(fromPh)
   // after a save (or any reload) show what the database now holds, so Save goes away
   useEffect(() => { setF(fromPh()) }, [ph.fee, ph.fee_pct, ph.status, ph.start_date, ph.end_date, total]) // eslint-disable-line react-hooks/exhaustive-deps
   const [msg, setMsg] = useState('')
-  const dirty = (!feeLock && (f.mode !== startMode || (f.mode === 'amt' ? f.fee !== String(ph.fee) : f.pct !== String(Number(ph.fee_pct ?? NaN))))) || f.status !== ph.status || f.start_date !== (ph.start_date ?? '') || f.end_date !== (ph.end_date ?? '')
-  const pct = Number(ph.fee) ? used.cost / Number(ph.fee) * 100 : 0
+  const dirty = (!feeLock && (f.mode !== startMode || (f.mode === 'amt' ? f.fee !== String(round2(Number(ph.fee) - cons)) : f.pct !== String(Number(ph.fee_pct ?? NaN))))) || f.status !== ph.status || f.start_date !== (ph.start_date ?? '') || f.end_date !== (ph.end_date ?? '')
+  const arch = round2(Number(ph.fee) - cons) // our architecture fee for this phase
+  const pct = arch > 0 ? used.cost / arch * 100 : 0
   const save = async () => {
     const p = Number(f.pct)
     if (f.mode === 'pct' && !(p >= 0 && p <= 100)) return setMsg('Percent must be between 0 and 100.')
-    const fee = f.mode === 'pct' ? round2((total ?? 0) * p / 100) : Number(f.fee) || 0
+    const fee = f.mode === 'pct' ? round2((total ?? 0) * p / 100) : round2((Number(f.fee) || 0) + cons) // the phase fee the client pays = ours + consultants
     const dates = { status: f.status, start_date: f.start_date || null, end_date: f.end_date || null }
     const { data, error } = await supabase.from('phases').update(feeLock ? dates : { ...dates, fee, fee_pct: f.mode === 'pct' ? p : null }).eq('id', ph.id).select('status').maybeSingle()
     if (error) return setMsg(error.message)
@@ -743,7 +756,7 @@ function PhaseRow({ ph, total, feeLock, team, teamOpen, onTeam, billed, ahead, u
         <option value="not_started">Not started</option><option value="in_progress">In progress</option><option value="paused">Paused</option><option value="complete">Complete</option></select></td>
       <td><label className="sr" htmlFor={'sd' + ph.id}>Start</label><input id={'sd' + ph.id} type="date" className="input" value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} /></td>
       <td><label className="sr" htmlFor={'ed' + ph.id}>End</label><input id={'ed' + ph.id} type="date" className="input" value={f.end_date} onChange={(e) => setF({ ...f, end_date: e.target.value })} /></td>
-      <td className="r">{feeLock ? <span className="fee-locked" title={feeLock}><span className="num">{money(ph.fee)}</span>{ph.billing === 'hourly' && <span className="muted" style={{ fontSize: 12 }}> NTE</span>}<span className="muted" style={{ display: 'block', fontSize: 11.5 }}>{feeLock.startsWith('Set by') ? 'from agreement' : '🔒 locked'}</span></span> : <FeeInput id={ph.id} mode={f.mode} amt={f.fee} pct={f.pct} total={total} onMode={(m) => setF({ ...f, mode: m })} onAmt={(v) => setF({ ...f, fee: v })} onPct={(v) => setF({ ...f, pct: v })} />}</td>
+      <td className="r">{feeLock ? <span className="fee-locked" title={feeLock}><span className="num">{money(arch)}</span>{ph.billing === 'hourly' && <span className="muted" style={{ fontSize: 12 }}> NTE</span>}<span className="muted" style={{ display: 'block', fontSize: 11.5 }}>{feeLock.startsWith('Set by') ? 'from agreement' : '🔒 locked'}</span></span> : <FeeInput id={ph.id} mode={f.mode} amt={f.fee} pct={f.pct} total={total} onMode={(m) => setF({ ...f, mode: m })} onAmt={(v) => setF({ ...f, fee: v })} onPct={(v) => setF({ ...f, pct: v })} />}{cons > 0 && <span className="muted num" style={{ display: 'block', fontSize: 11.5 }} title="What the client pays for this phase: our fee plus the consultants on it">+ {money(cons)} consultants = {money(ph.fee)}</span>}</td>
       <td style={{ minWidth: 150 }}>
         {team.length > 0 && <ul className="ph-team">{team.map((m) => <li key={m.id} title={`${m.name}: ${Math.round(m.hours * 10) / 10} hrs`}>
           <Avatar className="pb-avatar" url={m.avatar} initials={m.initials} /><span className="sr">{m.name}</span><span className="num">{Math.round(m.pct)}%</span></li>)}
