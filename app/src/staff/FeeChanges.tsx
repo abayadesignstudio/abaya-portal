@@ -1,3 +1,4 @@
+import ConsultantFee from '../components/ConsultantFee'
 import { useEffect, useState } from 'react'
 import { supabase, money, PHASE_NAME } from '../lib/supabase'
 import { useLoad, must } from '../lib/useQuery'
@@ -71,7 +72,7 @@ export default function FeeChanges({ projectId, phases, signed, onChanged }: { p
   </section>
 }
 
-type Row = { key: string; phase_id: string | null; code: string; name: string; parent_phase_id: string | null; billing: 'fixed' | 'hourly'; from: number; to: string }
+type Row = { cons?: boolean; key: string; phase_id: string | null; code: string; name: string; parent_phase_id: string | null; billing: 'fixed' | 'hourly'; from: number; to: string }
 
 /** Step by step: 1 what changes · 2 why · 3 review and send. */
 function FeeChangeWizard({ projectId, phases, existing, nextNumber, onClose, onSaved }: { projectId: string; phases: FcPhase[]; existing: FeeChange | null; nextNumber: number; onClose: () => void; onSaved: (msg: string) => void }) {
@@ -130,7 +131,9 @@ function FeeChangeWizard({ projectId, phases, existing, nextNumber, onClose, onS
                     <input id={'fn' + r.key} className="input" style={{ width: 200 }} placeholder="Additional service, e.g. Extra site visits" value={r.name} onChange={(e) => set(r.key, { name: e.target.value })} />
                     <label className="sr" htmlFor={'fp' + r.key}>Under phase</label>
                     <select id={'fp' + r.key} className="input" style={{ width: 130 }} value={r.parent_phase_id ?? ''} onChange={(e) => set(r.key, { parent_phase_id: e.target.value || null })}>
-                      <option value="">Under phase…</option>{mains.map((m) => <option key={m.id} value={m.id}>{m.code === 'CU' ? m.name : m.code}</option>)}</select></div>}</td>
+                      <option value="">Under phase…</option>{mains.map((m) => <option key={m.id} value={m.id}>{m.code === 'CU' ? m.name : m.code}</option>)}</select>
+                    <label className="row" style={{ gap: 5, fontSize: 13, flexBasis: '100%' }}><input type="checkbox" checked={!!r.cons} onChange={(e) => set(r.key, { cons: e.target.checked, ...(e.target.checked ? { billing: 'fixed' as const } : {}) })} style={{ width: 15, height: 15 }} /> Consultant’s service</label>
+                    {r.cons && <div style={{ flexBasis: '100%' }}><ConsultantFee id={'fc-cons' + r.key} onFee={(q) => set(r.key, { to: q })} /></div>}</div>}</td>
               <td><label className="sr" htmlFor={'fb' + r.key}>Billing</label><select id={'fb' + r.key} className="input" style={{ width: 120 }} value={r.billing} onChange={(e) => set(r.key, { billing: e.target.value as 'fixed' | 'hourly' })}>
                 <option value="fixed">Fixed fee</option><option value="hourly">Hourly (NTE)</option></select></td>
               <td className="r num muted">{r.phase_id ? money(r.from) : '—'}</td>

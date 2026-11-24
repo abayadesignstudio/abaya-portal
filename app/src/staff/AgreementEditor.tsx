@@ -148,6 +148,11 @@ export default function AgreementEditor() {
       // The name follows the project name only while nobody has set it by hand (Rename, Duplicate).
       autoTitle.current = r.title === autoName(d) || r.title === 'Untitled proposal'
       if (r.status === 'signed') { const { data: sg } = await supabase.from('agreement_signatures').select('*').eq('agreement_id', r.id).maybeSingle(); if (live) setSig(sg as SigRow | null) }
+      if (r.status === 'draft' && !d.v.cMult) { // consultants' additional services: start from the firm's default multiplier
+        const { data: fs } = await supabase.from('firm_settings').select('consultant_multiplier').eq('id', 1).maybeSingle()
+        d.v.cMult = String(Number((fs as { consultant_multiplier?: number } | null)?.consultant_multiplier) || 1.15)
+      }
+      if (!live) return
       setRow(r); setDoc(d); setTimeout(() => { loaded.current = true })
     })()
     return () => { live = false }
@@ -695,12 +700,15 @@ function KindEditor({ c, doc, ui, patchUi, up, setV }: Omit<OutlineProps, 'model
   }
   if (c.kind === 'rates') return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
     {([['rP', 'Principal'], ['rPA', 'Proj. Arch.'], ['rD', 'Designer']] as const).map(([k, l]) => <Field key={k} id={'ag-' + k} label={l + ' $/hr'}><input id={'ag-' + k} type="number" className="input" value={v[k]} onChange={setV(k)} /></Field>)}
+    <div style={{ gridColumn: '1 / -1' }}><Field id="ag-cmult" label="Consultants’ additional services ×" hint={hasConsultants(v.consultants) ? 'Their bill × this. Printed in 8.1 because consultants are listed in 2.3.' : 'Printed in 8.1 once consultants are listed in 2.3.'}><input id="ag-cmult" className="input num" style={{ maxWidth: 120 }} inputMode="decimal" value={v.cMult ?? ''} placeholder="1.15" onChange={setV('cMult')} /></Field></div>
   </div>
   if (c.kind === 'dispute') return <Field id="ag-dis" label="After mediation"><select id="ag-dis" className="input" value={v.dispute} onChange={setV('dispute')}><option value="a">(a) Arbitration</option><option value="b">(b) Litigation</option></select></Field>
   return null
 }
 
 // ---------------------------------------------------------------- document
+/** Consultants are listed in 2.3 (anything but blank or N/A). */
+const hasConsultants = (x?: string) => !!x && !/^\s*(n\/?a|none)\.?\s*$/i.test(x)
 type Seg = { t: string; k: Run['k']; fp?: string }
 /** Client e-signature on the document: initials per section, the Owner signature, and (once signed) the audit certificate. */
 export type SignView = { initials: Record<string, string>; initImg: string | null; sigImg: string | null; name: string; title?: string | null; date: string | null
@@ -802,11 +810,11 @@ export function Document({ tocPages, logo, doc, model, draft, showMarks, changes
       {(v.dispute === 'a' || draft) && <p style={{ paddingLeft: 28, ...struck(v.dispute === 'a') }}>{v.dispute === 'a' ? '☒' : '☐'} (a) Arbitration: by binding arbitration administered by the AAA in accordance with the AAA Construction Industry Arbitration Rules in effect on the date of the request for arbitration; or</p>}
       {(v.dispute === 'b' || draft) && <p style={{ paddingLeft: 28, ...struck(v.dispute === 'b') }}>{v.dispute === 'b' ? '☒' : '☐'} (b) Litigation: in a court of competent jurisdiction.</p>}
     </>
-    if (c.kind === 'rates') return (
+    if (c.kind === 'rates') return (<>
       <table className="ag-tbl" style={{ width: 360 }}>
         <thead><tr className="ag-hd"><th>Role</th><th>Hourly Rate</th></tr></thead>
         <tbody>{[['Principal', v.rP], ['Project Architect', v.rPA], ['Designer', v.rD]].map(([r, x]) => <tr key={r}><td>{r}</td><td className="num">{money(x)}/hr</td></tr>)}</tbody>
-      </table>)
+      </table>{hasConsultants(v.consultants) && <p style={{ marginTop: 10 }}>Additional Services provided by the Architect’s consultants shall be compensated at <span className="ag-fp" style={{ background: draft ? '#e4e4e4' : 'transparent' }}>{Number(v.cMult) >= 1 ? Number(v.cMult) : 1.15}</span> times the amounts billed to the Architect for such services.</p>}</>)
     if (c.kind === 'prints') return <>
       <table className="ag-tbl" style={{ width: 460 }}>
         <thead><tr className="ag-hd"><th>Size</th><th>Color</th><th>Black &amp; White</th></tr></thead>

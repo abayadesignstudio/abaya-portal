@@ -9,7 +9,7 @@ import './admin.css'
 import RowMenu from '../components/RowMenu'
 import QrCode from '../components/QrCode'
 
-type FS = { digest_time: string; digest_enabled: boolean; reminder_days: number[]; late_rate_monthly: number; firm_name: string | null; address: string | null; phone: string | null; billing_email: string | null; check_payee: string | null
+type FS = { consultant_multiplier: number; digest_time: string; digest_enabled: boolean; reminder_days: number[]; late_rate_monthly: number; firm_name: string | null; address: string | null; phone: string | null; billing_email: string | null; check_payee: string | null
   wire_bank_name: string | null; wire_bank_address: string | null; wire_account_name: string | null; wire_routing: string | null; wire_account: string | null; wire_swift: string | null; wire_notes: string | null
   zelle_name: string | null; zelle_email: string | null; zelle_phone: string | null; zelle_qr: string | null }
 type Person = { id: string; email: string; full_name: string | null; initials: string | null; title: string | null; role: 'admin' | 'staff' | 'client' | 'none'; util_target: number | null; bill_rate: number | null; rate_id?: string | null; color?: string | null }
@@ -119,7 +119,7 @@ function OnlinePayments() {
 }
 
 function FirmSettings({ admin }: { admin: boolean }) {
-  const { data, error } = useLoad(async () => must(await supabase.from('firm_settings').select('digest_time, digest_enabled, reminder_days, late_rate_monthly, firm_name, address, phone, billing_email, check_payee, wire_bank_name, wire_bank_address, wire_account_name, wire_routing, wire_account, wire_swift, wire_notes, zelle_name, zelle_email, zelle_phone, zelle_qr').eq('id', 1).single()) as FS)
+  const { data, error } = useLoad(async () => must(await supabase.from('firm_settings').select('consultant_multiplier, digest_time, digest_enabled, reminder_days, late_rate_monthly, firm_name, address, phone, billing_email, check_payee, wire_bank_name, wire_bank_address, wire_account_name, wire_routing, wire_account, wire_swift, wire_notes, zelle_name, zelle_email, zelle_phone, zelle_qr').eq('id', 1).single()) as FS)
   const [f, setF] = useState<FS & { days: string } | null>(null)
   const [msg, setMsg] = useState(''); const [err, setErr] = useState('')
   useEffect(() => { if (data) setF({ ...data, digest_time: data.digest_time.slice(0, 5), days: data.reminder_days.join(', ') }) }, [data])
@@ -130,10 +130,11 @@ function FirmSettings({ admin }: { admin: boolean }) {
     const days = f.days.split(/[,\s]+/).filter(Boolean).map(Number)
     if (days.some((d) => !Number.isInteger(d) || d < 0 || d > 365)) return setErr('Reminder days must be whole numbers from 0 to 365, separated by commas.')
     const rate = Number(f.late_rate_monthly); if (!(rate >= 0 && rate <= 10)) return setErr('Late rate must be between 0 and 10 percent.')
+    const cm = Number(f.consultant_multiplier); if (!(cm >= 1 && cm <= 5)) return setErr('The consultant multiplier must be between 1 and 5 (e.g. 1.15).')
     const t = (s: string | null) => (s ?? '').trim() || null
     if (f.wire_routing?.trim() && !/^\d{9}$/.test(f.wire_routing.trim())) return setErr('The wire routing number must be 9 digits.')
     if (f.zelle_qr?.trim() && !/^https:\/\/enroll\.zellepay\.com\//.test(f.zelle_qr.trim())) return setErr('The Zelle QR link must start with https://enroll.zellepay.com/ — it’s the link inside the QR code your bank gives you.')
-    const r = await supabase.from('firm_settings').update({ digest_time: f.digest_time, digest_enabled: f.digest_enabled, reminder_days: [...new Set(days)].sort((a, b) => a - b), late_rate_monthly: rate,
+    const r = await supabase.from('firm_settings').update({ digest_time: f.digest_time, digest_enabled: f.digest_enabled, reminder_days: [...new Set(days)].sort((a, b) => a - b), late_rate_monthly: rate, consultant_multiplier: cm,
       firm_name: t(f.firm_name), address: t(f.address), phone: t(f.phone), billing_email: t(f.billing_email), check_payee: t(f.check_payee),
       wire_bank_name: t(f.wire_bank_name), wire_bank_address: t(f.wire_bank_address), wire_account_name: t(f.wire_account_name), wire_routing: t(f.wire_routing), wire_account: t(f.wire_account), wire_swift: t(f.wire_swift), wire_notes: t(f.wire_notes),
       zelle_name: t(f.zelle_name), zelle_email: t(f.zelle_email), zelle_phone: t(f.zelle_phone), zelle_qr: t(f.zelle_qr) }).eq('id', 1)
@@ -179,6 +180,7 @@ function FirmSettings({ admin }: { admin: boolean }) {
           <div style={{ alignSelf: 'end' }}><label className="row" style={{ gap: 8, minHeight: 44 }}><input type="checkbox" checked={f.digest_enabled} onChange={(e) => setF({ ...f, digest_enabled: e.target.checked })} style={{ width: 18, height: 18 }} />Send the daily digest</label></div>
           <div style={{ gridColumn: 'span 2' }}><label className="l" htmlFor="s-rd">Payment reminders — days after due date</label><input id="s-rd" className="input" aria-describedby="s-rd-h" value={f.days} onChange={(e) => setF({ ...f, days: e.target.value })} /><p id="s-rd-h" className="muted" style={{ fontSize: 13, margin: '4px 0 0' }}>For example 0, 7, 14, 21 — 0 means on the due date.</p></div>
           <div><label className="l" htmlFor="s-lr">Late charge (% per month)</label><input id="s-lr" className="input num" inputMode="decimal" value={String(f.late_rate_monthly)} onChange={(e) => setF({ ...f, late_rate_monthly: e.target.value as unknown as number })} /></div>
+          <div><label className="l" htmlFor="s-cm">Consultant multiplier (additional services)</label><input id="s-cm" className="input num" inputMode="decimal" value={String(f.consultant_multiplier)} onChange={(e) => setF({ ...f, consultant_multiplier: e.target.value as unknown as number })} /><span className="muted" style={{ fontSize: 12 }}>Consultant’s bill × this = what the owner pays. Used in agreements (8.1) and when adding a consultant’s additional service.</span></div>
         </div>
       </fieldset>
       {err && <p className="err" role="alert">{err}</p>}

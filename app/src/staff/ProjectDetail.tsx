@@ -1,3 +1,4 @@
+import ConsultantFee from '../components/ConsultantFee'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import TypePicker, { typeCodes } from './TypePicker'
 import Avatar from '../components/Avatar'
@@ -502,13 +503,13 @@ export function RequestsTab({ projectId, phases: allPhases = [], onChanged }: { 
   const { profile } = useAuth()
   const list = useLoad(async () => must(await supabase.from('service_requests').select('*').eq('project_id', projectId).order('created_at', { ascending: false })) as ServiceRequest[], [projectId])
   const save = async (r: ServiceRequest, patch: Partial<ServiceRequest>) => { const { error } = await supabase.from('service_requests').update(patch).eq('id', r.id); if (error) setErr(error.message); list.reload(); onChanged?.() }
-  const [n, setN] = useState({ description: '', quote: '', status: 'quoted', phase_id: '', billing: 'fixed' }); const [err, setErr] = useState('')
+  const [n, setN] = useState({ description: '', quote: '', status: 'quoted', phase_id: '', billing: 'fixed' }); const [err, setErr] = useState(''); const [cons, setCons] = useState(false)
   const add = async (e: React.FormEvent) => {
     e.preventDefault(); setErr('')
     if (!n.description.trim()) return setErr('Describe the service.')
     const { error } = await supabase.from('service_requests').insert({ project_id: projectId, requested_by: profile?.id, description: n.description.trim(), quote: n.quote ? Number(n.quote) : null, status: n.status, phase_id: n.phase_id || null, billing: n.billing })
     if (error) return setErr(error.message)
-    setN({ description: '', quote: '', status: 'quoted', phase_id: '', billing: 'fixed' }); list.reload(); onChanged?.()
+    setN({ description: '', quote: '', status: 'quoted', phase_id: '', billing: 'fixed' }); setCons(false); list.reload(); onChanged?.()
   }
   const remove = async (r: ServiceRequest) => {
     if (!window.confirm(`Delete “${r.description.slice(0, 60)}”? The client will no longer see it. This can’t be undone.`)) return
@@ -533,6 +534,8 @@ export function RequestsTab({ projectId, phases: allPhases = [], onChanged }: { 
             <option value="quoted">Quoted (awaiting approval)</option><option value="approved">Approved</option><option value="done">Done</option></select></div>
           <div><button className="btn">Add service</button></div>
         </div>
+        <label className="row" style={{ gap: 6, fontSize: 14 }}><input type="checkbox" checked={cons} onChange={(e) => { setCons(e.target.checked); if (e.target.checked) setN((x) => ({ ...x, billing: 'fixed' })) }} style={{ width: 16, height: 16 }} /> Consultant’s service (their fee × our multiplier)</label>
+        {cons && <ConsultantFee id="as-cons" onFee={(q) => setN((x) => ({ ...x, quote: q }))} />}
         {err && <p className="err" role="alert">{err}</p>}
       </form>
       <section className="card pad stack">
