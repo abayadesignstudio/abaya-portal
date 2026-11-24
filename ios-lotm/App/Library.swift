@@ -740,6 +740,7 @@ private struct CoverBack: View {
 struct LibraryScreen: View {
     @ObservedObject var m: LibraryModel
     @ObservedObject var feed: FeedModel
+    @ObservedObject private var tickets = TicketsModel.shared
     @ObservedObject var web: WebModel
     @Namespace private var segNS
     @State private var shelfDrag = false
@@ -795,6 +796,7 @@ struct LibraryScreen: View {
         }
         .animation(.easeOut(duration: 0.2), value: m.toast)
         .task { m.feed = feed; await m.load() }
+        .task { tickets.auth = { await feed.auth() }; await tickets.load() }
         .onChange(of: web.tab) { _, _ in UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
         .sheet(isPresented: Binding(get: { searching != nil }, set: { if !$0 { searching = nil } })) {
             let want = searching ?? false
@@ -829,6 +831,7 @@ struct LibraryScreen: View {
     // MARK: My Library
 
     @ViewBuilder private var mine: some View {
+        MyTickets(say: { m.say($0) })
         H2(t: "Currently reading", action: m.mine.isEmpty ? nil : "Update") { flipNow += 1 }.padding(.top, -8)
         Shelf(items: mineItems(), w: 150, start: m.mine.isEmpty && m.clubToAdd.isEmpty ? 0 : 1, flipNow: flipNow, onDrag: { shelfDrag = $0 }, onReorder: { ids in Task { await m.reorderReads(ids) } })
         goals
@@ -994,7 +997,10 @@ struct LibraryScreen: View {
         H2(t: "Upcoming Events", action: m.admin ? "Add" : "Suggest") { eventForm = true }
         clubCard.padding(.top, -14).padding(.bottom, 10).animation(.easeOut(duration: 0.25), value: clubKey)
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(m.events) { e in EventCard(e: e, onRemove: m.admin ? { Task { await m.removeEvent(e) } } : nil).contentShape(Rectangle()).onTapGesture { openEvent(e) } }
+            ForEach(m.events) { e in
+                EventCard(e: e, onRemove: m.admin ? { Task { await m.removeEvent(e) } } : nil).contentShape(Rectangle()).onTapGesture { openEvent(e) }
+                if e.id.lowercased() == tickets.eventId { ReserveTickets(say: { m.say($0) }).padding(.horizontal, 20).padding(.top, -2).padding(.bottom, 8) }
+            }
             if m.events.isEmpty { Text("Nothing on the calendar yet.").font(.sans(14)).foregroundStyle(T.muted).padding(.horizontal, 4) }
             Button { pastOpen.toggle(); if pastOpen { Task { await m.loadMeetings() } } } label: { Text(pastOpen ? "Hide past meetings ▴" : "Past meetings ▾").font(.sans(14, .semibold)).foregroundStyle(T.muted).padding(.vertical, 6).padding(.horizontal, 4) }.buttonStyle(.plain)
             if pastOpen {
