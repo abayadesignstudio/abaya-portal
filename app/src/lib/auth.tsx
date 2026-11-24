@@ -20,10 +20,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const loadedFor = useRef<string | null>(null) // user id whose profile is currently loaded
   const [bump, setBump] = useState(0) // refreshProfile(): re-read the profile after the person edits it
+  const [resolved, setResolved] = useState(false) // the saved session has been read from the device
   const [recovering, setRecovering] = useState(false) // opened a password-reset link: ask for a new password first
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); if (!data.session) setLoading(false) })
+    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setResolved(true) })
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       if (event === 'PASSWORD_RECOVERY') setRecovering(true)
       // keep the same object when nothing that matters changed, so screens don't re-render for nothing
@@ -35,7 +36,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const uid = session?.user.id ?? null
   useEffect(() => {
     let live = true
-    if (!uid) { loadedFor.current = null; setProfile(null); setLoading(false); return }
+    if (!uid) {
+      // before the saved session is read, "no user" only means "not known yet": don't flash the sign-in page
+      if (!resolved) return
+      loadedFor.current = null; setProfile(null); setLoading(false); return
+    }
     const quiet = loadedFor.current === uid // same user: background refresh, no loading screen
     if (!quiet) setLoading(true)
     supabase.from('profiles').select('*').eq('id', uid).maybeSingle().then(({ data, error }) => {
@@ -45,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false)
     })
     return () => { live = false }
-  }, [uid, session?.access_token, bump])
+  }, [uid, session?.access_token, bump, resolved])
 
   const signOut = async () => { await supabase.auth.signOut({ scope: 'local' }); /* this device only */ loadedFor.current = null; setProfile(null) }
   return <Ctx.Provider value={{ session, profile, loading, recovering, endRecovery: () => setRecovering(false), signOut, refreshProfile: () => setBump((n) => n + 1) }}>{children}</Ctx.Provider>

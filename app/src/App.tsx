@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './lib/auth'
 import SetPassword from './pages/SetPassword'
 import Account from './pages/Account'
 import SignIn from './pages/SignIn'
+import logoLight from './assets/abaya-logo-light.png'
 import StaffLayout from './staff/StaffLayout'
 import StaffHome from './staff/Home'
 import Projects from './staff/Projects'
@@ -29,7 +30,8 @@ import ClientFeeChange from './client/ClientFeeChange'
 
 function Gate() {
   const { session, profile, loading, signOut, recovering, endRecovery } = useAuth()
-  if (loading) return <p style={{ padding: 40 }}>Loading…</p>
+  if (loading) return <div role="status" aria-label="Loading" style={{ position: 'fixed', inset: 0, background: '#02253d', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <img src={logoLight} alt="Abaya Design & Studio" style={{ width: 200, maxWidth: '60%', opacity: 0.95 }} /></div>
   if (!session) return <SignIn />
   if (recovering) return <SetPassword onDone={endRecovery} />
   if (!profile || profile.role === 'none') return (
