@@ -978,6 +978,9 @@ struct ChatScreen: View {
     }
 
     /// Under your latest message: whether it is on its way, delivered, or (if they share receipts) read.
+    private func toEnd(_ proxy: ScrollViewProxy) {
+        for d in [0.05, 0.3, 0.7] { DispatchQueue.main.asyncAfter(deadline: .now() + d) { withAnimation(.snappy) { proxy.scrollTo("end", anchor: .bottom) } } }
+    }
     @ViewBuilder private var receipt: some View {
         if let last = m.msgs.last(where: { $0.ctl == nil && !$0.deleted }), last.userId == m.me {
             let t: String = last.failed ? "Not delivered · tap the message to try again" : last.pending ? "Sending…"
@@ -1010,7 +1013,9 @@ struct ChatScreen: View {
             }
             .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
-            .onChange(of: m.msgs.count) { _, _ in withAnimation(.snappy) { proxy.scrollTo("end", anchor: .bottom) } }
+            // a new message is brought into view once it has been laid out, and again when the line beneath it (Sending…, Delivered) arrives
+            .onChange(of: m.msgs.count) { _, _ in toEnd(proxy) }
+            .onChange(of: m.msgs.last?.pending) { _, _ in toEnd(proxy) }
             .onChange(of: typing) { _, t in if t { DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } } }
         }
     }

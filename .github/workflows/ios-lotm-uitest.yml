@@ -1,0 +1,45 @@
+# Runs the Life of the Mind iPhone app in the simulator on a cloud Mac and photographs a walk through it,
+# so a build can be looked at without a phone. Signs in as the test member when the secrets
+# LOTM_TEST_EMAIL and LOTM_TEST_PASSWORD are set; otherwise it photographs the opening screen only.
+name: Life of the Mind iOS walk-through
+on:
+  workflow_dispatch:
+permissions: { contents: read }
+concurrency: { group: ios-lotm-uitest, cancel-in-progress: true }
+jobs:
+  walk:
+    runs-on: macos-15
+    timeout-minutes: 40
+    defaults: { run: { working-directory: ios-lotm } }
+    env: { LOTM_TEAM_ID: "" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with: { xcode-version: latest-stable }
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - name: Pick a simulator
+        run: |
+          xcrun simctl list devices available | grep -E "iPhone 1[5-9]( Pro)? \(" | head -5
+          UDID=$(xcrun simctl list devices available | grep -E "iPhone 1[5-9] Pro \(" | tail -1 | grep -oE "[0-9A-F-]{36}")
+          echo "UDID=$UDID" >> "$GITHUB_ENV"; xcrun simctl boot "$UDID" || true
+      - name: Walk through the app
+        env:
+          TEST_RUNNER_LOTM_EMAIL: ${{ secrets.LOTM_TEST_EMAIL }}
+          TEST_RUNNER_LOTM_PASSWORD: ${{ secrets.LOTM_TEST_PASSWORD }}
+        run: |
+          set -o pipefail
+          xcodebuild test -project LifeOfTheMind.xcodeproj -scheme LOTMUITests -configuration Debug \
+            -destination "platform=iOS Simulator,id=$UDID" -resultBundlePath "$RUNNER_TEMP/walk.xcresult" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO 2>&1 | tee test.log | grep -E "error:|Test Case|\*\* TEST|XCTAssert|failed" || true
+          grep -qE "TEST (SUCCEEDED|FAILED)|Executed [0-9]+ test" test.log
+      - name: Collect the pictures
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/shots"
+          xcrun xcresulttool export attachments --path "$RUNNER_TEMP/walk.xcresult" --output-path "$RUNNER_TEMP/shots" || true
+          tail -60 test.log > "$RUNNER_TEMP/shots/test-tail.log" || true
+          ls -la "$RUNNER_TEMP/shots" | head -60
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: lotm-walk, path: "${{ runner.temp }}/shots", retention-days: 7 }

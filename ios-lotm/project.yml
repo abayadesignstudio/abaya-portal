@@ -60,6 +60,18 @@ targets:
       - target: LOTMWidgets
       - target: LOTMNotify
     scheme: {}
+  LOTMUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: LifeOfTheMind
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.lotmstudy.app.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: LifeOfTheMind
+    scheme: {}
   LOTMShare:
     type: app-extension
     platform: iOS

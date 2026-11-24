@@ -350,7 +350,8 @@ final class LibHandler: NSObject, WKScriptMessageHandler {
 }
 extension WebModel {
     func setLibPane(_ v: String, tellWeb: Bool = true) {
-        if libPane != v { libPane = v; UserDefaults.standard.set(v, forKey: "lotm.libPane") }
+        // leaving a pane puts its keyboard away (the notebook's search field lives on beside the others)
+        if libPane != v { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil); libPane = v; UserDefaults.standard.set(v, forKey: "lotm.libPane") }
         if false, tellWeb { view.evaluateJavaScript("try{localStorage.setItem('lotm.library','\(v)');dispatchEvent(new Event('lotm:library'))}catch(e){}", completionHandler: nil) }
     }
 }
@@ -794,6 +795,7 @@ struct LibraryScreen: View {
         }
         .animation(.easeOut(duration: 0.2), value: m.toast)
         .task { m.feed = feed; await m.load() }
+        .onChange(of: web.tab) { _, _ in UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
         .sheet(isPresented: Binding(get: { searching != nil }, set: { if !$0 { searching = nil } })) {
             let want = searching ?? false
             BookSearch(title: want ? "Want to read" : "Add a book", cta: "Add to my library", manual: { searching = nil; byHand = want }) { f in searching = nil; Task { await m.add(f, want: want) } }
