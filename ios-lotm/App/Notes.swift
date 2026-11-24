@@ -251,6 +251,7 @@ private struct NoteCard: View {
                 Text((n.kind == "quote" ? "Quote" : "Note") + (n.isPrivate ? "" : " · Shared")).font(.sans(11, .bold)).tracking(0.9).textCase(.uppercase)
                 Spacer()
                 Text(relDay(n.created)).font(.sans(11, .medium))
+                Button { shareNote(n) } label: { Image(systemName: "square.and.arrow.up").font(.system(size: 15, weight: .medium)).frame(width: 36, height: 30).contentShape(Rectangle()) }.buttonStyle(.plain).padding(.trailing, -8).padding(.vertical, -8).accessibilityLabel("Share")
             }.foregroundStyle(T.muted)
             if !n.quotation.isEmpty {
                 Text(n.quotation).font(.serif(18.5, italic: true)).foregroundStyle(T.ink).lineSpacing(3).multilineTextAlignment(.leading).lineLimit(8)
@@ -324,6 +325,8 @@ struct NoteEntry: View {
     /// A note's page shows its words in Apple's text face from the start: a note already written waits for a tap
     /// before the keyboard comes up; a new one opens ready to type. (The Garamond reading view is not used.)
     @State private var editing = true
+    @State private var saved: NNote? = nil
+    @State private var leaving = false
     @FocusState private var linkFocus: Bool
     private func ntool(_ g: String) -> some View { GlyphView(n: g, s: 24).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }
     @ObservedObject var m: NotesModel
@@ -345,30 +348,35 @@ struct NoteEntry: View {
         var x = id.flatMap { i in m.notes.first { $0.id == i } } ?? NNote(id: id ?? "")
         if id == nil { x.kind = text.isEmpty ? "thought" : "quote"; x.quotation = text; x.source = url }
         _n = State(initialValue: x); _original = State(initialValue: x.body)
+        // a note already written opens to be read; Edit unlocks it. A new one opens ready to type.
+        _editing = State(initialValue: id == nil); _saved = State(initialValue: id == nil ? nil : x)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Button("Cancel") { close() }.font(.sans(16)).foregroundStyle(T.ink)
+                Button(editing ? "Cancel" : "Close") { leave() }.font(.sans(16)).foregroundStyle(T.ink)
                 Spacer()
-                Button { save() } label: { Text(busy ? "…" : "Save").font(.sans(14, .bold)).foregroundStyle(T.paper).padding(.horizontal, 18).frame(height: 36).background(Capsule().fill(T.ink)) }.disabled(busy)
+                if id != nil { Button { flushTyping(); shareNote(n) } label: { Image(systemName: "square.and.arrow.up").font(.system(size: 19, weight: .medium)).foregroundStyle(T.ink).frame(width: 40, height: 36).contentShape(Rectangle()) }.accessibilityLabel("Share") }
+                Button { if editing { save() } else { editing = true } } label: { Text(busy ? "…" : editing ? "Save" : "Edit").font(.sans(14, .bold)).foregroundStyle(T.paper).padding(.horizontal, 18).frame(height: 36).background(Capsule().fill(T.ink)) }.disabled(busy)
             }
             .overlay(Text((id == nil ? "New " : "") + (n.kind == "quote" ? (id == nil ? "quote" : "Quote") : (id == nil ? "note" : "Note"))).font(.serif(18, .semibold)).foregroundStyle(T.ink))
             .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 10)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    Seg(options: ["Quote", "Note"], value: Binding(get: { n.kind == "quote" ? "Quote" : "Note" }, set: { flushTyping(); n.kind = $0 == "Quote" ? "quote" : "thought" })).padding(.horizontal, 16).onAppear { titled = !n.title.trimmingCharacters(in: .whitespaces).isEmpty }
+                    if editing { Seg(options: ["Quote", "Note"], value: Binding(get: { n.kind == "quote" ? "Quote" : "Note" }, set: { flushTyping(); n.kind = $0 == "Quote" ? "quote" : "thought" })).padding(.horizontal, 16) }
+                    Color.clear.frame(height: 0).onAppear { titled = !n.title.trimmingCharacters(in: .whitespaces).isEmpty }
                     VStack(alignment: .leading, spacing: 0) {
-                        if titled { WriteField(text: $n.title, hint: "Title", size: 22).padding(.bottom, 8) }
+                        if titled, editing { WriteField(text: $n.title, hint: "Title", size: 22).padding(.bottom, 8) }
+                        else if titled { Text(n.title).font(.serif(22, .semibold)).foregroundStyle(T.ink).padding(.bottom, 8) }
                         if !editing {
-                            // A note opens to be read, in Garamond; a tap on the words begins editing them.
+                            // A note opens to be read; its links can be followed. Edit, above, unlocks the words.
                             VStack(alignment: .leading, spacing: 12) {
                                 if n.kind == "quote", !n.quotation.isEmpty { Text(n.quotation).font(.serif(21, italic: true)).padding(.leading, 12).overlay(alignment: .leading) { T.ink.frame(width: 3) } }
                                 if !n.body.isEmpty { Text(linked(n.body)).font(.serif(20)) }
                             }
-                            .foregroundStyle(T.ink).lineSpacing(5).frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading).contentShape(Rectangle())
-                            .onTapGesture { editing = true; tick += 1 }
+                            .foregroundStyle(T.ink).tint(T.ink).lineSpacing(5).frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
+                            .textSelection(.enabled).environment(\.openURL, OpenURLAction { openInApp($0); return .handled })
                         } else if n.kind == "quote" {
                             Text("THE PASSAGE").font(.sans(11, .bold)).tracking(0.9).foregroundStyle(T.muted)
                             WriteField(text: $n.quotation, hint: "Type or paste the passage", size: 20, italic: true, minHeight: 96, focus: tick)
@@ -379,12 +387,13 @@ struct NoteEntry: View {
                         }
                         if let u = n.image.flatMap(URL.init(string:)) {
                             AsyncImage(url: u) { $0.resizable().scaledToFit() } placeholder: { T.soft.frame(height: 160) }.clipShape(RoundedRectangle(cornerRadius: 10))
-                                .overlay(alignment: .topTrailing) { Button { n.image = nil } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white).frame(width: 24, height: 24).background(Circle().fill(Color(rgb: 0x0a0c06, 0.72))) }.padding(6) }
-                                .padding(.top, 8)
+                                .overlay(alignment: .topTrailing) { if editing { Button { n.image = nil } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white).frame(width: 24, height: 24).background(Circle().fill(Color(rgb: 0x0a0c06, 0.72))) }.padding(6) } }
+                                .imageMenu(u).padding(.top, 8)
                         }
                         if let u = n.firstLink { LinkCard(url: u).id(u).padding(.top, 10) }
+                        if !editing, !n.bookTitle.isEmpty { Text(n.bookTitle + (n.page.isEmpty ? "" : ", p. \(n.page)")).font(.sans(13)).foregroundStyle(T.muted).padding(.top, 10) }
                         // the same tools, in the same order, as the post writer
-                        HStack(spacing: 0) {
+                        if editing { HStack(spacing: 0) {
                             PhotosPicker(selection: $photo, matching: .images) { ntool("image") }.accessibilityLabel("Photo")
                             Button { camera = true } label: { ntool("camera") }.accessibilityLabel("Camera")
                             Button { linkFocus = true } label: { ntool("link") }.foregroundStyle(n.source.isEmpty ? T.muted : T.ink).accessibilityLabel("Web link")
@@ -395,11 +404,12 @@ struct NoteEntry: View {
                             Button { listTool("number") } label: { Image(systemName: "list.number").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Numbered list")
                             Spacer(minLength: 0)
                         }
-                        .foregroundStyle(T.muted).buttonStyle(.plain).padding(.leading, -8).padding(.top, 6)
+                        .foregroundStyle(T.muted).buttonStyle(.plain).padding(.leading, -8).padding(.top, 6) }
                     }
                     .padding(.horizontal, 16).padding(.vertical, 14).frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 16).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.rule)).padding(.horizontal, 16).padding(.top, 14)
 
+                    if editing {
                     VStack(spacing: 0) {
                         Button { pick = "book" } label: {
                             HStack(spacing: 12) {
@@ -426,6 +436,7 @@ struct NoteEntry: View {
                     Text("Private notes are yours alone. Turn it off to let you share this one into the feed.").font(.sans(13)).foregroundStyle(T.muted).lineSpacing(2).padding(.horizontal, 20).padding(.top, 10)
                     if !n.isPrivate { Button("Share to the feed") { share() }.buttonStyle(PillStyle()).padding(.horizontal, 16).padding(.top, 12) }
                     if id != nil { Button("Delete note") { confirm = true }.font(.sans(15, .semibold)).foregroundStyle(T.danger).frame(maxWidth: .infinity).padding(.top, 26) }
+                    }
                     Color.clear.frame(height: 60)
                 }
             }
@@ -446,6 +457,19 @@ struct NoteEntry: View {
             Button("Cancel", role: .cancel) {}
         }
         .confirmationDialog("Delete this note?", isPresented: $confirm, titleVisibility: .visible) { Button("Delete", role: .destructive) { let x = n; close(); m.delete(x) } }
+        .confirmationDialog("Save your changes?", isPresented: $leaving, titleVisibility: .visible) {
+            Button("Save") { save(thenClose: true) }
+            Button("Discard changes", role: .destructive) { close() }
+            Button("Keep editing", role: .cancel) {}
+        }
+    }
+    /// Leaving a note that has been changed asks first.
+    private func leave() {
+        flushTyping()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            let blank = [n.quotation, n.body, n.title].allSatisfy { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            if editing, (id == nil ? !blank : saved != n) { leaving = true } else { close() }
+        }
     }
     private var line: some View { Color(rgb: 0x444731).frame(height: 1) }
     private var linker: some View {
@@ -475,7 +499,7 @@ struct NoteEntry: View {
         }
         .background(T.card.ignoresSafeArea()).preferredColorScheme(.dark)
     }
-    private func save() {
+    private func save(thenClose: Bool = false) {
         flushTyping()
         let empty = [n.quotation, n.body, n.title].allSatisfy { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !empty else { m.say("Write something first"); close(); return }
@@ -485,7 +509,13 @@ struct NoteEntry: View {
         for h in hashtags(x.body + "\n" + x.quotation) where !x.tags.contains(h) { x.tags.append(h) }
         if x.body != original { x.html = nil }        // the words changed here, so any formatting set on the web no longer fits them
         busy = true
-        Task { if await m.save(x, new: id == nil) { close() }; busy = false }
+        // a new note closes once kept; one already written stays open, read-only again
+        Task {
+            if await m.save(x, new: id == nil) {
+                if id == nil || thenClose { close() } else { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil); n = x; saved = x; original = x.body; editing = false }
+            }
+            busy = false
+        }
     }
     private func share() {
         flushTyping()
@@ -567,5 +597,32 @@ extension NNote {
         let src = source.trimmingCharacters(in: .whitespaces)
         if !src.isEmpty { return web(src) ?? (src.contains(".") && !src.contains(" ") ? URL(string: "https://" + src) : nil) }
         return web(body) ?? web(quotation)
+    }
+}
+
+extension NNote {
+    /// A note as plain words, for sending outside the app.
+    var shareText: String {
+        var parts: [String] = []
+        if !title.isEmpty { parts.append(title) }
+        if !quotation.isEmpty { parts.append("“\(quotation)”") }
+        if !bookTitle.isEmpty { parts.append("— " + (bookAuthor.isEmpty ? "" : bookAuthor + ", ") + bookTitle + (page.isEmpty ? "" : ", p. \(page)")) }
+        if !body.isEmpty { parts.append(body) }
+        let src = source.trimmingCharacters(in: .whitespaces)
+        if !src.isEmpty, !body.contains(src) { parts.append(src) }
+        return parts.joined(separator: "\n\n")
+    }
+}
+/// Apple's share sheet for a note: its words, and its picture if it has one.
+@MainActor func shareNote(_ n: NNote) {
+    Task { @MainActor in
+        var items: [Any] = [n.shareText]
+        if let u = n.image.flatMap(URL.init(string:)), let d = try? await URLSession.shared.data(from: u).0, let img = UIImage(data: d) { items.append(img) }
+        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        let root = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first
+        var top = root; while let p = top?.presentedViewController { top = p }
+        vc.popoverPresentationController?.sourceView = top?.view
+        vc.popoverPresentationController?.sourceRect = CGRect(x: (top?.view.bounds.midX ?? 200), y: 80, width: 1, height: 1)
+        top?.present(vc, animated: true)
     }
 }
