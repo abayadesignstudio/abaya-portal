@@ -1,5 +1,5 @@
 /* Minimal phone app */
-.mapp{min-height:100dvh;background:#f3f3f2;color:#1c1f23;padding-bottom:calc(110px + env(safe-area-inset-bottom))}
+.mapp{min-height:100dvh;background:#e7e7e4;color:#1c1f23;padding-bottom:calc(110px + env(safe-area-inset-bottom))}
 .mapp-head{position:sticky;top:0;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:calc(8px + env(safe-area-inset-top)) 14px 8px;background:var(--navy);color:#ede6d6}
 .mapp-logo{height:34px;width:auto;max-width:62vw;object-fit:contain;display:block}
 .mapp-head h1{margin:0;font-size:19px;font-weight:700}
@@ -75,7 +75,7 @@ button.m-card{cursor:pointer}
 .m-chips button.on{background:#02253d;border-color:#02253d;color:#fff}
 .m-inv{gap:3px}
 /* Calendar tab, iOS style: grouped sections on system gray, large title, week strip, segmented control */
-.mapp-cal{background:#f2f2f7;min-height:100%}
+.mapp-cal{background:#e8e8ed;min-height:100%}
 .mapp-cal > .card{border-radius:0;box-shadow:none;border:0;padding:4px 16px 16px;background:transparent;gap:0}
 .cv-phone{font-family:-apple-system,"SF Pro Text",system-ui,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased;color:#000}
 .cv-phone .cv-seg{display:none}
@@ -213,7 +213,7 @@ button.m-card{cursor:pointer}
 .fc-warn{display:block;margin-top:8px;font-size:13px;color:#b42318}
 .fc-edit{display:block;margin-top:10px;font-size:14px;font-weight:600;color:var(--navy)}
 .fc-note{margin:14px 4px 0;font-size:14px}
-.fc-go{position:sticky;bottom:calc(96px + env(safe-area-inset-bottom));margin:16px -14px 0;padding:10px 14px;background:linear-gradient(rgba(243,243,242,0),#f3f3f2 30%)}
+.fc-go{position:sticky;bottom:calc(96px + env(safe-area-inset-bottom));margin:16px -14px 0;padding:10px 14px;background:linear-gradient(rgba(231,231,228,0),#e7e7e4 30%)}
 .has-timer .fc-go{bottom:calc(152px + env(safe-area-inset-bottom))}
 .fc-go .btn{width:100%;min-height:52px;font-size:16px;border-radius:14px}
 .fc-scrim{position:fixed;inset:0;z-index:55;background:rgba(0,0,0,.3)}
@@ -259,3 +259,6 @@ button.m-card{cursor:pointer}
 .fc-sitem strong{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fc-sitem small{font-size:13px;color:#6b6b70}
 .fc-samt{font-size:14px;font-weight:700}
+
+/* back button inside a white sheet header: dark text (the beige one is for the navy header) */
+.mapp-sheet-head .mapp-back{background:#efeeea;color:#02253d !important}

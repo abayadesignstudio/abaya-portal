@@ -104,6 +104,7 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
         refresh.addTarget(self, action: #selector(reload(_:)), for: .valueChanged)
         web.scrollView.refreshControl = refresh
         view.addSubview(web)
+        overrideUserInterfaceStyle = .light
         web.hideKeyboardAccessoryBar() // native feel: no "‹ › Done" bar above the keyboard
         web.load(URLRequest(url: portalURL))
 
@@ -138,7 +139,8 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
     private func showTime(_ show: Bool) {
         if show && timeHost == nil {
             let host = UIHostingController(rootView: TimeScreen(m: TimeModel.shared))
-            host.view.backgroundColor = UIColor(red: 243 / 255, green: 243 / 255, blue: 242 / 255, alpha: 1)
+            host.view.backgroundColor = UIColor(red: 231 / 255, green: 231 / 255, blue: 228 / 255, alpha: 1)
+            host.overrideUserInterfaceStyle = .light // the portal is a light design; Dark Mode turned .primary text white on white
             addChild(host); view.addSubview(host.view); host.didMove(toParent: self)
             timeHost = host
         }

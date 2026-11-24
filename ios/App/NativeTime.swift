@@ -86,7 +86,7 @@ private func str(_ v: Any?) -> String? { (v as? String).flatMap { $0.isEmpty ? n
 private func num(_ v: Any?) -> Double { (v as? Double) ?? (v as? NSNumber)?.doubleValue ?? Double((v as? String) ?? "") ?? 0 }
 
 let navy = Color(red: 2 / 255, green: 37 / 255, blue: 61 / 255)
-let paper = Color(red: 243 / 255, green: 243 / 255, blue: 242 / 255)
+let paper = Color(red: 231 / 255, green: 231 / 255, blue: 228 / 255)
 let runGreen = Color(red: 3 / 255, green: 152 / 255, blue: 85 / 255)
 func sectorColor(_ s: String?, number: String?) -> Color {
     if number == "OH" { return Color(red: 0.42, green: 0.45, blue: 0.5) }
@@ -321,10 +321,11 @@ struct TimeScreen: View {
         .task { await m.load() }
         .sheet(item: $sheet) { k in
             switch k {
-            case .start: StartTimerSheet(m: m)
-            case .running: RunningSheet(m: m)
+            case .start: StartTimerSheet(m: m).preferredColorScheme(.light)
+            case .running: RunningSheet(m: m).preferredColorScheme(.light)
             }
         }
+        .preferredColorScheme(.light)
     }
 
     private var dayBar: some View {
@@ -605,7 +606,7 @@ struct RunningSheet: View {
             .navigationTitle(m.running?.paused == true ? "Paused" : "Running")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .sheet(isPresented: $switching) { StartTimerSheet(m: m) }
+            .sheet(isPresented: $switching) { StartTimerSheet(m: m).preferredColorScheme(.light) }
             .confirmationDialog("Discard the time on this timer? It won’t be logged.", isPresented: $confirmDiscard, titleVisibility: .visible) {
                 Button("Discard", role: .destructive) { Task { await m.discard(); dismiss() } }
             }
