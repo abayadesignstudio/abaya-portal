@@ -84,3 +84,11 @@ tr.ph-drop.below td{box-shadow:inset 0 -2px 0 #02253d}
 .fc-edit tr.fc-changed td{background:#fbf8ef}
 .pb-stats-sm .v{font-size:20px}
 @media (min-width:1101px){.pb-stats-sm{grid-template-columns:repeat(4,minmax(0,1fr))}}
+/* Budget summary: Total = Our fee + Consultants, with Profit */
+.pb-sum{display:flex;align-items:center;gap:18px;padding:18px 22px;flex-wrap:wrap}
+.pb-sum .pb-k{font-size:14px;color:var(--muted)}
+.pb-sum .pb-v{font-size:28px;font-weight:700;line-height:1.2}
+.pb-sum .pb-s{font-size:12.5px;color:var(--muted)}
+.pb-sum .pb-op{font-size:26px;color:#a8a39a;font-weight:300}
+.pb-sum .pb-gap{flex:1}
+.pb-sum .pb-profit{padding-left:22px;border-left:1px solid #ece9e3}
