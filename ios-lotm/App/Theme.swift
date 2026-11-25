@@ -607,17 +607,19 @@ struct WriteField: View {
     @State private var local = ""
     @State private var sel: TextSelection?
     @State private var push: DispatchWorkItem?
+    @State private var justDeleted = false
     @FocusState private var on: Bool
 
     var body: some View {
         TextField("", text: $local, selection: $sel, prompt: Text(hint).foregroundColor(T.muted), axis: .vertical)
             .font(.serif(size, italic: italic)).foregroundStyle(color).tint(T.ink).lineSpacing(size * 0.16)
+            .textInputAutocapitalization(.sentences)
             .focused($on)
             .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
             .contentShape(Rectangle()).onTapGesture { on = true }
             .onAppear { local = text; if active == true { DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { on = true } } }
             .onChange(of: text) { _, v in if v != local { local = v; sel = TextSelection(insertionPoint: v.endIndex) } }
-            .onChange(of: local) { old, new in carryList(old, new); later(); if on, new.count >= old.count, caret == local.endIndex { NotificationCenter.default.post(name: .lotmTypedAtEnd, object: nil) } }
+            .onChange(of: local) { old, new in if capitalLine(old, new) { return }; carryList(old, new); later(); if on, new.count >= old.count, caret == local.endIndex { NotificationCenter.default.post(name: .lotmTypedAtEnd, object: nil) } }
             .onChange(of: on) { _, v in WriteFocus.on = v; onFocus(v); if !v { flush() } }
             .onReceive(NotificationCenter.default.publisher(for: .lotmMention)) { n in if on, let s = n.object as? String { mention(s) } }
             .onChange(of: active) { _, v in if let v, v != on { on = v } }
@@ -667,6 +669,26 @@ struct WriteField: View {
         sel = TextSelection(insertionPoint: end); Haptic.tap()
     }
     /// Return inside a list begins the next item; Return on an empty item ends the list.
+    /// A new line, bullet or numbered item begins with a capital: the first letter typed on an empty line (or an
+    /// empty list item) is raised. Delete it and type again to have it small.
+    private func capitalLine(_ old: String, _ new: String) -> Bool {
+        if new.count < old.count { justDeleted = true; return false }
+        defer { justDeleted = false }
+        guard new.count == old.count + 1, !justDeleted else { return false }
+        var p = new.startIndex, q = old.startIndex                    // where the one new character went in
+        while q < old.endIndex, new[p] == old[q] { p = new.index(after: p); q = old.index(after: q) }
+        guard p < new.endIndex, new[p].isLetter, new[p].isLowercase else { return false }
+        let a = new[..<p].lastIndex(of: "\n").map { new.index(after: $0) } ?? new.startIndex
+        guard a != new.startIndex else { return false }               // the very first line is the keyboard's own business
+        let mark = listMark(new[a...])?.len ?? 0
+        guard new.distance(from: a, to: p) == mark else { return false }   // the letter opens the line's words
+        let next = new.index(after: p)
+        guard next == new.endIndex || new[next] == "\n" else { return false }   // and the line had no words yet
+        let up = String(new[p]).uppercased(); guard up.count == 1 else { return false }
+        var t = new; t.replaceSubrange(p...p, with: up)
+        local = t; sel = TextSelection(insertionPoint: t.index(after: p)); later()
+        return true
+    }
     private func carryList(_ old: String, _ new: String) {
         guard new.count == old.count + 1 else { return }
         var p = new.startIndex, q = old.startIndex                    // where the one new character went in
