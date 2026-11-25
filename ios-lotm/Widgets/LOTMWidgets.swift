@@ -343,6 +343,7 @@ struct NoteEntryTimeline: TimelineProvider {
 
 struct NewNoteView: View {
     @Environment(\.widgetFamily) private var family
+    @Environment(\.pal) private var Ink
     var body: some View {
         switch family {
         case .accessoryCircular:
