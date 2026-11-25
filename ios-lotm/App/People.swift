@@ -142,13 +142,13 @@ struct MemberScreen: View {
                     Spacer()
                     if isMe {
                         Button { Haptic.tap(); openProfileEdit(feed) } label: {
-                            Text("Edit profile").font(.sans(14, .bold)).foregroundStyle(T.ink).padding(.horizontal, 18).frame(height: 40).overlay(Capsule().stroke(Color(rgb: 0x626546)))
-                        }
+                            Text("Edit profile").font(.sans(14, .bold)).foregroundStyle(T.ink).padding(.horizontal, 18).frame(height: 36).overlay(Capsule().stroke(Color(rgb: 0x626546)))
+                        }.offset(y: 6)
                     } else {
                         if chatOpen {
                             Button { Haptic.tap(); openChat(web, with: id) } label: {
-                                Text("Message").font(.sans(14, .bold)).foregroundStyle(T.paper).padding(.horizontal, 18).frame(height: 40).background(Capsule().fill(T.ink))
-                            }
+                                Text("Message").font(.sans(14, .bold)).foregroundStyle(T.paper).padding(.horizontal, 18).frame(height: 36).background(Capsule().fill(T.ink))
+                            }.offset(y: 6)   // clear of the banner above
                     }
                     }
                 }
@@ -330,7 +330,7 @@ struct MemberScreen: View {
 
     private func reportMember() async {
         guard let a = await feed.auth() else { return }
-        _ = try? await Supa(a: a).req("POST", "/rest/v1/reports", json: ["reporter_id": a.me, "reason": "Member \(person?.name ?? id): \(reason)"], prefer: "return=minimal")
+        _ = try? await Supa(a: a).req("POST", "/rest/v1/reports", json: ["reporter_id": a.me, "reason": "Member \(person?.name ?? id): \(reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "(no reason given)" : reason)"], prefer: "return=minimal")
         thanks = true
     }
 }
