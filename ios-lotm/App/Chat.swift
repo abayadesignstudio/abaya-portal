@@ -179,7 +179,8 @@ final class ChatSession: ObservableObject {
         convos = out
         await syncKeys()
         // get the first few chats ready in the background, so they open with their messages already there
-        for c in out.prefix(4) { let m = model(c); Task { await m.warm() } }
+        // (every chat in a club this size: the list shows each one's latest message)
+        for c in out.prefix(20) { let m = model(c); Task { if m.started { await m.refresh() } else { await m.warm() } } }
     }
 
     /// Every chat key shared with you, unlocked and kept in this phone's keychain, so a notification can show its message.
@@ -275,7 +276,7 @@ final class ChatModel: ObservableObject {
     private var cache: [String: CMsg] = [:]
     private var timer: Task<Void, Never>?
     private var lastMaintain = Date.distantPast
-    private var started = false, starting = false
+    private(set) var started = false; private var starting = false
     private var rows: [[String: Any]] = []      // what the server has, oldest first
     private var ticks = 0
     private var outbox: [String: (p: [String: Any], attach: Outgoing?, epoch: Int)] = [:]
@@ -739,8 +740,7 @@ struct ChatListScreen: View {
             ConvoFace(s: s, c: c, size: 50)
             VStack(alignment: .leading, spacing: 3) {
                 Text(s.name(c)).font(.serif(18, .semibold)).foregroundStyle(T.ink).lineLimit(1)
-                Text(c.kind == "club" ? "Everyone in the club" : c.kind == "group" ? "\(c.members.count) people" : "Direct message")
-                    .font(.sans(13)).foregroundStyle(T.muted).lineLimit(1)
+                ConvoPreview(s: s, m: s.model(c), c: c)
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 6) {
@@ -770,6 +770,27 @@ struct ChatListScreen: View {
 }
 
 /// A chat's picture: the club's LM mark, the other person's face, or a group's two faces.
+/// The latest message of a chat, under its name in the list. Read on this phone: the server only holds it sealed.
+private struct ConvoPreview: View {
+    @ObservedObject var s: ChatSession
+    @ObservedObject var m: ChatModel
+    let c: Convo
+    var body: some View {
+        Text(line).font(.sans(13, c.unread > 0 ? .semibold : .regular)).foregroundStyle(c.unread > 0 ? T.ink : T.muted).lineLimit(1)
+    }
+    private var line: String {
+        guard let x = m.msgs.last(where: { !$0.deleted && !$0.unreadable }) else {
+            return c.kind == "club" ? "Everyone in the club" : c.kind == "group" ? "\(c.members.count) people" : "Direct message"
+        }
+        var what = x.text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
+        if what.isEmpty { what = x.poll.map { "Poll: " + $0.q } ?? x.att.map { $0.mime.hasPrefix("image/") ? "Photo" : $0.name } ?? "Message" }
+        if x.userId == s.me { return "You: " + what }
+        if c.kind == "direct" { return what }
+        let first = s.people[x.userId]?.name.split(separator: " ").first.map(String.init)
+        return (first.map { $0 + ": " } ?? "") + what
+    }
+}
+
 private struct ConvoFace: View {
     @ObservedObject var s: ChatSession
     let c: Convo, size: CGFloat
