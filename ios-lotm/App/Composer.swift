@@ -137,6 +137,7 @@ struct ComposeView: View {
     /// The post the tools act on: the one being written, else the one written in last, else the latest.
     private var target: DraftPost { m.posts.first { $0.id == (focus ?? lastFocus) } ?? m.posts[m.posts.count - 1] }
     @State private var lastFocus: UUID?
+    @State private var picks: [PhotosPickerItem] = []
     private func barTool(_ n: String) -> some View { GlyphView(n: n, s: 24).frame(maxWidth: .infinity).frame(height: 44).contentShape(Rectangle()) }
 
     var body: some View {
