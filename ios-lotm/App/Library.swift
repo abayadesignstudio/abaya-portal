@@ -983,7 +983,7 @@ struct LibraryScreen: View {
             Text("LOTM \(String(m.year)) Books").font(.serif(20, .semibold)).foregroundStyle(T.ink)
             Spacer()
             if m.admin {
-                Button { let c = m.current.first; editing = UpdateDraft(title: c.map { lshort($0.title) } ?? "", author: c?.author ?? "", cover: c?.cover?.absoluteString, bookURL: c?.bookURL, place: c?.place ?? "") } label: {
+                Button { let c = m.current.first; editing = UpdateDraft(title: c.map { lshort($0.title) } ?? "", author: c?.author ?? "", cover: c?.cover?.absoluteString, bookURL: c?.bookURL, place: c?.place ?? "", position: c?.position.flatMap { $0 == "TBD" ? nil : $0 } ?? "") } label: {
                     Text("Update").font(.sans(13, .bold)).foregroundStyle(T.ink).padding(.horizontal, 14).frame(height: 30).background(Capsule().fill(Color(rgb: 0x0c0e08, 0.08)))
                 }.buttonStyle(.plain)
             }
@@ -1105,7 +1105,9 @@ struct LibraryScreen: View {
                             .frame(width: 46).background(T.card).clipShape(RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(T.softBd)).opacity(gone ? 0.5 : 1)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(gone ? "Met \(d.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))" : "Next study · \(d.formatted(.dateTime.weekday(.wide).month(.wide).day())) · \(d.formatted(date: .omitted, time: .shortened))").font(.sans(14, .semibold)).foregroundStyle(T.ink)
-                                Text(lshort(b.title) + ((b.position ?? "TBD") != "TBD" && !(b.position ?? "").isEmpty ? " · \(b.position!)" : "")).font(.sans(13)).foregroundStyle(T.muted)
+                                Text(lshort(b.title)).font(.sans(13)).foregroundStyle(T.muted)
+                                // what to read before the study, as the administrator wrote it
+                                if !gone, let pos = b.position, !pos.isEmpty, pos != "TBD" { Text(pos).font(.sans(14, .medium)).foregroundStyle(T.ink).fixedSize(horizontal: false, vertical: true).padding(.vertical, 3) }
                                 if let p = b.place, !p.isEmpty {
                                     Button { if let u = b.placeURL.flatMap(URL.init(string:)) ?? URL(string: "https://maps.apple.com/?q=\(p.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")") { UIApplication.shared.open(u) } } label: { Text(p).font(.sans(13)).foregroundStyle(T.muted).multilineTextAlignment(.leading) }.buttonStyle(.plain)
                                 }
@@ -1364,6 +1366,7 @@ private struct ClubBookSheet: View {
     @State private var confirm = false
     /// What the group is reading to, as the schedule has it.
     private var assigned: String? {
+        if let pos = b.position, !pos.isEmpty, pos != "TBD" { return pos }
         if let cp = b.clubPage {
             var t = "Read through page \(cp)"
             if let tot = b.clubTotal { t += " of \(tot)" }
@@ -1415,7 +1418,7 @@ private struct UpdateSheet: View {
                     Button("Find on Amazon") { find(d) }.font(.sans(13, .bold)).foregroundStyle(T.ink).padding(.horizontal, 12).frame(height: 32).background(Capsule().fill(Color(rgb: 0x0c0e08, 0.08)))
                 }
                 Text("A different title runs alongside as another card (e.g. the Advent devotion).").font(.sans(14)).foregroundStyle(T.muted)
-                LField(label: "Book", text: $d.title); LField(label: "Author", text: $d.author); LField(label: "Read through page", text: $d.page, hint: "the page we read to for next time", number: true); LField(label: "Note on the reading (optional)", text: $d.position, hint: "such as Chapters 4–6")
+                LField(label: "Book", text: $d.title); LField(label: "Author", text: $d.author); LField(label: "Reading for next time", text: $d.position, hint: "What to read before we meet: chapters, pages, anything to bring")
                 Toggle(isOn: $d.hasDate) { Text("Next study").font(.sans(15, .semibold)).foregroundStyle(T.ink) }.tint(Color(rgb: 0x3f7d4f))
                 if d.hasDate { DatePicker("When", selection: $d.when, displayedComponents: [.date, .hourAndMinute]).font(.sans(15)).foregroundStyle(T.ink) }
                 LField(label: "Where", text: $d.place, hint: "A place or address")

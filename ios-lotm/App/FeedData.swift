@@ -26,6 +26,7 @@ struct FPin: Identifiable {
     var slug: String? = nil, cover: URL? = nil, sourcePost: String? = nil, rsvp = false, by: String? = nil, author: String? = nil, notes: String? = nil, file: URL? = nil
     /// What the group reads for the study: the page the schedule sets, and any note on it.
     static func reading(page: Int?, total: Int?, pos: String?) -> String? {
+        if let pos, !pos.isEmpty, pos != "TBD" { return pos }   // the administrator's own note comes first
         var parts: [String] = []
         if let page { parts.append("Read through page \(page)" + (total.map { " of \($0)" } ?? "")) }
         if let pos, !pos.isEmpty, pos != "TBD" { parts.append(page == nil ? "Read \(pos)" : pos) }
