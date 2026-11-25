@@ -60,7 +60,7 @@ struct Shell: View {
         .animation(.easeOut(duration: 0.18), value: showWeb)
         .animation(.easeOut(duration: 0.18), value: overlay)
         .task { guard chatOpen else { return }; try? await Task.sleep(nanoseconds: 2_500_000_000); await ChatSession.shared.start(web.view) }   // so Chat opens already loaded
-        .onAppear { web.feed = feed; feed.web = web.view; feed.open = { id, reply in web.openPost(id, people: feed.people, reply: reply) } }
+        .onAppear { web.feed = feed; Roster.web = web; feed.web = web.view; feed.open = { id, reply in web.openPost(id, people: feed.people, reply: reply) } }
         // Back from a web page (an edit, a profile) to the Feed: catch up quietly.
         .onChange(of: path) { old, new in if new == "/native" && old != "/native" { Task { await feed.load(quiet: true) } } }
     }
@@ -635,8 +635,10 @@ struct PostCard: View {
         if let q = p.quoteId { QuoteEmbed(userId: p.quoteUser ?? "", text: p.quoteText ?? "", m: m).onTapGesture { m.open(q, false) }.padding(.top, 14) }
         if let poll = p.poll { PollView(poll: poll, me: m.me) { i in Task { await m.vote(p, i) } }.padding(.top, 14) }
         if let l = p.link { LinkCard(url: l).padding(.top, 14) }
-        if !p.tags.isEmpty {
-            HStack(spacing: 8) { ForEach(p.tags, id: \.self) { t in Button("#\(t)") { presentSlide(SearchScreen(feed: m, web: web, start: "#" + t)) }.font(.sans(13)).foregroundStyle(T.ticker) } }.padding(.top, 6)
+        // topics already written into the words as #topic are not listed a second time beneath them
+        let extra = p.tags.filter { !p.body.localizedCaseInsensitiveContains("#" + $0) }
+        if !extra.isEmpty {
+            HStack(spacing: 8) { ForEach(extra, id: \.self) { t in Button("#\(t)") { presentSlide(SearchScreen(feed: m, web: web, start: "#" + t)) }.font(.sans(13)).foregroundStyle(T.ticker) } }.padding(.top, 6)
         }
         if p.continuations > 0 {
             Button { m.open(p.id, false) } label: { Text("Show this thread").font(.sans(14)).foregroundStyle(T.muted) }.buttonStyle(.plain).padding(.top, 6)

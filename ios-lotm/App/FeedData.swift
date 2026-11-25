@@ -86,7 +86,7 @@ final class FeedModel: ObservableObject {
             let (Pr, Fe, Pi, Nn) = try await (profiles, feed, pinList, notes)
             var map: [String: [String: String]] = [:]
             for p in Pr { if let id = p["id"] as? String { map[id] = ["name": p["display_name"] as? String ?? "", "avatar": p["avatar_url"] as? String ?? ""] } }
-            people = Self.people(map); UserDefaults.standard.set(map, forKey: "lotm.people"); Roster.names = map.values.compactMap { $0["name"] }.filter { !$0.isEmpty }
+            people = Self.people(map); UserDefaults.standard.set(map, forKey: "lotm.people"); Roster.names = map.values.compactMap { $0["name"] }.filter { !$0.isEmpty }; Roster.ids = Dictionary(map.compactMap { k, v in v["name"].flatMap { $0.isEmpty ? nil : ($0, k) } }, uniquingKeysWith: { a, _ in a })
             posts = Fe; pins = Pi; unread = Nn.count; loaded = true; failed = nil
             if only == nil, let d = try? JSONEncoder().encode(Array(Fe.prefix(25))) { UserDefaults.standard.set(d, forKey: cacheKey) }
         } catch { if posts.isEmpty { failed = error.localizedDescription } }

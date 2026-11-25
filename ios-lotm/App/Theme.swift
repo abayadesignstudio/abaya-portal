@@ -540,6 +540,9 @@ struct PullWatch: UIViewRepresentable {
 /// The members' names, for @ tags (kept from the last time the feed loaded).
 enum Roster {
     static var names: [String] = (UserDefaults.standard.dictionary(forKey: "lotm.people") as? [String: [String: String]])?.values.compactMap { $0["name"] }.filter { !$0.isEmpty } ?? []
+    /// name → member id, so a tagged name can open that member's profile
+    static var ids: [String: String] = Dictionary(((UserDefaults.standard.dictionary(forKey: "lotm.people") as? [String: [String: String]]) ?? [:]).compactMap { k, v in v["name"].flatMap { $0.isEmpty ? nil : ($0, k) } }, uniquingKeysWith: { a, _ in a })
+    static weak var web: WebModel?
 }
 /// What has been typed after an @ at the end of the writing ("" just after the @), or nil when no tag is being typed.
 func mentionQuery(_ s: String) -> String? {

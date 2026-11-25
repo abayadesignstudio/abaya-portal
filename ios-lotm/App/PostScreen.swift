@@ -598,7 +598,7 @@ func linked(_ s: String) -> AttributedString {
         for name in Roster.names {
             var from = s.startIndex
             while let r = s.range(of: "@" + name, range: from..<s.endIndex) {
-                if let lo = AttributedString.Index(r.lowerBound, within: out), let hi = AttributedString.Index(r.upperBound, within: out) { out[lo..<hi].foregroundColor = Color(rgb: 0xe2c37a) }
+                if let lo = AttributedString.Index(r.lowerBound, within: out), let hi = AttributedString.Index(r.upperBound, within: out) { out[lo..<hi].foregroundColor = Color(rgb: 0xe2c37a); if let id = Roster.ids[name], let u = URL(string: "lotm-member://" + id) { out[lo..<hi].link = u } }
                 from = r.upperBound
             }
         }
@@ -608,6 +608,8 @@ func linked(_ s: String) -> AttributedString {
 
 /// Web pages and photos open in the in-app browser, as elsewhere in the app.
 func openInApp(_ url: URL) {
+    // a tagged member's name opens their profile
+    if url.scheme == "lotm-member", let id = url.host { Task { @MainActor in if let w = Roster.web { openMember(id, w) } }; return }
     guard url.scheme == "http" || url.scheme == "https" else { UIApplication.shared.open(url); return }
     let vc = SFSafariViewController(url: url); vc.dismissButtonStyle = .done
     vc.preferredControlTintColor = UIColor(red: 0.231, green: 0.243, blue: 0.165, alpha: 1)

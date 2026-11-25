@@ -1006,7 +1006,7 @@ struct LibraryScreen: View {
                 if e.id.lowercased() == tickets.eventId { ReserveTickets(say: { m.say($0) }).padding(.horizontal, 20).padding(.top, -2).padding(.bottom, 8) }
             }
             if m.events.isEmpty { Text("Nothing on the calendar yet.").font(.sans(14)).foregroundStyle(T.muted).padding(.horizontal, 4) }
-            Button { pastOpen.toggle(); if pastOpen { Task { await m.loadMeetings() } } } label: { Text(pastOpen ? "Hide past meetings ▴" : "Past meetings ▾").font(.sans(14, .semibold)).foregroundStyle(T.muted).padding(.vertical, 6).padding(.horizontal, 4) }.buttonStyle(.plain)
+            Button { pastOpen.toggle(); if pastOpen { Task { await m.loadMeetings() } } } label: { Text(pastOpen ? "Hide past events ▴" : "Past events ▾").font(.sans(14, .semibold)).foregroundStyle(T.muted).padding(.vertical, 6).padding(.horizontal, 4) }.buttonStyle(.plain)
             if pastOpen {
                 VStack(spacing: 0) {
                     if let rows = m.meetings {
