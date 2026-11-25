@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import LocationField, { mapsUrl } from '../components/LocationField'
 import { supabase, SECTOR_COLOR, money, phaseLabel } from '../lib/supabase'
 import { sortPhases } from '../lib/projectContent'
 import { useLoad, must } from '../lib/useQuery'
@@ -278,7 +279,7 @@ function GEventItem({ e, people, project, onOpen }: { e: GM; people: Person[]; m
         <span className="tk-ico tk-ico-static" aria-hidden="true"><Mark kind="event" done={false} color={project ? sectorColor(project.sector) : undefined} /></span>
         <button type="button" className="tk-text tk-open" aria-expanded={open} title={open ? 'Click to fold' : 'Click for details'} onClick={(ev) => { ev.stopPropagation(); setOpen(!open) }}>{body}</button>
       </div>
-      {open && <Unrolled rows={[['When', whenText(e)], project && ['Project', `${project.number} · ${project.name}`], e.location && ['Where', e.location], ['Who', names(e.people, people)]]}
+      {open && <Unrolled rows={[['When', whenText(e)], project && ['Project', `${project.number} · ${project.name}`], e.location && ['Where', <a className="maps-link" href={mapsUrl(e.location)} target="_blank" rel="noreferrer">{e.location}</a>], ['Who', names(e.people, people)]]}
         notes={e.description ? e.description.replace(/<[^>]+>/g, ' ').replace(/\s+\n/g, '\n').trim() : null}
         actions={<><button type="button" className="btn small secondary" onClick={(ev) => onOpen(e, ev.currentTarget.closest('.tk') as HTMLElement)}>Details &amp; edit</button>
           {e.link && <a className="btn small secondary" href={e.link} target="_blank" rel="noreferrer">Open in Google</a>}</>} />}
@@ -394,7 +395,7 @@ function QuickCreate({ me, admin, people, projects, day, connected, edit, linkPr
           {others.map((p) => <label key={p.id} className={'qp-chip' + (f.guests.includes(p.id) ? ' on' : '')}><input type="checkbox" checked={f.guests.includes(p.id)}
             onChange={(e) => set('guests', e.target.checked ? [...f.guests, p.id] : f.guests.filter((g) => g !== p.id))} />{firstName(p)}</label>)}
         </fieldset>}
-        <input className="input" aria-label="Location" placeholder="Add location" value={f.location} onChange={(e) => set('location', e.target.value)} />
+        <LocationField value={f.location} onChange={(v) => set('location', v)} />
       </> : projectMark ? <>
         <div className="qp-row">
           <input type="date" className="input" aria-label={f.kind === 'milestone' ? 'Date' : 'Due date'} value={f.date} onChange={(e) => set('date', e.target.value)} required />
@@ -455,7 +456,7 @@ function EventView({ e, me, people, projects, project, link, onEdit, onChanged, 
     <div className="qp-view">
       <h3 className="qp-h"><span className="qp-swatch" style={{ background: project ? sectorColor(project.sector) : '#9aa4b2' }} />{e.title}</h3>
       <p className="qp-line">{whenText(e)}</p>
-      {e.location && <p className="qp-line">⌖ {e.location}</p>}
+      {e.location && <p className="qp-line">⌖ <a className="maps-link" href={mapsUrl(e.location)} target="_blank" rel="noreferrer">{e.location}</a></p>}
       <p className="qp-line">👥 {names(e.people, people, me)}{organizer && e.people.length > 1 ? ` · organized by ${organizer === me ? 'you' : firstName(people.find((p) => p.id === organizer))}` : ''}</p>
       {!e.busy_only && <label className="qp-lab">Project
         <select className="input" value={v} onChange={(x) => saveLink(x.target.value)}>
