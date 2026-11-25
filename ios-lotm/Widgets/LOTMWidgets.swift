@@ -332,7 +332,64 @@ struct LOTMWidget: Widget {
     }
 }
 
+// MARK: - New note: one tap from the Home Screen or Lock Screen into a blank notebook entry
+
+struct NoteEntryTimeline: TimelineProvider {
+    struct Entry: TimelineEntry { let date: Date }
+    func placeholder(in context: Context) -> Entry { Entry(date: Date()) }
+    func getSnapshot(in context: Context, completion: @escaping (Entry) -> Void) { completion(Entry(date: Date())) }
+    func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> Void) { completion(Timeline(entries: [Entry(date: Date())], policy: .never)) }
+}
+
+struct NewNoteView: View {
+    @Environment(\.widgetFamily) private var family
+    var body: some View {
+        switch family {
+        case .accessoryCircular:
+            ZStack { AccessoryWidgetBackground(); Image(systemName: "square.and.pencil").font(.system(size: 22, weight: .semibold)) }
+        case .accessoryRectangular:
+            HStack(spacing: 8) {
+                Image(systemName: "square.and.pencil").font(.system(size: 20, weight: .semibold))
+                VStack(alignment: .leading, spacing: 1) { Text("New note").font(.system(size: 15, weight: .semibold)); Text("Life of the Mind").font(.system(size: 12)).opacity(0.8) }
+                Spacer(minLength: 0)
+            }
+        case .systemMedium:
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("NOTEBOOK").font(.system(size: 10, weight: .heavy)).kerning(1.1).foregroundStyle(Ink.muted)
+                    Text("A thought worth keeping…").font(.system(size: 22, design: .serif)).italic().foregroundStyle(Ink.cream).minimumScaleFactor(0.8)
+                    Spacer(minLength: 0)
+                    Text("Tap to write").font(.system(size: 12, weight: .semibold)).foregroundStyle(Ink.muted)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "square.and.pencil").font(.system(size: 26, weight: .semibold)).foregroundStyle(Ink.cream)
+            }
+        default:
+            VStack(alignment: .leading, spacing: 0) {
+                Image(systemName: "square.and.pencil").font(.system(size: 30, weight: .semibold)).foregroundStyle(Ink.cream)
+                Spacer(minLength: 0)
+                Text("New note").font(.system(size: 21, weight: .semibold, design: .serif)).foregroundStyle(Ink.cream)
+                Text("Life of the Mind").font(.system(size: 12, weight: .medium)).foregroundStyle(Ink.muted)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        }
+    }
+}
+
+struct NewNoteWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "LOTMNewNote", provider: NoteEntryTimeline()) { _ in
+            NewNoteView()
+                .widgetURL(URL(string: "lotm://notebook/new"))
+                .containerBackground(for: .widget) { LinearGradient(colors: [Palette.full.bg, Palette.full.bg2], startPoint: .top, endPoint: .bottom) }
+        }
+        .configurationDisplayName("New note")
+        .description("Open a blank entry in your notebook with one tap.")
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular])
+    }
+}
+
 @main
 struct LOTMWidgets: WidgetBundle {
-    var body: some Widget { LOTMWidget() }
+    var body: some Widget { LOTMWidget(); NewNoteWidget() }
 }
