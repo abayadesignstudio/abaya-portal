@@ -246,7 +246,7 @@ struct MemberScreen: View {
                 HStack(spacing: 14) {
                     ForEach(reads) { r in
                         Color(rgb: 0x2a2d1d).frame(width: 64, height: 96)
-                            .overlay { if let c = r.cover { AsyncImage(url: c) { $0.resizable().scaledToFill() } placeholder: { Color.clear } } else { Text(r.title).font(.serif(10, .medium)).foregroundStyle(T.ink).multilineTextAlignment(.center).padding(4) } }
+                            .overlay { if let c = r.cover { NetImage(url: c) { $0.resizable().scaledToFill() } placeholder: { Color.clear } } else { Text(r.title).font(.serif(10, .medium)).foregroundStyle(T.ink).multilineTextAlignment(.center).padding(4) } }
                             .clipShape(RoundedRectangle(cornerRadius: 5)).shadow(color: .black.opacity(0.35), radius: 6, y: 4)
                             .scrollTransition(.interactive, axis: .horizontal) { c, ph in c.scaleEffect(1 - min(1, abs(ph.value)) * 0.2).opacity(1 - min(1, abs(ph.value)) * 0.45) }
                             .onTapGesture { withAnimation(.snappy) { bookAt = r.id } }
@@ -278,7 +278,7 @@ struct MemberScreen: View {
             T.paper.frame(height: safeTop)
             LinearGradient(colors: [Color(rgb: 0x2d301f), Color(rgb: 0x4b4e36)], startPoint: .topLeading, endPoint: .bottomTrailing)
                 .frame(maxWidth: .infinity).aspectRatio(3, contentMode: .fit)
-                .overlay { if let cover { AsyncImage(url: cover) { $0.resizable().scaledToFill() } placeholder: { Color.clear } } }
+                .overlay { if let cover { NetImage(url: cover) { $0.resizable().scaledToFill() } placeholder: { Color.clear } } }
                 .clipped()
         }
         .overlay(alignment: .top) {

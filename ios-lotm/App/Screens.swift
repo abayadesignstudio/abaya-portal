@@ -10,8 +10,13 @@ struct CloseAction { var run: ((() -> Void)?) -> Void = { _ in }; func callAsFun
 private struct CloseKey: EnvironmentKey { static let defaultValue = CloseAction() }
 extension EnvironmentValues { var closeScreen: CloseAction { get { self[CloseKey.self] } set { self[CloseKey.self] = newValue } } }
 
+/// How many screens are up over the app's first page. While any is, that page's moving parts rest.
+final class Overlays: ObservableObject { static let shared = Overlays(); @Published var count = 0 }
+
 final class SlideHost: UIHostingController<AnyView> {
     let slide = SlideIn()
+    override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); if isBeingPresented || isMovingToParent { Overlays.shared.count += 1 } }
+    override func viewDidDisappear(_ animated: Bool) { super.viewDidDisappear(animated); if isBeingDismissed || isMovingFromParent { Overlays.shared.count = max(0, Overlays.shared.count - 1) } }
     @objc func edge(_ g: UIScreenEdgePanGestureRecognizer) {
         let w = max(view.bounds.width, 1), p = max(0, min(1, g.translation(in: view).x / w))
         switch g.state {

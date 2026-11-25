@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageIO
 import UniformTypeIdentifiers
 import QuickLook
 
@@ -52,7 +53,7 @@ struct Face: View {
             Circle().fill(T.av)
             Text(name.split(separator: " ").prefix(2).compactMap { $0.first.map(String.init) }.joined().uppercased())
                 .font(.sans(s * 0.36, .semibold)).foregroundStyle(T.avInk)
-            if let url { AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.clear } }
+            if let url { NetImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.clear } }
         }
         .frame(width: s, height: s).clipShape(Circle())
     }
@@ -267,205 +268,6 @@ extension Notification.Name { static let lotmFlushTyping = Notification.Name("lo
 /// Whether one of the app's writing fields has the keyboard (so a tool acts through the field, at its cursor).
 enum WriteFocus { static var on = false }
 
-struct CaretText: UIViewRepresentable {
-    @Binding var text: String
-    var hint = ""
-    var size: CGFloat = 20
-    var italic = false
-    var semibold = false
-    /// Apple's own text face (as in Notes and Messages) in place of Garamond.
-    var plain = false
-    var color: UIColor = UIColor(T.ink)
-    var minHeight: CGFloat = 0
-    /// Raise this number to put the cursor here.
-    var focus = 0
-    /// Or say outright whether the cursor is here (nil leaves it alone).
-    var active: Bool? = nil
-    /// The put-away bar over the keyboard (off where the screen has its own bar there).
-    var bar = false
-    /// Room kept between the cursor's line and whatever sits over the bottom of the page.
-    var below: CGFloat = 30
-    var onFocus: (Bool) -> Void = { _ in }
-
-    private var font: UIFont { if plain { return .systemFont(ofSize: size) }; return UIFont(name: italic ? "EBGaramond-Italic" : semibold ? "EBGaramond-SemiBold" : "EBGaramond-Regular", size: size) ?? .systemFont(ofSize: size) }
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-    func makeUIView(context: Context) -> UITextView {
-        let v = UITextView()
-        v.delegate = context.coordinator; v.isScrollEnabled = false; v.backgroundColor = .clear
-        v.textContainerInset = .zero; v.textContainer.lineFragmentPadding = 0
-        v.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        v.autocapitalizationType = .sentences; v.keyboardAppearance = .dark
-        let hintLabel = UILabel(); hintLabel.numberOfLines = 0; hintLabel.tag = 7; hintLabel.textColor = UIColor(T.muted)
-        hintLabel.translatesAutoresizingMaskIntoConstraints = false; v.addSubview(hintLabel)
-        NSLayoutConstraint.activate([hintLabel.topAnchor.constraint(equalTo: v.topAnchor), hintLabel.leadingAnchor.constraint(equalTo: v.leadingAnchor), hintLabel.widthAnchor.constraint(equalTo: v.widthAnchor)])
-        // A bar on the keyboard with a button to put it away.
-        let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 40)); bar.barStyle = .black; bar.isTranslucent = true; bar.tintColor = UIColor(T.ink)
-        bar.items = [UIBarButtonItem(systemItem: .flexibleSpace), UIBarButtonItem(image: UIImage(systemName: "keyboard.chevron.compact.down"), style: .plain, target: v, action: #selector(UIResponder.resignFirstResponder))]
-        if self.bar { v.inputAccessoryView = bar }
-        context.coordinator.seen = focus
-        return v
-    }
-    func updateUIView(_ v: UITextView, context: Context) {
-        context.coordinator.parent = self
-        // While words typed here are still on their way to the page, the page's older copy must not overwrite them.
-        if context.coordinator.local == nil, v.text != text { v.text = text }
-        // Styled once (and again only if the look changes), not on every letter typed.
-        context.coordinator.view = v
-        let look = "\(size)|\(italic)|\(semibold)|\(plain)|\(color.hash)"
-        if context.coordinator.look != look {
-            context.coordinator.look = look
-            v.font = font; v.textColor = color
-            let p = NSMutableParagraphStyle(); p.lineSpacing = size * 0.16
-            v.typingAttributes = [.font: font, .foregroundColor: color, .paragraphStyle: p]
-            (v.viewWithTag(7) as? UILabel)?.font = font
-        }
-        if let l = v.viewWithTag(7) as? UILabel { if l.text != hint { l.text = hint }; l.isHidden = !text.isEmpty }
-        if focus != context.coordinator.seen { context.coordinator.seen = focus; DispatchQueue.main.async { v.becomeFirstResponder() } }
-        if let active {
-            let c = context.coordinator
-            if active != c.wasActive {
-                c.wasActive = active
-                if active { c.take(v, tries: 8) }
-                else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { if c.wasActive == false, v.isFirstResponder { v.resignFirstResponder() } } }
-            }
-        }
-    }
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView v: UITextView, context: Context) -> CGSize? {
-        let w = proposal.width ?? 300
-        guard w.isFinite, w > 0 else { return nil }
-        let h = v.sizeThatFits(CGSize(width: w, height: .greatestFiniteMagnitude)).height
-        return CGSize(width: w, height: max(h, minHeight, font.lineHeight))
-    }
-    final class Coordinator: NSObject, UITextViewDelegate {
-        var parent: CaretText; var seen = 0; var look = ""
-        /// The words as typed, not yet handed to the page. Like iMessage, the field owns its text while you type: the page
-        /// (counters, buttons, the draft) hears about it when you pause, or at once when the field grows a line.
-        var local: String?
-        private var lastHeight: CGFloat = 0
-        private var pending: DispatchWorkItem?
-        private var watch: NSObjectProtocol?
-        init(_ p: CaretText) {
-            parent = p; super.init()
-            watch = NotificationCenter.default.addObserver(forName: .lotmFlushTyping, object: nil, queue: nil) { [weak self] _ in MainActor.assumeIsolated { self?.flush() } }
-            inserts = NotificationCenter.default.addObserver(forName: .lotmInsert, object: nil, queue: nil) { [weak self] n in let t = n.object as? String ?? ""; MainActor.assumeIsolated { if let v = self?.view, v.isFirstResponder { v.insertText(t) } } }
-            lists = NotificationCenter.default.addObserver(forName: .lotmList, object: nil, queue: nil) { [weak self] n in let k = n.object as? String ?? "bullet"; MainActor.assumeIsolated { self?.list(k) } }
-        }
-        deinit { if let watch { NotificationCenter.default.removeObserver(watch) }; if let lists { NotificationCenter.default.removeObserver(lists) }; if let inserts { NotificationCenter.default.removeObserver(inserts) } }
-        private var inserts: NSObjectProtocol?
-        weak var view: UITextView?
-        private var lists: NSObjectProtocol?
-        // MARK: lists
-        /// The list mark a line begins with: its length, and its number if it is a numbered one.
-        private static func mark(_ line: String) -> (len: Int, n: Int?)? {
-            if line.hasPrefix("• ") { return (2, nil) }
-            let digits = line.prefix { $0.isNumber }
-            if !digits.isEmpty, digits.count < 4, line.dropFirst(digits.count).hasPrefix(". "), let n = Int(digits) { return (digits.count + 2, n) }
-            return nil
-        }
-        private func put(_ v: UITextView, _ r: NSRange, _ s: String) {
-            guard let a = v.position(from: v.beginningOfDocument, offset: r.location), let b = v.position(from: a, offset: r.length), let tr = v.textRange(from: a, to: b) else { return }
-            v.replace(tr, withText: s); textViewDidChange(v)
-        }
-        /// The tool: turn the cursor's line into a list item of that kind, change its kind, or (the same kind again) back to plain.
-        func list(_ kind: String) {
-            guard let v = view, v.isFirstResponder else { return }
-            let ns = v.text as NSString, lr = ns.lineRange(for: NSRange(location: min(v.selectedRange.location, ns.length), length: 0))
-            let line = ns.substring(with: lr), had = Self.mark(line)
-            var want = ""
-            if !(had != nil && (had!.n != nil) == (kind == "number")) {
-                if kind == "number" {
-                    var n = 1
-                    if lr.location > 0 { let prev = ns.substring(with: ns.lineRange(for: NSRange(location: lr.location - 1, length: 0))); if let p = Self.mark(prev), let k = p.n { n = k + 1 } }
-                    want = "\(n). "
-                } else { want = "• " }
-            }
-            put(v, NSRange(location: lr.location, length: had?.len ?? 0), want); Haptic.tap()
-        }
-        /// Return inside a list begins the next item; Return on an empty item ends the list.
-        func textView(_ v: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
-            guard text == "\n", range.length == 0 else { return true }
-            let ns = v.text as NSString, lr = ns.lineRange(for: NSRange(location: range.location, length: 0))
-            let upto = ns.substring(with: NSRange(location: lr.location, length: range.location - lr.location))
-            guard let m = Self.mark(upto) else { return true }
-            if (upto as NSString).length == m.len { put(v, NSRange(location: lr.location, length: m.len), ""); return false }
-            put(v, range, "\n" + (m.n.map { "\($0 + 1). " } ?? "• ")); return false
-        }
-        func flush() {
-            pending?.cancel(); pending = nil
-            guard let t = local else { return }
-            local = nil
-            if parent.text != t { parent.text = t }
-        }
-        func textViewDidChange(_ v: UITextView) {
-            local = v.text
-            (v.viewWithTag(7) as? UILabel)?.isHidden = !v.text.isEmpty
-            let h = v.sizeThatFits(CGSize(width: v.bounds.width, height: .greatestFiniteMagnitude)).height
-            if h != lastHeight {
-                // A new line: the page has to make room now.
-                lastHeight = h; flush(); v.invalidateIntrinsicContentSize(); follow(v)
-            } else {
-                pending?.cancel()
-                let w = DispatchWorkItem { [weak self] in self?.flush() }
-                pending = w; DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: w)
-                follow(v)
-            }
-        }
-        // The page chases the cursor only when something is typed (as in X and Notes): never because the page was
-        // scrolled or the cursor was placed by hand, so a finger moving the page is left alone.
-        func textViewDidBeginEditing(_ v: UITextView) { parent.onFocus(true); follow(v, after: [0.45]) }
-        var endedAt = Date.distantPast
-        var wasActive: Bool?
-        /// Take the keyboard once the box is on screen (it may not be yet when its turn begins).
-        func take(_ v: UITextView, tries: Int) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + (v.window == nil ? 0.08 : 0)) { [weak self, weak v] in
-                guard let self, let v, self.wasActive == true, !v.isFirstResponder else { return }
-                if v.window != nil { v.becomeFirstResponder() } else if tries > 0 { self.take(v, tries: tries - 1) }
-            }
-        }
-        func textViewDidEndEditing(_ v: UITextView) { endedAt = Date(); flush(); parent.onFocus(false) }
-        private var following: [DispatchWorkItem] = []
-        /// Where the cursor's line is, in the text view's own space. At the very end of the writing (where typing nearly
-        /// always is) the system's answer can be empty or sit at the top just after Return, so the end is measured instead.
-        private func caret(_ v: UITextView) -> CGRect? {
-            guard let r = v.selectedTextRange else { return nil }
-            let line = (v.font?.lineHeight ?? 24) + 4
-            if v.compare(r.end, to: v.endOfDocument) == .orderedSame {
-                let h = v.sizeThatFits(CGSize(width: max(1, v.bounds.width), height: .greatestFiniteMagnitude)).height
-                return CGRect(x: 0, y: max(0, h - line), width: 2, height: line)
-            }
-            let c = v.caretRect(for: r.end)
-            guard c.origin.y.isFinite, c.height.isFinite, c.height > 0, c.height < 200 else { return nil }
-            if c.minY <= 0.5, v.offset(from: v.beginningOfDocument, to: r.end) > 0, !(v.text ?? "").prefix(v.offset(from: v.beginningOfDocument, to: r.end)).contains("\n"), v.bounds.height > line * 1.6 {
-                // claimed to be on the first line: believe it only if the first line really reaches that far
-                let first = v.firstRect(for: v.textRange(from: v.beginningOfDocument, to: r.end) ?? r)
-                if !first.minY.isFinite || first.height > line * 1.5 { return nil }
-            }
-            return c
-        }
-        /// Bring the cursor's line into view with one small move. Tried a few times over a third of a second, since the
-        /// page takes a moment to make room for a new line; each try does nothing if the line is already in view.
-        private func follow(_ v: UITextView, after: [Double] = [0.02, 0.12, 0.32]) {
-            following.forEach { $0.cancel() }; following = []
-            for t in after {
-                let w = DispatchWorkItem { [weak self, weak v] in
-                    guard let self, let v, v.isFirstResponder, let c = self.caret(v) else { return }
-                    var s: UIView? = v.superview
-                    while let x = s, !(x is UIScrollView) { s = x.superview }
-                    guard let scroll = s as? UIScrollView, !scroll.isTracking, !scroll.isDragging, !scroll.isDecelerating else { return }
-                    let at = v.convert(c, to: scroll)
-                    let top = scroll.contentOffset.y + scroll.adjustedContentInset.top + 12
-                    let bottom = scroll.contentOffset.y + scroll.bounds.height - scroll.adjustedContentInset.bottom - self.parent.below
-                    var y = scroll.contentOffset.y
-                    if at.maxY > bottom { y += at.maxY - bottom } else if at.minY < top { y -= top - at.minY } else { return }
-                    let lo = -scroll.adjustedContentInset.top, hi = max(lo, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
-                    y = max(lo, min(hi, y))
-                    if abs(y - scroll.contentOffset.y) > 1 { UIView.animate(withDuration: 0.16, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) { scroll.contentOffset.y = y } }
-                }
-                following.append(w); DispatchQueue.main.asyncAfter(deadline: .now() + t, execute: w)
-            }
-        }
-    }
-}
 
 
 /// Chips (or anything) that wrap onto as many lines as they need.
@@ -847,5 +649,49 @@ struct EventFiles: View {
         _ = try? await db.req("DELETE", "/rest/v1/event_files?id=eq.\(f.id)")
         _ = try? await db.req("DELETE", "/storage/v1/object/event-files/\(f.path)")
         await load()
+    }
+}
+
+
+// MARK: - Pictures from the network, remembered
+
+/// Pictures already shown are kept decoded in memory, so a row scrolling back into view shows its picture at once
+/// instead of flashing its placeholder and loading again.
+enum Pictures {
+    static let cache: NSCache<NSURL, UIImage> = { let c = NSCache<NSURL, UIImage>(); c.countLimit = 400; c.totalCostLimit = 160 << 20; return c }()
+    private static var loading: [URL: Task<UIImage?, Never>] = [:]
+    static func have(_ url: URL) -> UIImage? { cache.object(forKey: url as NSURL) }
+    @MainActor static func load(_ url: URL) async -> UIImage? {
+        if let i = have(url) { return i }
+        if let t = loading[url] { return await t.value }
+        let t = Task.detached(priority: .userInitiated) { () -> UIImage? in
+            guard let (d, _) = try? await URLSession.shared.data(from: url) else { return nil }
+            // decoded off the main thread, no larger than a screen needs
+            let opts: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceShouldCacheImmediately: true, kCGImageSourceThumbnailMaxPixelSize: 1800]
+            if let src = CGImageSourceCreateWithData(d as CFData, nil), let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) { return UIImage(cgImage: cg) }
+            return UIImage(data: d)
+        }
+        loading[url] = t
+        let img = await t.value
+        loading[url] = nil
+        if let img { cache.setObject(img, forKey: url as NSURL, cost: Int(img.size.width * img.size.height * img.scale * img.scale * 4)) }
+        return img
+    }
+}
+
+/// AsyncImage's shape (a picture and a placeholder), drawing from the remembered pictures.
+struct NetImage<I: View, P: View>: View {
+    let url: URL?
+    @ViewBuilder let content: (Image) -> I
+    @ViewBuilder let placeholder: () -> P
+    @State private var got: (URL, UIImage)?
+    var body: some View {
+        Group {
+            if let url, let img = (got?.0 == url ? got?.1 : nil) ?? Pictures.have(url) { content(Image(uiImage: img)) } else { placeholder() }
+        }
+        .task(id: url) {
+            guard let url, Pictures.have(url) == nil else { return }
+            if let img = await Pictures.load(url) { got = (url, img) }
+        }
     }
 }

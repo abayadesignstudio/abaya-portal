@@ -177,6 +177,8 @@ struct Splash: View {
 /// Each of a handful of slots drops one leaf per cycle and then waits, so there are never many at once.
 struct Leaves: View {
     @Environment(\.accessibilityReduceMotion) private var still
+    @ObservedObject private var over = Overlays.shared
+    @Environment(\.scenePhase) private var phase
     /// Through the end of November.
     static var inSeason: Bool { let c = Calendar.current.dateComponents([.year, .month], from: Date()); return c.year == 2026 && c.month == 11 }
     private static let colors: [Color] = ([0xc8782a, 0xa8521e, 0xd9a441, 0x8f3b1b, 0xb8862d] as [UInt32]).map { Color(rgb: $0) }
@@ -195,7 +197,8 @@ struct Leaves: View {
     }()
     var body: some View {
         if still { EmptyView() } else {
-            TimelineView(.animation(minimumInterval: 1 / 30)) { tl in
+            // the leaves rest while another screen covers them, or the app is in the background
+            TimelineView(.animation(minimumInterval: 1 / 30, paused: over.count > 0 || phase != .active)) { tl in
                 Canvas { g, size in
                     let t = tl.date.timeIntervalSinceReferenceDate
                     for slot in 0..<12 {
@@ -393,7 +396,7 @@ private struct StoryPill: View {
         case .read: Image(uiImage: adventCover).resizable().scaledToFill().frame(width: 48, height: 48).clipShape(Circle())
         case .event where it.link != nil: LinkFace(url: it.link!, when: it.when)
         case .study where it.cover != nil:
-            AsyncImage(url: it.cover) { $0.resizable().scaledToFill() } placeholder: { T.card }.frame(width: 48, height: 48).clipShape(Circle())
+            NetImage(url: it.cover) { $0.resizable().scaledToFill() } placeholder: { T.card }.frame(width: 48, height: 48).clipShape(Circle())
         default: DateBubble(when: it.when, study: it.kind == .study)
         }
     }
@@ -416,7 +419,7 @@ private struct LinkFace: View {
     @State private var image: URL?
     var body: some View {
         ZStack {
-            if let image { AsyncImage(url: image) { $0.resizable().scaledToFill() } placeholder: { T.card }.frame(width: 48, height: 48).clipShape(Circle()) }
+            if let image { NetImage(url: image) { $0.resizable().scaledToFill() } placeholder: { T.card }.frame(width: 48, height: 48).clipShape(Circle()) }
             else { DateBubble(when: when, study: false) }
         }
         .task { image = await LinkMeta.get(url)?.image }
@@ -477,10 +480,10 @@ private struct DropCard: View {
 
     @ViewBuilder private var content: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if let hero { AsyncImage(url: hero) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x2a2d1d) }.frame(height: 180).clipShape(RoundedRectangle(cornerRadius: 14)) }
+            if let hero { NetImage(url: hero) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x2a2d1d) }.frame(height: 180).clipShape(RoundedRectangle(cornerRadius: 14)) }
             HStack(alignment: .top, spacing: 14) {
                 if it.kind == .study {
-                    AsyncImage(url: it.cover) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x9c5463) }.frame(width: 70, height: 105).clipShape(RoundedRectangle(cornerRadius: 4)).shadow(color: .black.opacity(0.3), radius: 5, y: 4)
+                    NetImage(url: it.cover) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x9c5463) }.frame(width: 70, height: 105).clipShape(RoundedRectangle(cornerRadius: 4)).shadow(color: .black.opacity(0.3), radius: 5, y: 4)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(it.kind == .pin ? (m.people[it.by ?? ""]?.name ?? "A member") : it.title).font(.serif(24, .semibold)).foregroundStyle(T.ink).fixedSize(horizontal: false, vertical: true)
@@ -647,7 +650,7 @@ struct PostCard: View {
 
     @ViewBuilder private var article: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let t = p.thumb { AsyncImage(url: t) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x626546) }.frame(height: 140).clipped() }
+            if let t = p.thumb { NetImage(url: t) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x626546) }.frame(height: 140).clipped() }
             else { Color(rgb: 0x626546).frame(height: 96) }
             VStack(alignment: .leading, spacing: 3) {
                 Text(p.title).font(.serif(18 * z, .semibold)).foregroundStyle(T.ink)
@@ -705,14 +708,14 @@ struct PhotoRow: View {
     var body: some View {
         ZStack {
             if urls.count == 1 {
-                AsyncImage(url: urls[0]) { $0.resizable().scaledToFit() } placeholder: { Color(rgb: 0x2a2d1d).frame(height: 240) }
+                NetImage(url: urls[0]) { $0.resizable().scaledToFit() } placeholder: { Color(rgb: 0x2a2d1d).frame(height: 240) }
                     .frame(maxWidth: .infinity, maxHeight: 560).clipShape(RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.rule))
                     .onTapGesture { openAt = 0 }.imageMenu(urls[0])
             } else if urls.count > 1 {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(Array(urls.enumerated()), id: \.offset) { i, u in
-                            AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x2a2d1d) }
+                            NetImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x2a2d1d) }
                                 .frame(width: 240, height: 300).clipShape(RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.rule))
                                 .onTapGesture { openAt = i }.imageMenu(u)
                         }
@@ -731,7 +734,7 @@ private struct BookCard: View {
     let b: FBook
     var body: some View {
         HStack(spacing: 10) {
-            AsyncImage(url: b.cover) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0xc9c7af) }.frame(width: 28, height: 40).clipShape(RoundedRectangle(cornerRadius: 3))
+            NetImage(url: b.cover) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0xc9c7af) }.frame(width: 28, height: 40).clipShape(RoundedRectangle(cornerRadius: 3))
             VStack(alignment: .leading, spacing: 1) {
                 Text(b.title).font(.serif(14, italic: true)).foregroundStyle(T.ink)
                 if let a = b.author { Text(a).font(.sans(12)).foregroundStyle(T.muted) }
@@ -810,7 +813,7 @@ struct LinkCard: View {
         Button { openInApp(url) } label: {
             VStack(alignment: .leading, spacing: 0) {
                 if let img = meta?.image {
-                    AsyncImage(url: img) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x2a2d1d) }.frame(maxWidth: .infinity).aspectRatio(1.91, contentMode: .fit).clipped()
+                    NetImage(url: img) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x2a2d1d) }.frame(maxWidth: .infinity).aspectRatio(1.91, contentMode: .fit).clipped()
                         .overlay { if LinkMeta.youtube(url) != nil || url.host?.contains("vimeo") == true { Image(systemName: "play.circle.fill").font(.system(size: 52)).foregroundStyle(.white.opacity(0.92)).shadow(radius: 6) } }
                 } else if !tried { LinearGradient(colors: [Color(rgb: 0x3e412c), Color(rgb: 0x46492f), Color(rgb: 0x3e412c)], startPoint: .leading, endPoint: .trailing).aspectRatio(1.91, contentMode: .fit) }
                 VStack(alignment: .leading, spacing: 2) {

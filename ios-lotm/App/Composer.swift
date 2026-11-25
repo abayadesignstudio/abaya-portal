@@ -136,7 +136,6 @@ struct ComposeView: View {
     private var current: DraftPost { m.posts.first { $0.id == focus } ?? m.posts[0] }
     /// The post the tools act on: the one being written, else the one written in last, else the latest.
     private var target: DraftPost { m.posts.first { $0.id == (focus ?? lastFocus) } ?? m.posts[m.posts.count - 1] }
-    @State private var picks: [PhotosPickerItem] = []
     @State private var lastFocus: UUID?
     private func barTool(_ n: String) -> some View { GlyphView(n: n, s: 24).frame(maxWidth: .infinity).frame(height: 44).contentShape(Rectangle()) }
 
@@ -301,7 +300,6 @@ private struct PostRow: View {
     @ObservedObject var m: ComposeModel
     let openSheet: (ComposeSheet) -> Void
     let camera: () -> Void
-    @State private var picks: [PhotosPickerItem] = []
     @FocusState private var quoteFocus: Bool
     @FocusState private var titleFocus: Bool
 
@@ -369,7 +367,7 @@ private struct PostRow: View {
         }
         if let b = m.book {
             HStack(spacing: 10) {
-                AsyncImage(url: b.cover) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0xc9c7af) }.frame(width: 26, height: 38).clipShape(RoundedRectangle(cornerRadius: 3))
+                NetImage(url: b.cover) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0xc9c7af) }.frame(width: 26, height: 38).clipShape(RoundedRectangle(cornerRadius: 3))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(b.title).font(.serif(14, italic: true)).foregroundStyle(C.ink)
                     Text([b.author, "tagged book"].compactMap { $0 }.joined(separator: " · ")).font(.sans(12)).foregroundStyle(C.muted)
@@ -408,34 +406,6 @@ private struct PostRow: View {
         .padding(12).overlay(RoundedRectangle(cornerRadius: 14).stroke(C.rule)).padding(.top, 8)
     }
 
-    // The web composer's toolbar: photo, camera, link, quote, book, topics, poll (the extras belong to the first post).
-    private var tools: some View {
-        HStack(spacing: 2) {
-            PhotosPicker(selection: $picks, maxSelectionCount: max(1, 10 - post.images.count), matching: .images) { tool("image") }
-                .disabled(post.images.count >= 10)
-            Button(action: camera) { tool("camera") }
-            if index == 0 {
-                Button { openSheet(.link) } label: { tool("link") }.foregroundStyle(m.link.isEmpty ? C.muted : C.ink)
-                Button { withAnimation(.snappy) { if m.quote == nil { m.quote = "" } else { quoteFocus = true } } } label: { tool("quote2") }
-                Button { openSheet(.book) } label: { tool("book") }.foregroundStyle(m.book == nil ? C.muted : C.ink)
-                Button { if focus == nil { focus = post.id }; insertTool("#") } label: { tool("hash") }
-            }
-            Button { listTool("bullet") } label: { Image(systemName: "list.bullet").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Bullet list")
-            Button { listTool("number") } label: { Image(systemName: "list.number").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Numbered list")
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(C.muted)
-        .padding(.leading, -8).padding(.top, 8).padding(.bottom, 18)
-        .onChange(of: picks) { _, items in
-            guard !items.isEmpty else { return }
-            Task {
-                var out: [UIImage] = []
-                for it in items { if let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) { out.append(img) } }
-                await MainActor.run { withAnimation(.snappy) { post.images.append(contentsOf: out.prefix(10 - post.images.count)) }; picks = [] }
-            }
-        }
-    }
-    private func tool(_ n: String) -> some View { GlyphView(n: n, s: 24).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }
 }
 
 private struct SmallGhost: ButtonStyle {
@@ -490,7 +460,7 @@ private struct BookSheet: View {
                         if k > 0 { GroupLine() }
                         Button { m.book = b; Haptic.tap(); dismiss() } label: {
                             HStack(spacing: 12) {
-                                AsyncImage(url: b.cover) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x9c5463) }.frame(width: 30, height: 44).clipShape(RoundedRectangle(cornerRadius: 3))
+                                NetImage(url: b.cover) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x9c5463) }.frame(width: 30, height: 44).clipShape(RoundedRectangle(cornerRadius: 3))
                                 VStack(alignment: .leading, spacing: 1) { Text(b.title).font(.serif(16)).foregroundStyle(C.ink).multilineTextAlignment(.leading); if let a = b.author { Text(a).font(.sans(12)).foregroundStyle(C.muted) } }
                                 Spacer(minLength: 0)
                             }
@@ -597,7 +567,7 @@ private struct Avatar: View {
             Circle().fill(Color(hex: 0x2d301f))
             Text(name.split(separator: " ").prefix(2).compactMap { $0.first.map(String.init) }.joined().uppercased())
                 .font(.sans(size * 0.36, .semibold)).foregroundStyle(C.ink)
-            if let url { AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.clear } }
+            if let url { NetImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.clear } }
         }
         .frame(width: size, height: size).clipShape(Circle())
     }

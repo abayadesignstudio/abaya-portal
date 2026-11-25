@@ -54,7 +54,7 @@ private let NSHADES: [Color] = ([0x9c5463, 0x6f5b7d, 0xc9382f, 0xa8863f, 0x8c946
 private struct NCover: View {
     let title: String, url: String?, w: CGFloat, h: CGFloat
     var body: some View {
-        ZStack { NSHADES[title.unicodeScalars.reduce(0) { $0 + Int($1.value) } % NSHADES.count]; if let u = url.flatMap(URL.init(string:)) { AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear } } }
+        ZStack { NSHADES[title.unicodeScalars.reduce(0) { $0 + Int($1.value) } % NSHADES.count]; if let u = url.flatMap(URL.init(string:)) { NetImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear } } }
             .frame(width: w, height: h).clipShape(RoundedRectangle(cornerRadius: 3))
     }
 }
@@ -260,7 +260,7 @@ private struct NoteCard: View {
             if !n.title.isEmpty { Text(n.title).font(.serif(18, .semibold)).foregroundStyle(T.ink).multilineTextAlignment(.leading).padding(.top, 6) }
             if !n.body.isEmpty { Text(n.body).font(.serif(n.kind == "quote" ? 17 : 18.5, .medium)).foregroundStyle(n.kind == "quote" ? T.sub : T.ink).lineSpacing(3).lineLimit(4).multilineTextAlignment(.leading).padding(.top, 6) }
             if let u = n.image.flatMap(URL.init(string:)) {
-                Color(rgb: 0x2a2d1d).frame(height: 180).overlay(AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear }).clipShape(RoundedRectangle(cornerRadius: 10)).padding(.top, 8)
+                Color(rgb: 0x2a2d1d).frame(height: 180).overlay(NetImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear }).clipShape(RoundedRectangle(cornerRadius: 10)).padding(.top, 8)
             }
             if let u = n.firstLink { LinkCard(url: u).id(u).padding(.top, 8) }
             if !n.bookTitle.isEmpty {
@@ -389,7 +389,7 @@ struct NoteEntry: View {
                             Color.clear.frame(height: 1).id("typing")
                         }
                         if let u = n.image.flatMap(URL.init(string:)) {
-                            AsyncImage(url: u) { $0.resizable().scaledToFit() } placeholder: { T.soft.frame(height: 160) }.clipShape(RoundedRectangle(cornerRadius: 10))
+                            NetImage(url: u) { $0.resizable().scaledToFit() } placeholder: { T.soft.frame(height: 160) }.clipShape(RoundedRectangle(cornerRadius: 10))
                                 .overlay(alignment: .topTrailing) { if editing { Button { n.image = nil } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white).frame(width: 24, height: 24).background(Circle().fill(Color(rgb: 0x0a0c06, 0.72))) }.padding(6) } }
                                 .imageMenu(u).padding(.top, 8)
                         }

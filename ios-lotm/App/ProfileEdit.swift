@@ -48,7 +48,7 @@ struct ProfileEditScreen: View {
                         // The box is sized first and the picture drawn inside it, so a picture of any shape can't widen the page.
                         LinearGradient(colors: [Color(rgb: 0x2d301f), Color(rgb: 0x4b4e36)], startPoint: .topLeading, endPoint: .bottomTrailing)
                             .frame(maxWidth: .infinity).aspectRatio(3, contentMode: .fit)
-                            .overlay { if let i = newBanner { Image(uiImage: i).resizable().scaledToFill() } else if let u = bannerURL { AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear } } }
+                            .overlay { if let i = newBanner { Image(uiImage: i).resizable().scaledToFill() } else if let u = bannerURL { NetImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear } } }
                             .clipped().overlay(Color.black.opacity(0.28)).overlay(badge).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain).accessibilityLabel("Change banner")

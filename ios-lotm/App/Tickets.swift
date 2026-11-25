@@ -125,7 +125,7 @@ struct MyTickets: View {
                 Text("Tickets").font(.serif(22, .semibold)).foregroundStyle(T.ink).padding(.horizontal, 4)
                 ForEach(all, id: \.1) { r, id, i in
                     HStack(spacing: 0) {
-                        Color(rgb: 0x1b1a19).frame(width: 86).overlay(AsyncImage(url: URL(string: "https://lotmstudy.org/christmas/candlelight.jpg")) { $0.resizable().scaledToFill() } placeholder: { Color.clear }).clipped()
+                        Color(rgb: 0x1b1a19).frame(width: 86).overlay(NetImage(url: URL(string: "https://lotmstudy.org/christmas/candlelight.jpg")) { $0.resizable().scaledToFill() } placeholder: { Color.clear }).clipped()
                         VStack(alignment: .leading, spacing: 3) {
                             Text("MON, DEC 14 · 7:00 PM").font(.sans(12, .bold)).tracking(0.7).foregroundStyle(gold)
                             Text("Rejoice! · PCPC Christmas Concert").font(.serif(18, .semibold)).foregroundStyle(T.ink).fixedSize(horizontal: false, vertical: true)

@@ -508,7 +508,7 @@ private struct ReplyCard: View {
                         .fixedSize(horizontal: false, vertical: true).padding(.top, 3)
                 }
                 if let u = r.attachment {
-                    AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x2a2d1d) }.frame(maxWidth: .infinity, maxHeight: 300).clipShape(RoundedRectangle(cornerRadius: 14))
+                    NetImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color(rgb: 0x2a2d1d) }.frame(maxWidth: .infinity, maxHeight: 300).clipShape(RoundedRectangle(cornerRadius: 14))
                         .overlay(RoundedRectangle(cornerRadius: 14).stroke(T.rule)).padding(.top, 8)
                 }
                 HStack(spacing: 22) {
@@ -547,14 +547,14 @@ struct PhotoStrip: View {
     var body: some View {
         ZStack {
             if urls.count == 1 {
-                AsyncImage(url: urls[0]) { $0.resizable().scaledToFit() } placeholder: { P.soft.frame(height: 220) }
+                NetImage(url: urls[0]) { $0.resizable().scaledToFit() } placeholder: { P.soft.frame(height: 220) }
                     .frame(maxWidth: .infinity, maxHeight: 460, alignment: .leading).clipShape(RoundedRectangle(cornerRadius: 14))
                     .onTapGesture { openAt = 0 }.imageMenu(urls[0])
             } else if urls.count > 1 {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(Array(urls.enumerated()), id: \.offset) { i, u in
-                            AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { P.soft }
+                            NetImage(url: u) { $0.resizable().scaledToFill() } placeholder: { P.soft }
                                 .frame(width: 220, height: 280).clipShape(RoundedRectangle(cornerRadius: 14)).onTapGesture { openAt = i }.imageMenu(u)
                         }
                     }
@@ -574,14 +574,23 @@ struct PersonFace: View {
         ZStack {
             Circle().fill(P.tan)
             Text(p.name.split(separator: " ").prefix(2).compactMap { $0.first.map(String.init) }.joined().uppercased()).font(.sans(size * 0.36, .semibold)).foregroundStyle(P.ink)
-            if let u = p.avatar { AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear } }
+            if let u = p.avatar { NetImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear } }
         }
         .frame(width: size, height: size).clipShape(Circle())
     }
 }
 
 /// Text with its web addresses tappable.
+/// Words with their links, @names and #topics marked. Worked out once for each text and kept, since a row redraws
+/// many times as a list scrolls.
+private var linkedKept: [String: AttributedString] = [:], linkedFor = 0
 func linked(_ s: String) -> AttributedString {
+    guard Thread.isMainThread else { return linkedMake(s) }
+    if linkedFor != Roster.ids.count || linkedKept.count > 800 { linkedKept.removeAll(keepingCapacity: true); linkedFor = Roster.ids.count }
+    if let k = linkedKept[s] { return k }
+    let made = linkedMake(s); linkedKept[s] = made; return made
+}
+private func linkedMake(_ s: String) -> AttributedString {
     var out = AttributedString(s)
     guard let d = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return out }
     for match in d.matches(in: s, range: NSRange(s.startIndex..., in: s)) {

@@ -389,7 +389,7 @@ private struct H2: View {
 }
 private struct CoverArt: View {
     let url: URL?, shade: Color
-    var body: some View { ZStack { shade; if let url { AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.clear } } } }
+    var body: some View { ZStack { shade; if let url { NetImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.clear } } } }
 }
 private struct Bar: View {
     let pct: Int
@@ -1156,7 +1156,7 @@ private struct LinkThumb: View {
     var body: some View {
         ZStack {
             LinearGradient(colors: [Color(rgb: 0x565a3f), Color(rgb: 0x6a6e4e)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            if let u = l.image ?? found { AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear } }
+            if let u = l.image ?? found { NetImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear } }
             else if looked { Text(l.publication ?? URL(string: l.url)?.host?.replacingOccurrences(of: "www.", with: "") ?? "").font(.serif(19, .semibold)).foregroundStyle(T.ink.opacity(0.8)).lineLimit(2).multilineTextAlignment(.center).padding(.horizontal, 14) }
         }
         .task {
@@ -1230,7 +1230,7 @@ private struct EventCard: View {
         let d = e.starts
         VStack(alignment: .leading, spacing: 0) {
             if let image {
-                Color(rgb: 0x2a2d1d).aspectRatio(1.91, contentMode: .fit).overlay(AsyncImage(url: image) { $0.resizable().scaledToFill() } placeholder: { Color.clear }).clipped()
+                Color(rgb: 0x2a2d1d).aspectRatio(1.91, contentMode: .fit).overlay(NetImage(url: image) { $0.resizable().scaledToFill() } placeholder: { Color.clear }).clipped()
             } else {
                 HStack(spacing: 14) {
                     Text("\(Calendar.current.component(.day, from: d))").font(.serif(44, .semibold)).foregroundStyle(T.cream)
@@ -1574,7 +1574,7 @@ private struct LinkForm: View {
                     LField(label: "Link", text: $url, hint: "https://")
                     Button(busy ? "…" : "Fetch") { fetch() }.buttonStyle(LBtn(ghost: true)).frame(width: 84).disabled(busy)
                 }
-                if let u = URL(string: image), !image.isEmpty { Color(rgb: 0x2a2d1d).frame(height: 120).overlay(AsyncImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear }).clipShape(RoundedRectangle(cornerRadius: 12)) }
+                if let u = URL(string: image), !image.isEmpty { Color(rgb: 0x2a2d1d).frame(height: 120).overlay(NetImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear }).clipShape(RoundedRectangle(cornerRadius: 12)) }
                 LField(label: "Title", text: $title); LField(label: "Publication", text: $publication); LField(label: "Why it’s worth reading (optional)", text: $blurb)
                 Button("Share") {
                     let u = url.trimmingCharacters(in: .whitespaces); guard !u.isEmpty, !title.isEmpty else { m.say("Add the link and a title"); return }
