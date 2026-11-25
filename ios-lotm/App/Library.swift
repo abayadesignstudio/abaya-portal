@@ -923,21 +923,48 @@ struct LibraryScreen: View {
         let done = m.days[lday()] ?? 0, g = max(1, m.goal), frac = min(1, CGFloat(done) / CGFloat(g)), s = streak
         let cal = Calendar.current, today = Date(), wd = cal.component(.weekday, from: today) - 1
         let week = (0..<7).map { cal.date(byAdding: .day, value: $0 - wd, to: today)! }
-        return VStack(spacing: 0) {
-            Text("Reading goals").font(.serif(26, .semibold)).foregroundStyle(T.ink)
-            Text("Read every day, keep your streak, and finish more books.").font(.sans(15)).foregroundStyle(T.muted).multilineTextAlignment(.center).frame(maxWidth: 300).padding(.top, 4)
-            ZStack(alignment: .top) {
-                Circle().trim(from: 0, to: 2 / 3).stroke(Color(rgb: 0x4a4c35), style: StrokeStyle(lineWidth: 10, lineCap: .round)).rotationEffect(.degrees(150)).frame(width: 240, height: 240).padding(.top, 20)
-                Circle().trim(from: 0, to: 2 / 3 * frac).stroke(Color(rgb: 0x5d9b6b), style: StrokeStyle(lineWidth: 10, lineCap: .round)).rotationEffect(.degrees(150)).frame(width: 240, height: 240).padding(.top, 20)
-                    .opacity(frac > 0 ? 1 : 0).animation(.easeOut(duration: 0.8), value: frac)
-                VStack(spacing: 4) {
-                    Text("Today’s reading").font(.serif(21, .semibold)).foregroundStyle(T.ink)
-                    Text("\(done)").font(.serif(76, .medium)).foregroundStyle(T.ink).contentTransition(.numericText()).animation(.snappy, value: done).frame(height: 78)
-                    Button { goalSheet = true } label: { (Text("of your \(g)-page goal ").foregroundColor(T.ink) + Text("›").foregroundColor(T.muted)).font(.sans(16)) }.buttonStyle(.plain)
+        let green = Color(rgb: 0x5d9b6b)
+        // The club's own daily reading card: a page count on a ruled bar, and the week as seven columns of pages read.
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("Daily reading").font(.serif(26, .semibold)).foregroundStyle(T.ink)
+            Text("A few pages a day, so we arrive at the study having read.").font(.sans(15)).foregroundStyle(T.muted).fixedSize(horizontal: false, vertical: true).padding(.top, 4)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("\(done)").font(.serif(54, .medium)).foregroundStyle(T.ink).contentTransition(.numericText()).animation(.snappy, value: done)
+                    Text(done == 1 ? "page today" : "pages today").font(.sans(16)).foregroundStyle(T.muted)
+                    Spacer(minLength: 0)
+                    Button { goalSheet = true } label: { (Text("Goal \(g) ").foregroundColor(T.ink) + Text("›").foregroundColor(T.muted)).font(.sans(15, .semibold)).padding(.horizontal, 12).frame(height: 34).overlay(Capsule().stroke(T.rule)) }.buttonStyle(.plain)
                 }
-                .padding(.top, 58)
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 3).fill(Color(rgb: 0x4a4c35))
+                        RoundedRectangle(cornerRadius: 3).fill(green).frame(width: max(frac > 0 ? 6 : 0, geo.size.width * frac)).animation(.easeOut(duration: 0.6), value: frac)
+                    }
+                }
+                .frame(height: 6)
+                // the week: one column a day, as tall as the pages read (full height at the goal)
+                HStack(alignment: .bottom, spacing: 8) {
+                    ForEach(0..<7, id: \.self) { i in
+                        let n = m.days[lday(week[i])] ?? 0, on = n >= g, isToday = i == wd, future = week[i] > today && !isToday
+                        Button { Haptic.tap(); editDay = DayPick(date: week[i]) } label: {
+                            VStack(spacing: 6) {
+                                ZStack(alignment: .bottom) {
+                                    RoundedRectangle(cornerRadius: 5).fill(Color(rgb: 0x454832)).frame(height: 56)
+                                    RoundedRectangle(cornerRadius: 5).fill(on ? green : T.muted).frame(height: n > 0 ? max(5, 56 * min(1, CGFloat(n) / CGFloat(g))) : 0)
+                                }
+                                Text(["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"][i]).font(.sans(12, isToday ? .bold : .regular)).foregroundStyle(isToday ? T.ink : future ? Color(rgb: 0x7d8063) : T.muted)
+                            }
+                            .frame(maxWidth: .infinity).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain).disabled(future)
+                        .accessibilityLabel("\(week[i].formatted(.dateTime.weekday(.wide))), \(n) pages")
+                    }
+                }
+                .padding(.top, 4)
+                Text(s.cur > 0 ? "\(s.cur) \(s.cur == 1 ? "day" : "days") in a row" + (s.best > s.cur ? " · longest \(s.best)" : "") : s.best > 1 ? "Longest run: \(s.best) days" : "Read \(g) pages today to begin a run.")
+                    .font(.sans(14)).foregroundStyle(T.muted)
             }
-            .frame(width: 280, height: 232).padding(.top, 18)
+            .padding(16).background(RoundedRectangle(cornerRadius: 18).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 18).stroke(T.rule)).padding(.top, 14)
             Button { flipNow += 1; if m.mine.isEmpty { searching = false } } label: {
                 VStack(spacing: 1) {
                     Text(done >= g ? "Goal met — read on" : "Keep reading").font(.sans(17, .bold)).foregroundStyle(T.ink)
@@ -945,30 +972,9 @@ struct LibraryScreen: View {
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 12).background(RoundedRectangle(cornerRadius: 30).fill(Color(rgb: 0x4d5038)))
             }
-            .buttonStyle(Press()).padding(.top, 6)
-            HStack(spacing: 0) {
-                ForEach(0..<7, id: \.self) { i in
-                    let on = met(week[i]), isToday = i == wd, future = week[i] > today && !isToday
-                    Button { Haptic.tap(); editDay = DayPick(date: week[i]) } label: {
-                        Text(["S", "M", "T", "W", "T", "F", "S"][i]).font(.sans(15, .bold)).foregroundStyle(on ? .white : future ? Color(rgb: 0x7d8063) : T.ink)
-                            .frame(width: 36, height: 36).background(Circle().fill(on ? Color(rgb: 0x5d9b6b) : .clear))
-                            .overlay(Circle().stroke(on ? .clear : isToday ? T.ticker : Color(rgb: 0x5a5d41), lineWidth: 2))
-                            .contentShape(Rectangle().inset(by: -5))
-                    }
-                    .buttonStyle(.plain).disabled(future)
-                    .accessibilityLabel("\(week[i].formatted(.dateTime.weekday(.wide))), \(m.days[lday(week[i])] ?? 0) pages")
-                    if i < 6 { Rectangle().fill(on && met(week[i + 1]) && week[i + 1] <= today ? Color(rgb: 0x5d9b6b) : .clear).frame(height: 3).frame(maxWidth: .infinity) }
-                }
-            }
-            .padding(.top, 22)
-            Group {
-                if s.cur > 0 { (Text(done >= g ? "You’re on a " : "Extend your ") + Text("\(s.cur)-day").bold() + Text(" reading streak.")) }
-                else { Text("Read \(g) pages today to start a streak.") }
-            }
-            .font(.sans(16)).foregroundStyle(T.ink).multilineTextAlignment(.center).padding(.top, 14)
-            if s.best > 1 { Text("Record is \(s.best) days.").font(.sans(16)).foregroundStyle(T.muted) }
+            .buttonStyle(Press()).padding(.top, 12)
         }
-        .frame(maxWidth: .infinity).padding(.horizontal, 20).padding(.top, 28).padding(.bottom, 10)
+        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.top, 28).padding(.bottom, 10)
     }
 
     // MARK: LOTM

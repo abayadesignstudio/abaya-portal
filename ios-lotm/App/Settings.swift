@@ -158,8 +158,9 @@ struct SettingsScreen: View {
                     if m.admin { Text("Reports are shown to administrators only.").font(.sans(12)).foregroundStyle(T.muted).padding(.horizontal, 30).padding(.top, 6) }
                     Card14 {
                         GroupRow(icon: "link", label: "Open the classic site", action: { openInApp(URL(string: "https://lotmstudy.org/?classic=1")!) }) { Text("↗").font(.sans(15)).foregroundStyle(T.chev) }; GroupLine()
-                        GroupRow(icon: "link", label: "Terms of Use", action: { UIApplication.shared.open(URL(string: "https://lotmstudy.org/terms")!) }) { Text("↗").font(.sans(15)).foregroundStyle(T.chev) }; GroupLine()
-                        GroupRow(icon: "link", label: "Privacy Policy", action: { UIApplication.shared.open(URL(string: "https://lotmstudy.org/privacy")!) }) { Text("↗").font(.sans(15)).foregroundStyle(T.chev) }; GroupLine()
+                        GroupRow(icon: "link", label: "Terms of Use", action: { openInApp(URL(string: "https://lotmstudy.org/terms")!) }) { Text("↗").font(.sans(15)).foregroundStyle(T.chev) }; GroupLine()
+                        GroupRow(icon: "link", label: "Privacy Policy", action: { openInApp(URL(string: "https://lotmstudy.org/privacy")!) }) { Text("↗").font(.sans(15)).foregroundStyle(T.chev) }; GroupLine()
+                        GroupRow(icon: "link", label: "Help and support", action: { openInApp(URL(string: "https://lotmstudy.org/support")!) }) { Text("↗").font(.sans(15)).foregroundStyle(T.chev) }; GroupLine()
                         GroupRow(icon: "logout", label: "Sign out", danger: true, action: { confirmSignOut = true }) { EmptyView() }
                     }
                     .padding(.top, 12)
