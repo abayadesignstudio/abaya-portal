@@ -362,6 +362,7 @@ struct NoteEntry: View {
             }
             .overlay(Text((id == nil ? "New " : "") + (n.kind == "quote" ? (id == nil ? "quote" : "Quote") : (id == nil ? "note" : "Note"))).font(.serif(18, .semibold)).foregroundStyle(T.ink))
             .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 10)
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if editing { Seg(options: ["Quote", "Note"], value: Binding(get: { n.kind == "quote" ? "Quote" : "Note" }, set: { flushTyping(); n.kind = $0 == "Quote" ? "quote" : "thought" })).padding(.horizontal, 16) }
@@ -382,8 +383,10 @@ struct NoteEntry: View {
                             WriteField(text: $n.quotation, hint: "Type or paste the passage", size: 20, italic: true, minHeight: 96, focus: tick)
                                 .padding(.leading, 12).overlay(alignment: .leading) { T.ink.frame(width: 3) }.padding(.top, 6)
                             WriteField(text: $n.body, hint: "Your thought on it (optional)", size: 19, color: T.sub, minHeight: 44).padding(.top, 10)
+                            Color.clear.frame(height: 1).id("typing")
                         } else {
                             WriteField(text: $n.body, hint: "What’s on your mind?", size: 20, minHeight: 160, focus: tick)
+                            Color.clear.frame(height: 1).id("typing")
                         }
                         if let u = n.image.flatMap(URL.init(string:)) {
                             AsyncImage(url: u) { $0.resizable().scaledToFit() } placeholder: { T.soft.frame(height: 160) }.clipShape(RoundedRectangle(cornerRadius: 10))
@@ -441,6 +444,11 @@ struct NoteEntry: View {
                 }
             }
             .scrollDismissesKeyboard(.interactively)
+            // as a note grows past the keyboard, the line being written is kept in view above it
+            .onReceive(NotificationCenter.default.publisher(for: .lotmTypedAtEnd)) { _ in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("typing", anchor: .bottom) } }
+            }
+            }
         }
         .background(T.paper.ignoresSafeArea()).preferredColorScheme(.dark).tint(T.ink)
         .onAppear { if id == nil { DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { tick += 1 } } }
