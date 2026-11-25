@@ -929,19 +929,17 @@ struct LibraryScreen: View {
             Text("Daily reading").font(.serif(26, .semibold)).foregroundStyle(T.ink)
             Text("A few pages a day, so we arrive at the study having read.").font(.sans(15)).foregroundStyle(T.muted).fixedSize(horizontal: false, vertical: true).padding(.top, 4)
             VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("\(done)").font(.serif(54, .medium)).foregroundStyle(T.ink).contentTransition(.numericText()).animation(.snappy, value: done)
-                    Text(done == 1 ? "page today" : "pages today").font(.sans(16)).foregroundStyle(T.muted)
-                    Spacer(minLength: 0)
-                    Button { goalSheet = true } label: { (Text("Goal \(g) ").foregroundColor(T.ink) + Text("›").foregroundColor(T.muted)).font(.sans(15, .semibold)).padding(.horizontal, 12).frame(height: 34).overlay(Capsule().stroke(T.rule)) }.buttonStyle(.plain)
-                }
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 3).fill(Color(rgb: 0x4a4c35))
-                        RoundedRectangle(cornerRadius: 3).fill(green).frame(width: max(frac > 0 ? 6 : 0, geo.size.width * frac)).animation(.easeOut(duration: 0.6), value: frac)
+                // today's pages, on a full ring that closes when the goal is met
+                ZStack {
+                    Circle().stroke(Color(rgb: 0x4a4c35), lineWidth: 14)
+                    Circle().trim(from: 0, to: frac).stroke(green, style: StrokeStyle(lineWidth: 14, lineCap: .round)).rotationEffect(.degrees(-90)).animation(.easeOut(duration: 0.7), value: frac)
+                    VStack(spacing: 0) {
+                        Text("\(done)").font(.serif(64, .semibold)).foregroundStyle(T.ink).contentTransition(.numericText()).animation(.snappy, value: done).frame(height: 66)
+                        Text("of \(g) pages today").font(.sans(16, .medium)).foregroundStyle(T.ink)
+                        Button { goalSheet = true } label: { (Text("Change goal ").foregroundColor(T.muted) + Text("›").foregroundColor(T.muted)).font(.sans(14)) }.buttonStyle(.plain).padding(.top, 6)
                     }
                 }
-                .frame(height: 6)
+                .frame(width: 214, height: 214).frame(maxWidth: .infinity).padding(.top, 8).padding(.bottom, 6)
                 // the week: one column a day, as tall as the pages read (full height at the goal)
                 HStack(alignment: .bottom, spacing: 8) {
                     ForEach(0..<7, id: \.self) { i in
@@ -952,7 +950,7 @@ struct LibraryScreen: View {
                                     RoundedRectangle(cornerRadius: 5).fill(Color(rgb: 0x454832)).frame(height: 56)
                                     RoundedRectangle(cornerRadius: 5).fill(on ? green : T.muted).frame(height: n > 0 ? max(5, 56 * min(1, CGFloat(n) / CGFloat(g))) : 0)
                                 }
-                                Text(["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"][i]).font(.sans(12, isToday ? .bold : .regular)).foregroundStyle(isToday ? T.ink : future ? Color(rgb: 0x7d8063) : T.muted)
+                                Text(["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"][i]).font(.sans(13, isToday ? .bold : .medium)).foregroundStyle(future ? T.muted : T.ink)
                             }
                             .frame(maxWidth: .infinity).contentShape(Rectangle())
                         }
@@ -962,7 +960,7 @@ struct LibraryScreen: View {
                 }
                 .padding(.top, 4)
                 Text(s.cur > 0 ? "\(s.cur) \(s.cur == 1 ? "day" : "days") in a row" + (s.best > s.cur ? " · longest \(s.best)" : "") : s.best > 1 ? "Longest run: \(s.best) days" : "Read \(g) pages today to begin a run.")
-                    .font(.sans(14)).foregroundStyle(T.muted)
+                    .font(.sans(15)).foregroundStyle(T.ink)
             }
             .padding(16).background(RoundedRectangle(cornerRadius: 18).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 18).stroke(T.rule)).padding(.top, 14)
             Button { flipNow += 1; if m.mine.isEmpty { searching = false } } label: {
