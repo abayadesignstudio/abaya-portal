@@ -77,6 +77,7 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
     /// Native Time tab, drawn over the portal's Time tab between its header and tab bar.
     private var timeHost: UIHostingController<TimeScreen>?
     private var timeInsets: (top: CGFloat, bottom: CGFloat) = (0, 0)
+    private let hapticTap = UIImpactFeedbackGenerator(style: .light)
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -218,6 +219,8 @@ final class PortalController: UIViewController, WKNavigationDelegate, WKUIDelega
             let show = (body["show"] as? Bool) ?? false
             timeInsets = (CGFloat((body["top"] as? NSNumber)?.doubleValue ?? 0), CGFloat((body["bottom"] as? NSNumber)?.doubleValue ?? 0))
             showTime(show)
+        case "haptic":
+            hapticTap.impactOccurred(intensity: 0.6); hapticTap.prepare()
         case "timeChanged":
             reloadTimeSoon()
         case "ready":

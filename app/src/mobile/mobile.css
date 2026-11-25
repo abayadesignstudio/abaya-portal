@@ -262,3 +262,62 @@ button.m-card{cursor:pointer}
 
 /* back button inside a white sheet header: dark text (the beige one is for the navy header) */
 .mapp-sheet-head .mapp-back{background:#efeeea;color:#02253d !important}
+
+/* ================= iOS feel for the phone app (body.phone) =================
+   System font, filled fields instead of boxed ones, switches instead of checkboxes, segmented controls,
+   press feedback, and sheets that slide up. Desktop is untouched. */
+body.phone{font-family:-apple-system,"SF Pro Text",system-ui,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+body.phone button,body.phone a,body.phone label,body.phone select,body.phone [role="tab"]{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+body.phone .btn,body.phone .input,body.phone select,body.phone textarea,body.phone .qp-title{font-family:inherit}
+
+/* fields: filled, borderless, 17 pt */
+body.phone .input,body.phone select.input,body.phone textarea.input{border:0;border-radius:11px;background:rgba(118,118,128,.12);min-height:46px;padding:11px 14px;font-size:17px;color:#000;transition:background .15s,box-shadow .15s}
+body.phone .mapp .input{background:#fff} /* on the gray page, fields are white like iOS grouped lists */
+body.phone .mapp-sheet .input,body.phone .qp .input,body.phone .fc-sheet .input{background:rgba(118,118,128,.12)}
+body.phone .input:focus,body.phone .input:focus-visible{outline:none;box-shadow:0 0 0 2px rgba(2,37,61,.85)}
+body.phone .input::placeholder,body.phone .qp-title::placeholder{color:rgba(60,60,67,.45)}
+body.phone input[type=date].input,body.phone input[type=time].input{-webkit-appearance:none;appearance:none;text-align:left;display:flex;align-items:center}
+body.phone input[type=date]::-webkit-date-and-time-value,body.phone input[type=time]::-webkit-date-and-time-value{text-align:left}
+body.phone select.input{-webkit-appearance:none;appearance:none;padding-right:34px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%2302253d' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center}
+body.phone .l,body.phone .qp-lab{font-size:13px;font-weight:500;color:rgba(60,60,67,.6);letter-spacing:.01em}
+
+/* checkboxes become iOS switches (except inside chips, which toggle as a whole) */
+body.phone input[type=checkbox]:not(.qp-chip input){-webkit-appearance:none;appearance:none;flex:none;width:51px !important;height:31px !important;margin:0;border-radius:999px;background:rgba(120,120,128,.16);position:relative;cursor:pointer;transition:background .25s ease;vertical-align:middle}
+body.phone input[type=checkbox]:not(.qp-chip input)::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 3px 8px rgba(0,0,0,.15),0 1px 1px rgba(0,0,0,.16);transition:transform .25s cubic-bezier(.3,.7,.4,1.2)}
+body.phone input[type=checkbox]:not(.qp-chip input):checked{background:#34c759}
+body.phone input[type=checkbox]:not(.qp-chip input):checked::after{transform:translateX(20px)}
+body.phone input[type=checkbox]:disabled{opacity:.5}
+body.phone .qp-check{justify-content:space-between;font-size:17px;flex-direction:row-reverse;padding:4px 2px}
+
+/* buttons: rounder, 17 pt, press feedback */
+body.phone .btn{border-radius:12px;min-height:50px;font-size:17px;font-weight:600;transition:transform .12s ease,opacity .12s ease,background .15s}
+body.phone .btn.small{min-height:36px;border-radius:9px;font-size:15px}
+body.phone .btn.secondary{background:rgba(118,118,128,.12);border-color:transparent;color:#02253d}
+body.phone .btn:active:not(:disabled),body.phone .m-card:active,body.phone .mapp-menu button:active,body.phone .qp-chip:active,body.phone .linkbtn:active{transform:scale(.97);opacity:.75}
+body.phone .btn:disabled{opacity:.4}
+
+/* calendar quick-add: a soft card that rises in */
+body.phone .qp{border:0;border-radius:18px;box-shadow:0 18px 50px rgba(0,0,0,.22),0 2px 6px rgba(0,0,0,.08);padding:18px 16px 16px;animation:ios-pop .28s cubic-bezier(.2,.9,.3,1.15)}
+body.phone .qp-form{gap:12px}
+body.phone .qp-title{border:0;border-bottom:0;font-size:24px;font-weight:600;padding:2px 0;margin-right:36px;letter-spacing:-.01em}
+body.phone .qp-x{top:12px;right:12px;width:30px;height:30px;padding:0;border-radius:50%;background:rgba(118,118,128,.14);color:rgba(60,60,67,.7);font-size:18px;display:flex;align-items:center;justify-content:center}
+/* type picker as a segmented control */
+body.phone .qp-tabs{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:0;padding:2px;border-radius:9px;background:rgba(118,118,128,.12)}
+body.phone .qp-tab{background:transparent;border-radius:7px;padding:7px 4px;font-size:13px;font-weight:500;color:#000;transition:background .2s,box-shadow .2s}
+body.phone .qp-tab.on{background:#fff;color:#000;font-weight:600;box-shadow:0 3px 8px rgba(0,0,0,.12),0 1px 1px rgba(0,0,0,.04)}
+/* invite chips: whole chip toggles, checkmark only when on */
+body.phone .qp-chip{border:0;background:rgba(118,118,128,.12);padding:8px 14px;font-size:15px;transition:background .15s,color .15s}
+body.phone .qp-chip input{position:absolute;opacity:0;pointer-events:none;width:1px;height:1px}
+body.phone .qp-chip.on{background:#02253d;color:#fff}
+body.phone .qp-chip.on::before{content:"✓";font-weight:700;margin-right:2px}
+body.phone .qp-guests legend{float:none;width:100%;margin:0 0 6px}
+
+/* full-screen sheets slide up; bottom sheets too */
+body.phone .mapp-sheet{animation:ios-up .32s cubic-bezier(.2,.9,.25,1)}
+body.phone .mapp-sheet-head{border-bottom:.5px solid rgba(60,60,67,.29)}
+body.phone .fc-sheet{animation:ios-up .32s cubic-bezier(.2,.9,.25,1)}
+body.phone .mapp-menu{animation:ios-pop .22s cubic-bezier(.2,.9,.3,1.15);transform-origin:bottom right}
+@keyframes ios-up{from{transform:translateY(100%)}to{transform:none}}
+@keyframes ios-pop{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){body.phone .mapp-sheet,body.phone .fc-sheet,body.phone .qp,body.phone .mapp-menu{animation:none}body.phone input[type=checkbox]::after{transition:none}}

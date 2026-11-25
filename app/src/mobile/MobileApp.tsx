@@ -53,6 +53,19 @@ export default function MobileApp({ onFullSite }: { onFullSite: () => void }) {
   const [nativeTime, setNativeTime] = useState(false)
   const [wantTrip, setWantTrip] = useState(false)
   const headRef = useRef<HTMLElement>(null), navRef = useRef<HTMLElement>(null)
+  // phone styling (also reaches pop-ups rendered outside the app, e.g. the calendar's quick-add);
+  // in the iPhone app a light tap of the Taptic Engine on presses, like native controls
+  useEffect(() => {
+    document.body.classList.add('phone')
+    let last = 0
+    const tap = (e: PointerEvent) => {
+      const el = (e.target as HTMLElement | null)?.closest('button, [role="tab"], label.qp-chip, input[type="checkbox"], select')
+      if (!el || (el as HTMLButtonElement).disabled || Date.now() - last < 60) return
+      last = Date.now(); toNative({ type: 'haptic' })
+    }
+    document.addEventListener('pointerdown', tap, { passive: true })
+    return () => { document.body.classList.remove('phone'); document.removeEventListener('pointerdown', tap) }
+  }, [])
   useEffect(() => {
     exposeNativeAuth(async () => (await supabase.auth.getSession()).data.session)
     return onNative((m) => {
