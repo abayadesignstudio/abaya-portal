@@ -16,6 +16,8 @@ struct ProfileEditScreen: View {
     @Environment(\.closeScreen) private var close
     @State private var name = ""
     @State private var bio = ""
+    @State private var username = ""
+    @State private var publicPage = false
     @State private var avatarURL: URL?
     @State private var bannerURL: URL?
     @State private var newAvatar: UIImage?
@@ -66,6 +68,35 @@ struct ProfileEditScreen: View {
                         field("Name") { TextField("", text: $name).font(.sans(17)).foregroundStyle(T.ink).textInputAutocapitalization(.words) }
                         field("Bio") { TextField("", text: $bio, prompt: Text("A line about you").foregroundColor(T.muted), axis: .vertical).font(.sans(17)).foregroundStyle(T.ink).lineLimit(3...6) }
                         Text("\(bio.count)/160").font(.sans(12)).foregroundStyle(bio.count > 160 ? T.danger : T.muted).frame(maxWidth: .infinity, alignment: .trailing).padding(.top, -10)
+                        // lotmstudy.org/<username>: the member's own address, and (only if they turn it on) a page anyone can read
+                        field("Username") {
+                            HStack(spacing: 2) {
+                                Text("@").font(.sans(17)).foregroundStyle(T.muted)
+                                TextField("", text: $username, prompt: Text("yourname").foregroundColor(T.muted)).font(.sans(17)).foregroundStyle(T.ink)
+                                    .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.asciiCapable)
+                                    .onChange(of: username) { _, v in
+                                        let c = String(v.lowercased().filter { ($0.isASCII && ($0.isLetter || $0.isNumber)) || $0 == "_" }.prefix(20))
+                                        if c != v { username = c }
+                                        if c.isEmpty { publicPage = false }
+                                    }
+                            }
+                        }
+                        if !username.isEmpty {
+                            Text("lotmstudy.org/\(username)").font(.sans(13)).foregroundStyle(T.muted).padding(.top, -10)
+                            Button { Haptic.tap(); publicPage.toggle() } label: {
+                                HStack(alignment: .top, spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("Public page").font(.sans(16, .semibold)).foregroundStyle(T.ink)
+                                        Text("Anyone on the internet can read your posts at this address, without signing in. Replies and other members never appear. Off, the address shows nothing.")
+                                            .font(.sans(13)).foregroundStyle(T.muted).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    Spacer(minLength: 0)
+                                    Switch(on: publicPage)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
                         if let error { Text(error).font(.sans(14)).foregroundStyle(T.danger) }
                     }
                     .padding(.horizontal, 20).padding(.top, 18)
@@ -112,8 +143,9 @@ struct ProfileEditScreen: View {
         Task { if let (d, _) = try? await URLSession.shared.data(from: u), let img = UIImage(data: d) { job = CropJob(image: img, banner: banner) } }
     }
     @MainActor private func load() async {
-        guard let a = await feed.auth(), let x = try? await Supa(a: a).rows("/rest/v1/profiles?id=eq.\(a.me)&select=display_name,bio,avatar_url,background_url").first else { return }
+        guard let a = await feed.auth(), let x = try? await Supa(a: a).rows("/rest/v1/profiles?id=eq.\(a.me)&select=display_name,bio,avatar_url,background_url,username,public_page").first else { return }
         name = x["display_name"] as? String ?? ""; bio = x["bio"] as? String ?? ""
+        username = x["username"] as? String ?? ""; publicPage = x["public_page"] as? Bool ?? false
         avatarURL = (x["avatar_url"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }
         bannerURL = (x["background_url"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }
         loaded = true
@@ -121,13 +153,15 @@ struct ProfileEditScreen: View {
     private func save() {
         let n = name.trimmingCharacters(in: .whitespaces), b = String(bio.trimmingCharacters(in: .whitespacesAndNewlines).prefix(160))
         guard !n.isEmpty, !busy else { return }
+        let u = username.trimmingCharacters(in: .whitespaces).lowercased()
+        if !u.isEmpty, u.range(of: "^[a-z][a-z0-9_]{2,19}$", options: .regularExpression) == nil { error = "A username is 3 to 20 letters, numbers or underscores, and starts with a letter."; return }
         busy = true; error = nil
         Task { @MainActor in
             defer { busy = false }
             guard let a = await feed.auth() else { error = "You’re signed out."; return }
             let db = Supa(a: a)
             do {
-                var row: [String: Any] = ["display_name": n, "bio": b.isEmpty ? NSNull() as Any : b]
+                var row: [String: Any] = ["display_name": n, "bio": b.isEmpty ? NSNull() as Any : b, "username": u.isEmpty ? NSNull() as Any : u, "public_page": !u.isEmpty && publicPage]
                 if let i = newAvatar { row["avatar_url"] = try await db.upload(i, bucket: "avatars") }
                 if let i = newBanner { row["background_url"] = try await db.upload(i, bucket: "avatars") }
                 _ = try await db.req("PATCH", "/rest/v1/profiles?id=eq.\(a.me)", json: row)
@@ -135,7 +169,10 @@ struct ProfileEditScreen: View {
                 await feed.load(quiet: true)
                 NotificationCenter.default.post(name: .lotmProfileChanged, object: nil)
                 close()
-            } catch let e { error = e.localizedDescription }
+            } catch let e {
+                let m = e.localizedDescription
+                error = m.contains("profiles_username_key") ? "That username is taken." : m.contains("username_reserved") ? "That username isn’t available." : m
+            }
         }
     }
 }
