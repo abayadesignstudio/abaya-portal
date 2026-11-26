@@ -231,7 +231,8 @@ private final class PieceView: UIView {
             NSLayoutConstraint.activate([mark.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16), mark.topAnchor.constraint(equalTo: topAnchor, constant: 2)])
         case "text":
             layer.shadowOpacity = 0
-            let size = fs > 0 ? fs : ["S": 16, "M": 24, "L": 36, "XL": 56][item["size"] as? String ?? "M"] ?? 24
+            let sizes: [String: CGFloat] = ["S": 16, "M": 24, "L": 36, "XL": 56]
+            let size: CGFloat = fs > 0 ? fs : (sizes[item["size"] as? String ?? "M"] ?? 24)
             let l = label(words(html, size: size, color: ui(INK_COLORS[item["color"] as? String ?? "ivory"] ?? 0xE9E2D2), lineHeight: 1.3))
             pin(l, .zero, bottom: false)
         case "image":
