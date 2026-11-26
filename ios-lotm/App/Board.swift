@@ -348,7 +348,14 @@ final class BoardViewController: UIViewController, UIScrollViewDelegate, UIGestu
         let twice = UITapGestureRecognizer(target: self, action: #selector(tappedTwice(_:))); twice.numberOfTapsRequired = 2; scroll.addGestureRecognizer(twice)
         tap.require(toFail: twice)
         if !readOnly {
+            // A finger must rest on a piece a moment before it lifts and follows: a passing swipe only pans the table.
+            let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:))); hold.delegate = self
+            hold.minimumPressDuration = 0.3; hold.allowableMovement = 12
+            hold.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue), NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+            scroll.addGestureRecognizer(hold)
+            // The trackpad's pointer is deliberate: a click and drag moves a piece at once.
             let drag = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:))); drag.delegate = self; drag.maximumNumberOfTouches = 1
+            drag.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)]
             drag.allowedScrollTypesMask = []                              // trackpad swipes pan the table, never a piece
             scroll.addGestureRecognizer(drag)
             scroll.panGestureRecognizer.require(toFail: drag)
@@ -453,19 +460,41 @@ final class BoardViewController: UIViewController, UIScrollViewDelegate, UIGestu
         scroll.zoom(to: r, animated: true)
     }
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
-        guard let pan = g as? UIPanGestureRecognizer, pan !== scroll.panGestureRecognizer else { return true }
-        guard let v = piece(at: pan.location(in: world)), !v.locked else { return false }   // the bare table pans
+        if g === scroll.panGestureRecognizer || g is UITapGestureRecognizer || g is UIPinchGestureRecognizer { return true }
+        guard g is UIPanGestureRecognizer || g is UILongPressGestureRecognizer else { return true }
+        guard let v = piece(at: g.location(in: world)), !v.locked else { return false }   // the bare table pans
         select(v); return true
     }
-    @objc private func dragged(_ g: UIPanGestureRecognizer) {
+    private var grab = CGPoint.zero
+    /// A finger that has rested on a piece: the piece lifts, then follows.
+    @objc private func held(_ g: UILongPressGestureRecognizer) {
         guard let v = selected else { return }
         switch g.state {
         case .began:
+            grab = g.location(in: world)
+            scroll.panGestureRecognizer.isEnabled = false; scroll.panGestureRecognizer.isEnabled = true     // the table stays put
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            UIView.animate(withDuration: 0.15) { v.layer.shadowRadius = 18; v.layer.shadowOpacity = 0.5; v.alpha = 0.94 }
+            move(v, .began, .zero, at: g.location(in: v))
+        case .changed:
+            let p = g.location(in: world); move(v, .changed, CGPoint(x: p.x - grab.x, y: p.y - grab.y), at: .zero)
+        case .ended, .cancelled, .failed:
+            UIView.animate(withDuration: 0.15) { v.layer.shadowRadius = 7; v.layer.shadowOpacity = (["line", "rect", "ellipse", "text"].contains(v.type) ? 0 : 0.3); v.alpha = 1 }
+            move(v, .ended, .zero, at: .zero)
+        default: break
+        }
+    }
+    @objc private func dragged(_ g: UIPanGestureRecognizer) {
+        guard let v = selected else { return }
+        move(v, g.state, g.translation(in: world), at: g.location(in: v))
+    }
+    private func move(_ v: PieceView, _ state: UIGestureRecognizer.State, _ t: CGPoint, at inPiece: CGPoint) {
+        switch state {
+        case .began:
             start = CGRect(x: num(v.item["x"]), y: num(v.item["y"]), width: num(v.item["w"]), height: num(v.item["h"]))
-            resizing = !v.handle.isHidden && v.handle.frame.insetBy(dx: -14, dy: -14).contains(g.location(in: v))
+            resizing = !v.handle.isHidden && v.handle.frame.insetBy(dx: -14, dy: -14).contains(inPiece)
             if !resizing { v.item["z"] = (model.items.map { num($0["z"]) }.max() ?? 0) + 1 }
         case .changed:
-            let t = g.translation(in: world)
             if resizing {
                 var w = max(48, start.width + t.x), h = max(36, start.height + t.y)
                 if v.keepsShape, start.width > 0 { h = w * start.height / start.width } else if v.type == "pdf" { w = max(160, w) }
