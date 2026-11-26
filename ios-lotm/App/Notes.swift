@@ -14,6 +14,19 @@ struct NNote: Identifiable, Equatable {
     var pictureURLs: [URL] { images.compactMap(URL.init(string:)) }
     var created = Date(), createdRaw = ""
     init(id: String) { self.id = id }
+    /// Words brought in from elsewhere (the share sheet, a link into the app), as the kind chosen for them:
+    /// a quote keeps them as its passage, a vocabulary word as its word, a plain entry as its text.
+    init(shared text: String, kind k: String, url: String) {
+        id = ""; source = url
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch k {
+        case "vocab": kind = "vocab"; title = t
+        case "entry", "thought", "note": kind = "thought"; body = t
+        default: kind = t.isEmpty ? "thought" : "quote"; quotation = t
+        }
+    }
+    /// What a note is called: on its card, and at the head of its page.
+    var kindName: String { kind == "quote" ? "Quote" : kind == "vocab" ? "Vocab" : "Note" }
     init?(_ r: [String: Any]) {
         guard let i = r["id"] as? String else { return nil }
         id = i; kind = r["kind"] as? String ?? "thought"; title = r["title"] as? String ?? ""; body = r["body"] as? String ?? ""; html = r["body_html"] as? String
@@ -152,9 +165,9 @@ final class NotesModel: ObservableObject {
 }
 
 /// Open an entry (or a new one, perhaps holding a passage shared from elsewhere) over the app.
-@MainActor func openNote(_ web: WebModel, id: String? = nil, text: String = "", url: String = "") {
+@MainActor func openNote(_ web: WebModel, id: String? = nil, text: String = "", url: String = "", kind: String = "") {
     let m = NotesModel.shared; m.feed = web.feed
-    presentSlide(NoteEntry(m: m, web: web, id: id, text: text, url: url))
+    presentSlide(NoteEntry(m: m, web: web, id: id, text: text, url: url, kind: kind))
 }
 
 // MARK: - The pane
@@ -169,7 +182,7 @@ struct NotesPane: View {
     private var shown: [NNote] {
         let s = q.trimmingCharacters(in: .whitespaces).lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         return m.notes.filter { n in
-            guard kind == "all" || (kind == "quote") == (n.kind == "quote") else { return false }
+            guard kind == "all" || kind == (n.kind == "quote" || n.kind == "vocab" ? n.kind : "note") else { return false }
             switch m.filter {
             case .book(let b): if n.bookTitle != b { return false }
             case .loose: if !n.bookTitle.isEmpty { return false }
@@ -207,7 +220,7 @@ struct NotesPane: View {
                 .padding(.horizontal, 14).frame(height: 48).background(RoundedRectangle(cornerRadius: 18).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 18).stroke(T.rule)).padding(.horizontal, 16).padding(.top, 10)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
-                        ForEach([("all", "All · \(m.notes.count)"), ("quote", "Quotes"), ("note", "Notes")], id: \.0) { k, l in
+                        ForEach([("all", "All · \(m.notes.count)"), ("quote", "Quotes"), ("note", "Notes"), ("vocab", "Vocab")], id: \.0) { k, l in
                             Button { Haptic.tap(); kind = k } label: {
                                 Text(l).font(.sans(14, .semibold)).foregroundStyle(kind == k ? T.paper : T.ink).padding(.horizontal, 14).frame(height: 32).background(Capsule().fill(kind == k ? T.ink : Color(rgb: 0x0c0e08, 0.07)))
                             }.buttonStyle(.plain)
@@ -261,7 +274,7 @@ private struct NoteCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text((n.kind == "quote" ? "Quote" : "Note") + (n.isPrivate ? "" : " · Shared")).font(.sans(11, .bold)).tracking(0.9).textCase(.uppercase)
+                Text(n.kindName + (n.isPrivate ? "" : " · Shared")).font(.sans(11, .bold)).tracking(0.9).textCase(.uppercase)
                 Spacer()
                 Text(relDay(n.created)).font(.sans(11, .medium))
                 Button { shareNote(n) } label: { Image(systemName: "square.and.arrow.up").font(.system(size: 15, weight: .medium)).frame(width: 36, height: 30).contentShape(Rectangle()) }.buttonStyle(.plain).padding(.trailing, -8).padding(.vertical, -8).accessibilityLabel("Share")
@@ -354,10 +367,9 @@ struct NoteEntry: View {
     @State private var tick = 0
     @State private var photo: PhotosPickerItem?
 
-    init(m: NotesModel, web: WebModel, id: String?, text: String = "", url: String = "") {
+    init(m: NotesModel, web: WebModel, id: String?, text: String = "", url: String = "", kind: String = "") {
         self.m = m; self.web = web; self.id = id
-        var x = id.flatMap { i in m.notes.first { $0.id == i } } ?? NNote(id: id ?? "")
-        if id == nil { x.kind = text.isEmpty ? "thought" : "quote"; x.quotation = text; x.source = url }
+        let x = id.flatMap { i in m.notes.first { $0.id == i } } ?? NNote(shared: text, kind: kind, url: url)
         _n = State(initialValue: x); _original = State(initialValue: x.body)
         // a note already written opens to be read; Edit unlocks it. A new one opens ready to type.
         _editing = State(initialValue: id == nil); _saved = State(initialValue: id == nil ? nil : x)
@@ -371,16 +383,16 @@ struct NoteEntry: View {
                 if id != nil { Button { flushTyping(); shareNote(n) } label: { Image(systemName: "square.and.arrow.up").font(.system(size: 19, weight: .medium)).foregroundStyle(T.ink).frame(width: 40, height: 36).contentShape(Rectangle()) }.accessibilityLabel("Share") }
                 Button { if editing { save() } else { editing = true } } label: { Text(busy ? "…" : editing ? "Save" : "Edit").font(.sans(14, .bold)).foregroundStyle(T.paper).padding(.horizontal, 18).frame(height: 36).background(Capsule().fill(T.ink)) }.disabled(busy)
             }
-            .overlay(Text((id == nil ? "New " : "") + (n.kind == "quote" ? (id == nil ? "quote" : "Quote") : (id == nil ? "note" : "Note"))).font(.serif(18, .semibold)).foregroundStyle(T.ink))
+            .overlay(Text(id == nil ? "New " + n.kindName.lowercased() : n.kindName).font(.serif(18, .semibold)).foregroundStyle(T.ink))
             .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 10)
             ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    if editing { Seg(options: ["Quote", "Note"], value: Binding(get: { n.kind == "quote" ? "Quote" : "Note" }, set: { flushTyping(); n.kind = $0 == "Quote" ? "quote" : "thought" })).padding(.horizontal, 16) }
+                    if editing { Seg(options: ["Quote", "Note", "Vocab"], value: Binding(get: { n.kindName }, set: { flushTyping(); n.kind = $0 == "Quote" ? "quote" : $0 == "Vocab" ? "vocab" : "thought" })).padding(.horizontal, 16) }
                     Color.clear.frame(height: 0).onAppear { titled = !n.title.trimmingCharacters(in: .whitespaces).isEmpty }
                     VStack(alignment: .leading, spacing: 0) {
-                        if titled, editing { WriteField(text: $n.title, hint: "Title", size: 22).padding(.bottom, 8) }
-                        else if titled { Text(n.title).font(.serif(22, .semibold)).foregroundStyle(T.ink).padding(.bottom, 8) }
+                        if titled, editing, n.kind != "vocab" { WriteField(text: $n.title, hint: "Title", size: 22).padding(.bottom, 8) }
+                        else if titled || (n.kind == "vocab" && !n.title.isEmpty) { Text(n.title).font(.serif(22, .semibold)).foregroundStyle(T.ink).padding(.bottom, 8) }
                         if !editing {
                             // A note opens to be read; its links can be followed. Edit, above, unlocks the words.
                             VStack(alignment: .leading, spacing: 12) {
@@ -389,6 +401,12 @@ struct NoteEntry: View {
                             }
                             .foregroundStyle(T.ink).tint(T.ink).lineSpacing(5).frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
                             .textSelection(.enabled).environment(\.openURL, OpenURLAction { openInApp($0); return .handled })
+                        } else if n.kind == "vocab" {
+                            // a vocabulary word: the word, and under it what it means or the sentence it was met in
+                            Text("THE WORD").font(.sans(11, .bold)).tracking(0.9).foregroundStyle(T.muted)
+                            WriteField(text: $n.title, hint: "The word", size: 24, minHeight: 40, focus: tick).padding(.top, 6)
+                            WriteField(text: $n.body, hint: "What it means, or where you met it (optional)", size: 19, color: T.sub, minHeight: 60).padding(.top, 10)
+                            Color.clear.frame(height: 1).id("typing")
                         } else if n.kind == "quote" {
                             Text("THE PASSAGE").font(.sans(11, .bold)).tracking(0.9).foregroundStyle(T.muted)
                             WriteField(text: $n.quotation, hint: "Type or paste the passage", size: 20, italic: true, minHeight: 96, focus: tick)
@@ -525,7 +543,7 @@ struct NoteEntry: View {
         guard !empty else { m.say("Write something first"); close(); return }
         var x = n
         x.body = x.body.trimmingCharacters(in: .whitespacesAndNewlines); x.title = x.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if x.kind != "quote" { x.kind = x.title.isEmpty ? "thought" : "entry" }
+        if x.kind != "quote", x.kind != "vocab" { x.kind = x.title.isEmpty ? "thought" : "entry" }
         for h in hashtags(x.body + "\n" + x.quotation) where !x.tags.contains(h) { x.tags.append(h) }
         if x.body != original { x.html = nil }        // the words changed here, so any formatting set on the web no longer fits them
         busy = true

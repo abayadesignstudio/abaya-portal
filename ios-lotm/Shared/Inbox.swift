@@ -10,7 +10,8 @@ enum Inbox {
     }()
     private static let account = "commonplace-inbox"
 
-    struct Item: Codable { var text: String; var url: String?; var title: String?; var at: Date }
+    /// `kind`: "quote", "vocab" or "entry", as chosen in the share sheet (absent on items queued by older builds: a quote).
+    struct Item: Codable { var text: String; var url: String?; var title: String?; var at: Date; var kind: String? = nil }
 
     static func load() -> [Item] {
         var q = base(); q[kSecReturnData as String] = true; q[kSecMatchLimit as String] = kSecMatchLimitOne

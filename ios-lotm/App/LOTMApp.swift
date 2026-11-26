@@ -137,7 +137,7 @@ final class WebModel: NSObject, ObservableObject {
             func v(_ k: String) -> String { q.first { $0.name == k }?.value ?? "" }
             select(.library); setLibPane("notes")
             let rest = path.dropFirst("/notebook".count).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            if rest == "new" || !v("text").isEmpty || !v("url").isEmpty { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { openNote(self, text: v("text"), url: v("url")) } }
+            if rest == "new" || !v("text").isEmpty || !v("url").isEmpty { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { openNote(self, text: v("text"), url: v("url"), kind: v("kind")) } }
             else if !rest.isEmpty && rest != "index" { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { openNote(self, id: rest) } }
             else if !v("new").isEmpty { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.composer.present(name: self.feed?.myName ?? "", avatar: self.feed?.myAvatar, toNotes: true) } }
             return
@@ -162,10 +162,21 @@ final class WebModel: NSObject, ObservableObject {
             if err != nil || (r as? Int ?? 1) == 0 { self.view.reload() }
         }
     }
-    /// Passages saved from Safari's share sheet open as new Commonplace entries.
+    /// What was saved from the share sheet goes into the notebook: every item, as the kind chosen there, with the page
+    /// it came from. Anything that can't be kept just now (signed out, no network) waits for the next time.
     func drainInbox() {
-        guard let item = Inbox.popAll().last else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.select(.library); self.setLibPane("notes"); openNote(self, text: item.text, url: item.url ?? "") }
+        let items = Inbox.popAll(); guard !items.isEmpty else { return }
+        Task { @MainActor in
+            let m = NotesModel.shared; m.feed = self.feed
+            var kept = 0, waiting: [Inbox.Item] = []
+            for it in items {
+                if await m.save(NNote(shared: it.text, kind: it.kind ?? "quote", url: it.url ?? ""), new: true) { kept += 1 } else { waiting.append(it) }
+            }
+            if !waiting.isEmpty { Inbox.save(waiting + Inbox.load()) }
+            guard kept > 0 else { return }
+            self.select(.library); self.setLibPane("notes")
+            m.say(kept == 1 ? "Saved to your notebook" : "\(kept) saved to your notebook")
+        }
     }
 }
 
