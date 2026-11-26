@@ -13,8 +13,8 @@ import base64, json, os, subprocess, sys, time, urllib.request, urllib.error
 import jwt  # PyJWT
 
 API = 'https://api.appstoreconnect.apple.com/v1'
-APP_ID, WIDGET_ID, WIDGETS_ID, NOTIFY_ID = 'org.lotmstudy.app', 'org.lotmstudy.app.share', 'org.lotmstudy.app.widgets', 'org.lotmstudy.app.notify'
-PROFILES = {APP_ID: 'LOTM CI App', WIDGET_ID: 'LOTM CI Share', WIDGETS_ID: 'LOTM CI Widgets', NOTIFY_ID: 'LOTM CI Notify'}
+APP_ID, WIDGET_ID, WIDGETS_ID, NOTIFY_ID, SAFARI_ID = 'org.lotmstudy.app', 'org.lotmstudy.app.share', 'org.lotmstudy.app.widgets', 'org.lotmstudy.app.notify', 'org.lotmstudy.app.safari'
+PROFILES = {APP_ID: 'LOTM CI App', WIDGET_ID: 'LOTM CI Share', WIDGETS_ID: 'LOTM CI Widgets', NOTIFY_ID: 'LOTM CI Notify', SAFARI_ID: 'LOTM CI Safari'}
 CERT_CN = 'LOTM CI'
 WORK = os.environ['WORK']
 
@@ -47,7 +47,7 @@ def sh(*args, **kw):
 
 # 1. Bundle IDs
 ids = {}
-for ident, name in ((APP_ID, 'Life of the Mind'), (WIDGET_ID, 'Life of the Mind Share'), (WIDGETS_ID, 'Life of the Mind Widgets'), (NOTIFY_ID, 'Life of the Mind Notifications')):
+for ident, name in ((APP_ID, 'Life of the Mind'), (WIDGET_ID, 'Life of the Mind Share'), (WIDGETS_ID, 'Life of the Mind Widgets'), (NOTIFY_ID, 'Life of the Mind Notifications'), (SAFARI_ID, 'Life of the Mind Safari')):
     found = [b for b in call('GET', f'/bundleIds?filter[identifier]={ident}&limit=200')['data'] if b['attributes']['identifier'] == ident]
     if found:
         ids[ident] = found[0]['id']

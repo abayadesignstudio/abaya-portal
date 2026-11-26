@@ -68,6 +68,7 @@ targets:
       - target: LOTMShare
       - target: LOTMWidgets
       - target: LOTMNotify
+      - target: LOTMSafari
     scheme: {}
   LOTMUITests:
     type: bundle.ui-testing
@@ -166,4 +167,32 @@ targets:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: LOTM CI Notify
+  # Safari: highlight words on a web page and a small bar keeps them in the notebook, with the page's address.
+  LOTMSafari:
+    type: app-extension
+    platform: iOS
+    sources: [Safari, Shared/Inbox.swift]
+    info:
+      path: Safari/Info.plist
+      properties:
+        CFBundleDisplayName: Life of the Mind
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        AppIdentifierPrefix: $(AppIdentifierPrefix)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.Safari.web-extension
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SafariWebExtensionHandler
+    entitlements:
+      path: Safari/LOTMSafari.entitlements
+      properties:
+        keychain-access-groups: [$(AppIdentifierPrefix)org.lotmstudy.shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.lotmstudy.app.safari
+        TARGETED_DEVICE_FAMILY: "1,2"
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: LOTM CI Safari
 # App Store Connect record: "Life of the Mind Study" (org.lotmstudy.app).
