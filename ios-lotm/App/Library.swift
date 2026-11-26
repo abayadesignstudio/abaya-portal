@@ -742,6 +742,8 @@ struct LibraryScreen: View {
     @ObservedObject var feed: FeedModel
     @ObservedObject private var tickets = TicketsModel.shared
     @ObservedObject var web: WebModel
+    /// On a wide iPad the Library is one of three panels, with the Notes in a panel of their own beside it.
+    var beside = false
     @Namespace private var segNS
     @State private var shelfDrag = false
     @State private var flipNow = 0
@@ -766,8 +768,8 @@ struct LibraryScreen: View {
         VStack(spacing: 0) {
             // The tabs stay; the three panes slide beneath them like pages.
             HStack(spacing: 0) {
-                ForEach([("mine", "My Library"), ("notes", "Notes"), ("club", "LOTM")], id: \.0) { v, t in
-                    let on = web.libPane == v
+                ForEach(beside ? [("mine", "My Library"), ("club", "LOTM")] : [("mine", "My Library"), ("notes", "Notes"), ("club", "LOTM")], id: \.0) { v, t in
+                    let on = web.libPane == v || (beside && v == "mine" && web.libPane == "notes")
                     Button { Haptic.tap(); web.setLibPane(v) } label: {
                         Text(t).font(.sans(14, on ? .semibold : .regular)).foregroundStyle(T.ink).frame(maxWidth: .infinity).frame(height: 34)
                             .background { if on { Capsule().fill(T.card).shadow(color: .black.opacity(0.12), radius: 1.5, y: 1).matchedGeometryEffect(id: "on", in: segNS) } }
@@ -779,6 +781,12 @@ struct LibraryScreen: View {
             .padding(3).background(RoundedRectangle(cornerRadius: 20).fill(Color(rgb: 0x0c0e08, 0.08)))
             .padding(.horizontal, 20).padding(.top, 8).frame(height: Self.tabsHeight, alignment: .top)
             // (the screen's own width, so arriving on this tab never sets the panes moving)
+            if beside {
+                ZStack {
+                    if web.libPane == "club" { page { club }.transition(.opacity) } else { page { mine }.transition(.opacity) }
+                }
+                .ignoresSafeArea(.container, edges: .bottom)
+            } else {
             ZStack {
                 page { mine }.offset(x: (0 - Self.paneIndex(web.libPane)) * UIScreen.main.bounds.width)
                 NotesPane(m: NotesModel.shared, feed: feed, web: web).offset(x: (1 - Self.paneIndex(web.libPane)) * UIScreen.main.bounds.width)
@@ -787,6 +795,7 @@ struct LibraryScreen: View {
             // the panes run to the foot of the screen, under the bar, as the feed does
             .ignoresSafeArea(.container, edges: .bottom)
             .clipped()
+            }
         }
         .animation(Self.slide, value: web.libPane)
         .background(T.paper.ignoresSafeArea())

@@ -26,7 +26,15 @@ struct Shell: View {
     private var page: AnyTransition { .asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.18).delay(0.08)), removal: .opacity.animation(.easeIn(duration: 0.07))) }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        // An iPad wide enough for it (on its side, or the large one upright) shows the Feed, the Notes and the Library
+        // side by side in three equal panels, as the web does. The phone, and a narrow iPad window, keep one page.
+        GeometryReader { geo in
+            content(wide: UIDevice.current.userInterfaceIdiom == .pad && geo.size.width >= 1000, width: geo.size.width)
+        }
+    }
+    private func content(wide: Bool, width: CGFloat) -> some View {
+        let home = web.tab == .feed || (wide && web.tab == .library)
+        return ZStack(alignment: .bottom) {
             T.paper.ignoresSafeArea()
             // The masthead stays put on every tab; only the page under it changes.
             VStack(spacing: 0) {
@@ -34,12 +42,21 @@ struct Shell: View {
                     Mast(unread: feed.unread,
                          settings: { web.select(.settings) },
                          bell: { presentSlide(NotificationsScreen(feed: feed, web: web)) },
-                         title: { if web.tab == .feed { feed.scrollTop += 1 } else { web.select(.feed) } })
+                         title: { if web.tab == .feed { feed.scrollTop += 1 } else { web.select(.feed) } }, wide: wide)
                 }
                 ZStack(alignment: .bottom) {
-                    FeedScreen(m: feed, web: web).opacity(web.tab == .feed ? 1 : 0).allowsHitTesting(web.tab == .feed && !overlay)
-                        .animation(web.tab == .feed ? .easeOut(duration: 0.18).delay(0.08) : .easeIn(duration: 0.07), value: web.tab)
-                    if web.tab == .library { LibraryScreen(m: library, feed: feed, web: web).allowsHitTesting(!overlay).transition(page) }
+                    HStack(alignment: .top, spacing: 0) {
+                        FeedScreen(m: feed, web: web).frame(width: wide ? (width - 2) / 3 : nil).clipShape(Rectangle().inset(by: wide ? 0 : -4000))   // the phone's page is left as it was
+                        if wide {
+                            T.rule.frame(width: 1).ignoresSafeArea(.container, edges: .bottom)
+                            NotesPane(m: NotesModel.shared, feed: feed, web: web).frame(width: (width - 2) / 3).clipped()
+                            T.rule.frame(width: 1).ignoresSafeArea(.container, edges: .bottom)
+                            LibraryScreen(m: library, feed: feed, web: web, beside: true).frame(width: (width - 2) / 3).clipped()
+                        }
+                    }
+                    .opacity(home ? 1 : 0).allowsHitTesting(home && !overlay)
+                    .animation(home ? .easeOut(duration: 0.18).delay(0.08) : .easeIn(duration: 0.07), value: home)
+                    if !wide && web.tab == .library { LibraryScreen(m: library, feed: feed, web: web).allowsHitTesting(!overlay).transition(page) }
                     if web.tab == .chat { Group { if chatOpen { ChatListScreen(s: ChatSession.shared, embedded: true) } else { ChatSoon() } }.allowsHitTesting(!overlay).transition(page) }
                     if web.tab == .people { DirectoryScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(page) }
                     if web.tab == .settings { SettingsScreen(feed: feed, web: web).allowsHitTesting(!overlay).transition(page) }
@@ -50,7 +67,7 @@ struct Shell: View {
             }
             if !overlay {
                 // The bar keeps its place at the foot of the screen; the keyboard comes up over it.
-                VStack(spacing: 0) { Spacer(minLength: 0); Dock(web: web, feed: feed) }
+                VStack(spacing: 0) { Spacer(minLength: 0); Dock(web: web, feed: feed, wide: wide) }
                     .ignoresSafeArea(.keyboard, edges: .bottom).transition(.opacity)
             }
             if let it = feed.detail { DropCard(it: it, m: feed, web: web).zIndex(5) }
@@ -70,11 +87,12 @@ struct Shell: View {
 private struct Dock: View {
     @ObservedObject var web: WebModel
     @ObservedObject var feed: FeedModel
+    var wide = false                // the Feed and the Library are on one page: one button for both
     @State private var chatCount = 0
     var body: some View {
         HStack(spacing: 0) {
-            item(.feed, "feed", "Feed")
-            item(.library, "reading", "Library")
+            item(.feed, "feed", wide ? "Home" : "Feed")
+            if !wide { item(.library, "reading", "Library") }
             Button { Haptic.tap(); web.composer.present(name: feed.myName, avatar: feed.myAvatar) } label: {
                 GlyphView(n: "pencil", s: 23).foregroundStyle(T.paper).frame(width: 50, height: 50).background(Circle().fill(T.ink))
                     .shadow(color: Color(rgb: 0x0c0e08, 0.3), radius: 6, y: 3)
@@ -109,10 +127,10 @@ private struct Dock: View {
         .task { while chatOpen, !Task.isCancelled { if !ChatListScreen.showing && web.tab != .chat { chatCount = await chatUnread(web: web.view) }; try? await Task.sleep(nanoseconds: 30_000_000_000) } }
     }
     private func item(_ t: Tab, _ icon: String, _ label: String) -> some View {
-        let on = web.tab == t
+        let on = web.tab == t || (wide && t == .feed && web.tab == .library)
         return Button {
             Haptic.tap()
-            if on && t == .feed { feed.scrollTop += 1; return }
+            if web.tab == .feed && t == .feed { feed.scrollTop += 1; return }
             web.select(t)
         } label: {
             GlyphView(n: icon, s: 27).foregroundStyle(on ? T.ink : T.muted)
@@ -227,6 +245,7 @@ struct Leaves: View {
 struct Mast: View {
     let unread: Int
     let settings: () -> Void, bell: () -> Void, title: () -> Void
+    var wide = false
     var body: some View {
         HStack(spacing: 8) {
             ibtn("bell", bell).overlay(alignment: .topTrailing) { badge(unread) }.accessibilityLabel(unread > 0 ? "Notifications, \(unread) unread" : "Notifications")
