@@ -8,14 +8,20 @@ struct NNote: Identifiable, Equatable {
     let id: String
     var kind = "thought", title = "", body = "", html: String? = nil, quotation = ""
     var bookTitle = "", bookAuthor = "", bookCover: String? = nil, page = ""
-    var tags: [String] = [], source = "", image: String? = nil, linked: [String] = [], isPrivate = true
+    var tags: [String] = [], source = "", images: [String] = [], linked: [String] = [], isPrivate = true
+    /// The first picture (older screens, and the web, know only this one).
+    var image: String? { get { images.first } set { if let v = newValue { images.append(v) } else { images = [] } } }
+    var pictureURLs: [URL] { images.compactMap(URL.init(string:)) }
     var created = Date(), createdRaw = ""
     init(id: String) { self.id = id }
     init?(_ r: [String: Any]) {
         guard let i = r["id"] as? String else { return nil }
         id = i; kind = r["kind"] as? String ?? "thought"; title = r["title"] as? String ?? ""; body = r["body"] as? String ?? ""; html = r["body_html"] as? String
         quotation = r["quotation"] as? String ?? ""; bookTitle = r["book_title"] as? String ?? ""; bookAuthor = r["book_author"] as? String ?? ""; bookCover = r["book_cover_url"] as? String
-        page = r["page"] as? String ?? ""; tags = r["tags"] as? [String] ?? []; source = r["source_url"] as? String ?? ""; image = (r["image_url"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        page = r["page"] as? String ?? ""; tags = r["tags"] as? [String] ?? []; source = r["source_url"] as? String ?? ""
+        // (a note last saved by a screen that knows one picture only: that one is the truth)
+        let one = (r["image_url"] as? String).flatMap { $0.isEmpty ? nil : $0 }, many = (r["image_urls"] as? [String] ?? []).filter { !$0.isEmpty }
+        images = one.map { many.contains($0) ? many : [$0] } ?? []
         linked = r["linked_ids"] as? [String] ?? []; isPrivate = r["is_private"] as? Bool ?? true
         createdRaw = r["created_at"] as? String ?? ""; created = parseDate(r["created_at"])
     }
@@ -24,7 +30,7 @@ struct NNote: Identifiable, Equatable {
         func v(_ s: String) -> Any { s.isEmpty ? NSNull() as Any : s }
         return ["kind": kind, "title": title, "body": body, "body_html": kind != "quote" ? (html ?? NSNull() as Any) : NSNull(), "quotation": kind == "quote" ? v(quotation) : NSNull(),
                 "book_title": v(bookTitle), "book_author": v(bookAuthor), "book_cover_url": bookCover ?? NSNull() as Any, "page": v(page), "reference_label": page.isEmpty ? NSNull() as Any : "p. \(page)",
-                "tags": tags, "source_url": v(source), "image_url": image ?? NSNull() as Any, "linked_ids": linked, "is_private": isPrivate]
+                "tags": tags, "source_url": v(source), "image_url": images.first ?? NSNull() as Any, "image_urls": images, "linked_ids": linked, "is_private": isPrivate]
     }
 }
 struct NBook: Identifiable, Equatable { var id: String { title }; let title: String, author: String, cover: String? }
@@ -39,7 +45,7 @@ enum NFilter: Equatable { case book(String), loose, author(String), tag(String),
         }
     }
 }
-private let NCOLS = "id,kind,title,body,body_html,quotation,book_title,book_author,book_cover_url,page,tags,source_url,image_url,linked_ids,is_private,created_at,updated_at"
+private let NCOLS = "id,kind,title,body,body_html,quotation,book_title,book_author,book_cover_url,page,tags,source_url,image_url,image_urls,linked_ids,is_private,created_at,updated_at"
 private func monthName(_ ym: String) -> String {
     let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM"
     guard let d = f.date(from: ym) else { return ym }
@@ -224,6 +230,8 @@ struct NotesPane: View {
                         .contextMenu { Button(role: .destructive) { m.delete(n) } label: { Label("Delete", systemImage: "trash") } }
                         .padding(.horizontal, 16).padding(.top, 10)
                         .transition(.opacity)
+                    // its pictures, on a card of their own under the words; a tap opens one to zoom
+                    if !n.pictureURLs.isEmpty { NotePictures(urls: n.pictureURLs, compact: true).padding(.horizontal, 16).padding(.top, 6).transition(.opacity) }
                 }
                 if shown.isEmpty {
                     Text(!m.loaded ? "Loading…" : m.notes.isEmpty ? "Your commonplace book is empty. Save a passage worth keeping." : "Nothing matches.")
@@ -264,9 +272,6 @@ private struct NoteCard: View {
             }
             if !n.title.isEmpty { Text(n.title).font(.serif(18, .semibold)).foregroundStyle(T.ink).multilineTextAlignment(.leading).padding(.top, 6) }
             if !n.body.isEmpty { Text(n.body).font(.serif(n.kind == "quote" ? 17 : 18.5, .medium)).foregroundStyle(n.kind == "quote" ? T.sub : T.ink).lineSpacing(3).lineLimit(4).multilineTextAlignment(.leading).padding(.top, 6) }
-            if let u = n.image.flatMap(URL.init(string:)) {
-                Color(rgb: 0x2a2d1d).frame(height: 180).overlay(NetImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear }).clipShape(RoundedRectangle(cornerRadius: 10)).padding(.top, 8)
-            }
             if let u = n.firstLink { LinkCard(url: u).id(u).padding(.top, 8) }
             if !n.bookTitle.isEmpty {
                 HStack(spacing: 8) {
@@ -344,6 +349,7 @@ struct NoteEntry: View {
     @State private var newTag = ""
     @State private var camera = false
     @State private var busy = false
+    @State private var addingPicture = false
     @State private var confirm = false
     @State private var tick = 0
     @State private var photo: PhotosPickerItem?
@@ -393,11 +399,6 @@ struct NoteEntry: View {
                             WriteField(text: $n.body, hint: "What’s on your mind?", size: 20, minHeight: 160, focus: tick)
                             Color.clear.frame(height: 1).id("typing")
                         }
-                        if let u = n.image.flatMap(URL.init(string:)) {
-                            NetImage(url: u) { $0.resizable().scaledToFit() } placeholder: { T.soft.frame(height: 160) }.clipShape(RoundedRectangle(cornerRadius: 10))
-                                .overlay(alignment: .topTrailing) { if editing { Button { n.image = nil } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white).frame(width: 24, height: 24).background(Circle().fill(Color(rgb: 0x0a0c06, 0.72))) }.padding(6) } }
-                                .imageMenu(u).padding(.top, 8)
-                        }
                         if let u = n.firstLink { LinkCard(url: u).id(u).padding(.top, 10) }
                         if !editing, !n.bookTitle.isEmpty { Text(n.bookTitle + (n.page.isEmpty ? "" : ", p. \(n.page)")).font(.sans(13)).foregroundStyle(T.muted).padding(.top, 10) }
                         // the same tools, in the same order, as the post writer
@@ -416,6 +417,12 @@ struct NoteEntry: View {
                     }
                     .padding(.horizontal, 16).padding(.vertical, 14).frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 16).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.rule)).padding(.horizontal, 16).padding(.top, 14)
+
+                    // The note's pictures keep to a card of their own, under the words, so they never push the text about.
+                    if !n.pictureURLs.isEmpty || addingPicture {
+                        NotePictures(urls: n.pictureURLs, adding: addingPicture, remove: editing ? { u in n.images.removeAll { $0 == u.absoluteString } } : nil)
+                            .padding(.horizontal, 16).padding(.top, 10)
+                    }
 
                     if editing {
                     VStack(spacing: 0) {
@@ -457,10 +464,10 @@ struct NoteEntry: View {
         }
         .background(T.paper.ignoresSafeArea()).preferredColorScheme(.dark).tint(T.ink)
         .onAppear { if id == nil { DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { tick += 1 } } }
-        .fullScreenCover(isPresented: $camera) { CameraPicker { img in camera = false; if let img { busy = true; Task { n.image = await m.upload(img) ?? n.image; busy = false } } }.ignoresSafeArea() }
+        .fullScreenCover(isPresented: $camera) { CameraPicker { img in camera = false; if let img { addingPicture = true; Task { if let u = await m.upload(img) { n.images.append(u) }; addingPicture = false } } }.ignoresSafeArea() }
         .onChange(of: photo) { _, it in
             guard let it else { return }
-            Task { if let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) { busy = true; n.image = await m.upload(img) ?? n.image; busy = false }; photo = nil }
+            Task { if let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) { addingPicture = true; if let u = await m.upload(img) { n.images.append(u) }; addingPicture = false }; photo = nil }
         }
         .sheet(isPresented: Binding(get: { pick == "book" }, set: { if !$0 { pick = "" } })) { BookPicker(m: m) { b in n.bookTitle = b?.title ?? ""; n.bookAuthor = b?.author ?? ""; n.bookCover = b?.cover; if b == nil { n.page = "" }; pick = "" } }
         .sheet(isPresented: Binding(get: { pick == "link" }, set: { if !$0 { pick = "" } })) { linker }
@@ -538,6 +545,49 @@ struct NoteEntry: View {
     }
 }
 private extension View { func rowBox() -> some View { padding(.horizontal, 16).padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) } }
+
+/// A note's pictures on their own card: one large, or several in a grid. A tap opens the picture full screen, where
+/// it can be pinched and dragged; holding one offers Save, Copy and Share.
+struct NotePictures: View {
+    let urls: [URL]
+    var compact = false                       // in the list: a single row
+    var adding = false
+    var remove: ((URL) -> Void)? = nil
+    @State private var openAt: Int?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !compact { Text(urls.count == 1 ? "PICTURE" : "PICTURES").font(.sans(11, .bold)).tracking(0.9).foregroundStyle(T.muted) }
+            if compact {
+                HStack(spacing: 6) { ForEach(Array(urls.prefix(3).enumerated()), id: \.offset) { i, u in
+                    tile(i, u, height: urls.count == 1 ? 180 : 110)
+                        .overlay(alignment: .bottomTrailing) { if i == 2, urls.count > 3 { Text("+\(urls.count - 3)").font(.sans(13, .bold)).foregroundStyle(.white).padding(.horizontal, 8).padding(.vertical, 4).background(Capsule().fill(Color.black.opacity(0.6))).padding(6) } }
+                } }
+            } else if urls.count == 1, let u = urls.first {
+                NetImage(url: u) { $0.resizable().scaledToFit() } placeholder: { T.soft.frame(height: 180) }
+                    .frame(maxWidth: .infinity).clipShape(RoundedRectangle(cornerRadius: 10)).contentShape(Rectangle())
+                    .onTapGesture { openAt = 0 }.imageMenu(u).overlay(alignment: .topTrailing) { cross(u) }
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
+                    ForEach(Array(urls.enumerated()), id: \.offset) { i, u in tile(i, u, height: 150).overlay(alignment: .topTrailing) { cross(u) } }
+                }
+            }
+            if adding { HStack(spacing: 8) { ProgressView().tint(T.muted); Text("Adding the picture…").font(.sans(13)).foregroundStyle(T.muted) } }
+        }
+        .padding(compact ? 8 : 12).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 16).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.rule))
+        .fullScreenCover(item: Binding(get: { openAt.map { PhotoIndex(v: $0) } }, set: { openAt = $0?.v })) { b in Lightbox(urls: urls, start: b.v) }
+    }
+    private func tile(_ i: Int, _ u: URL, height: CGFloat) -> some View {
+        Color(rgb: 0x2a2d1d).frame(height: height).frame(maxWidth: .infinity)
+            .overlay(NetImage(url: u) { $0.resizable().scaledToFill() } placeholder: { Color.clear })
+            .clipShape(RoundedRectangle(cornerRadius: 10)).contentShape(Rectangle())
+            .onTapGesture { openAt = i }.imageMenu(u)
+            .accessibilityLabel("Picture \(i + 1) of \(urls.count)").accessibilityAddTraits(.isButton)
+    }
+    @ViewBuilder private func cross(_ u: URL) -> some View {
+        if let remove { Button { remove(u) } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white).frame(width: 24, height: 24).background(Circle().fill(Color(rgb: 0x0a0c06, 0.72))) }.buttonStyle(.plain).padding(6).accessibilityLabel("Remove picture") }
+    }
+}
 
 // MARK: - The index
 
@@ -630,7 +680,7 @@ extension NNote {
 @MainActor func shareNote(_ n: NNote) {
     Task { @MainActor in
         var items: [Any] = [n.shareText]
-        if let u = n.image.flatMap(URL.init(string:)), let d = try? await URLSession.shared.data(from: u).0, let img = UIImage(data: d) { items.append(img) }
+        for u in n.pictureURLs { if let d = try? await URLSession.shared.data(from: u).0, let img = UIImage(data: d) { items.append(img) } }
         let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
         let root = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first
         var top = root; while let p = top?.presentedViewController { top = p }
