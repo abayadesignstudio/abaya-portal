@@ -1,10 +1,35 @@
 {
   "manifest_version": 3,
   "name": "Life of the Mind",
-  "description": "Save a highlighted passage to your Life of the Mind notebook as a quote, a vocabulary word or an entry, with the page it came from.",
+  "description": "Save highlighted words to your Life of the Mind notebook, with the page they came from.",
   "version": "1.0",
-  "icons": { "48": "icon-48.png", "64": "icon-64.png", "96": "icon-96.png", "128": "icon-128.png", "256": "icon-256.png", "512": "icon-512.png" },
-  "background": { "scripts": ["background.js"], "type": "module" },
-  "content_scripts": [{ "js": ["content.js"], "matches": ["http://*/*", "https://*/*"], "run_at": "document_idle" }],
-  "permissions": ["nativeMessaging"]
+  "icons": {
+    "48": "icon-48.png",
+    "64": "icon-64.png",
+    "96": "icon-96.png",
+    "128": "icon-128.png",
+    "256": "icon-256.png",
+    "512": "icon-512.png"
+  },
+  "background": {
+    "scripts": [
+      "background.js"
+    ],
+    "persistent": false
+  },
+  "content_scripts": [
+    {
+      "js": [
+        "content.js"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [
+    "nativeMessaging"
+  ]
 }
