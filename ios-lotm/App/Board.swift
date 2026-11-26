@@ -411,7 +411,7 @@ final class BoardViewController: UIViewController, UIScrollViewDelegate, UIGestu
     private let strings = CALayer(), pins = CAShapeLayer()
     private var drag: UIPanGestureRecognizer?
     /// The board opens to be looked at. Edit lets pieces be moved, resized, written, added and removed.
-    var editing = false { didSet { drag?.isEnabled = editing; if !editing { select(nil) } } }
+    var arranging = false { didSet { drag?.isEnabled = arranging; if !arranging { select(nil) } } }
     var onSelect: ((String?, String?) -> Void)?          // the selected piece's id and kind
     var onWrite: ((String) -> Void)?                      // a piece whose words are to be edited
     private var pieces: [String: PieceView] = [:]
@@ -587,20 +587,20 @@ final class BoardViewController: UIViewController, UIScrollViewDelegate, UIGestu
         pieces.values.filter { !$0.isHidden && $0.point(inside: world.convert(p, to: $0), with: nil) }.max { $0.layer.zPosition < $1.layer.zPosition }
     }
     private func select(_ v: PieceView?) { selected?.select(false); selected = v; v?.select(true); onSelect?(v?.id, v?.type) }
-    @objc private func tapped(_ g: UITapGestureRecognizer) { if editing { select(piece(at: g.location(in: world))) } }
+    @objc private func tapped(_ g: UITapGestureRecognizer) { if arranging { select(piece(at: g.location(in: world))) } }
     @objc private func tappedTwice(_ g: UITapGestureRecognizer) {
         guard let v = piece(at: g.location(in: world)) else { fit(); return }
         // a link or a video opens; anything else is brought up close
         if v.type == "link", let u = (v.item["url"] as? String).flatMap(URL.init(string:)) { openInApp(u); return }
         if v.type == "video", let id = v.item["vid"] as? String, let u = URL(string: "https://www.youtube.com/watch?v=\(id)") { openInApp(u); return }
-        if editing, ["note", "quote", "text", "sheet"].contains(v.type) { select(v); onWrite?(v.id); return }
+        if arranging, ["note", "quote", "text", "sheet"].contains(v.type) { select(v); onWrite?(v.id); return }
         let r = v.frame.insetBy(dx: -40, dy: -40)
         scroll.zoom(to: r, animated: true)
     }
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
         if g === scroll.panGestureRecognizer || g is UITapGestureRecognizer || g is UIPinchGestureRecognizer { return true }
         guard g is UIPanGestureRecognizer else { return true }
-        guard editing, let v = piece(at: g.location(in: world)), !v.locked else { return false }   // the bare table pans
+        guard arranging, let v = piece(at: g.location(in: world)), !v.locked else { return false }   // the bare table pans
         select(v); return true
     }
     @objc private func dragged(_ g: UIPanGestureRecognizer) {
@@ -684,7 +684,7 @@ struct BoardScreen: View {
                     } label: { Image(systemName: "plus").font(.system(size: 16, weight: .semibold)).foregroundStyle(T.ink).frame(width: 40, height: 40).background(Circle().fill(Color(rgb: 0x2d301f, 0.92))) }
                 }
                 if !readOnly, m.id != nil {
-                    Button { editing.toggle(); vc.editing = editing } label: {
+                    Button { editing.toggle(); vc.arranging = editing } label: {
                         Text(editing ? "Done" : "Edit").font(.sans(14, .bold)).foregroundStyle(editing ? T.paper : T.ink).padding(.horizontal, 16).frame(height: 40).background(Capsule().fill(editing ? T.ink : Color(rgb: 0x2d301f, 0.92)))
                     }
                 }
