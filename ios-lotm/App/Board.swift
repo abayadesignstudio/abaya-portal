@@ -14,6 +14,11 @@ private let NOTE_COLORS: [String: UInt32] = ["yellow": 0xF2E27A, "pink": 0xF2B5B
 private let INK_COLORS: [String: UInt32] = ["ivory": 0xE9E2D2, "ink": 0x1E2836, "red": 0xC0392B, "gold": 0xE9C46A, "blue": 0x7FB2E5, "green": 0x8CC08A]
 private let STRING_COLORS: [String: UInt32] = ["red": 0xC0392B, "ink": 0x1E2836, "ivory": 0xE9E2D2]
 private func ui(_ rgb: UInt32, _ a: CGFloat = 1) -> UIColor { UIColor(red: CGFloat((rgb >> 16) & 255) / 255, green: CGFloat((rgb >> 8) & 255) / 255, blue: CGFloat(rgb & 255) / 255, alpha: a) }
+private func boardColor(_ s: String?) -> UIColor? {
+    let old: [String: UInt32] = ["#F6E27A": 0xFFD23F, "#BFE3A8": 0x8BD96E, "#F4B6C8": 0xFF8FBA, "#B8D6F2": 0x7DBDFF]
+    if let s, let v = old[s.uppercased()] { return ui(v) }
+    return hex(s)
+}
 private func hex(_ s: String?) -> UIColor? {
     guard var t = s?.trimmingCharacters(in: .whitespaces), t.hasPrefix("#") else { return nil }
     t.removeFirst(); guard t.count == 6, let v = UInt32(t, radix: 16) else { return nil }
@@ -25,14 +30,19 @@ private func garamond(_ size: CGFloat, bold: Bool = false, italic: Bool = false)
     return UIFont(name: name, size: size) ?? (italic ? UIFont.italicSystemFont(ofSize: size) : bold ? UIFont.boldSystemFont(ofSize: size) : UIFont.systemFont(ofSize: size))
 }
 
+private let tiedKey = NSAttributedString.Key("lotm.tied")
+
 /// The words of a piece, from the HTML the web board keeps: paragraphs, line breaks, bold and italic, list items.
 private func words(_ html: String, size: CGFloat, color: UIColor, lineHeight: CGFloat = 1.45) -> NSAttributedString {
     let out = NSMutableAttributedString()
     let para = NSMutableParagraphStyle(); para.lineSpacing = size * (lineHeight - 1.18); para.paragraphSpacing = size * 0.55
     var bold = 0, italic = 0, list: [Int] = []          // list: 0 for bullets, n for the next number
+    var spans: [String?] = []                            // open <span>s; a tied passage carries its string's id
     func add(_ s: String) {
         guard !s.isEmpty else { return }
-        out.append(NSAttributedString(string: s, attributes: [.font: garamond(size, bold: bold > 0, italic: italic > 0), .foregroundColor: color, .paragraphStyle: para]))
+        var at: [NSAttributedString.Key: Any] = [.font: garamond(size, bold: bold > 0, italic: italic > 0), .foregroundColor: color, .paragraphStyle: para]
+        if let anc = spans.compactMap({ $0 }).last { at[tiedKey] = anc; at[.backgroundColor] = ui(0xC0392B, 0.09); at[.underlineStyle] = NSUnderlineStyle.single.rawValue; at[.underlineColor] = ui(0xC0392B, 0.7) }
+        out.append(NSAttributedString(string: s, attributes: at))
     }
     func breakLine() { if out.length > 0, !out.string.hasSuffix("\n") { add("\n") } }
     func entity(_ s: String) -> String {
@@ -54,6 +64,9 @@ private func words(_ html: String, size: CGFloat, color: UIColor, lineHeight: CG
             case "p", "div", "h1", "h2", "h3", "blockquote": breakLine(); if !closing, name.hasPrefix("h") { bold += 1 } else if closing, name.hasPrefix("h") { bold -= 1 }
             case "ul": if closing { _ = list.popLast() } else { list.append(0) }; breakLine()
             case "ol": if closing { _ = list.popLast() } else { list.append(1) }; breakLine()
+            case "span":
+                if closing { _ = spans.popLast() }
+                else if let r = tag.range(of: "data-anc=\""), let e = tag[r.upperBound...].firstIndex(of: "\"") { spans.append(String(tag[r.upperBound..<e])) } else { spans.append(nil) }
             case "li":
                 if !closing { breakLine(); if let n = list.last, n > 0 { add("\(n). "); list[list.count - 1] = n + 1 } else { add("•  ") } }
             default: break
@@ -102,12 +115,16 @@ private func words(_ html: String, size: CGFloat, color: UIColor, lineHeight: CG
     }
     /// A moved or resized piece is kept shortly after the hand leaves it. Only the pieces are written; strings and the
     /// view the computer left are not touched.
-    func saveSoon() {
+    private var withLinks = false
+    func saveSoon(links: Bool = false) {
+        if links { withLinks = true }
         saving?.cancel(); state = "Saving…"
         saving = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 900_000_000)
             guard !Task.isCancelled, let self, let id = self.id, let db = await self.db() else { return }
-            do { _ = try await db.req("PATCH", "/rest/v1/boards?id=eq.\(id)", json: ["items": self.items]); self.state = "Saved" }
+            var body: [String: Any] = ["items": self.items]
+            if self.withLinks { body["links"] = self.links }
+            do { _ = try await db.req("PATCH", "/rest/v1/boards?id=eq.\(id)", json: body); self.withLinks = false; self.state = "Saved" }
             catch { self.state = "Not saved: \(error.localizedDescription)" }
         }
     }
@@ -132,6 +149,37 @@ private func words(_ html: String, size: CGFloat, color: UIColor, lineHeight: CG
 private final class PDFPageView: UIView {
     override class var layerClass: AnyClass { CATiledLayer.self }
     var page: PDFPage? { didSet { layer.setNeedsDisplay() } }
+    private let ink = CALayer()
+    /// The marks made on this page on the web board: highlighter boxes, underlines, tied passages, pen strokes.
+    /// They are kept in a space 1000 units wide.
+    func setMarks(_ marks: [[String: Any]]) {
+        ink.sublayers?.forEach { $0.removeFromSuperlayer() }
+        if ink.superlayer == nil { ink.compositingFilter = "multiplyBlendMode"; ink.zPosition = 10; layer.addSublayer(ink) }
+        ink.frame = bounds
+        let k = bounds.width / 1000
+        func rects(_ m: [String: Any]) -> [CGRect] { ((m["r"] as? [Any]) ?? []).compactMap { ($0 as? [Any]).flatMap { $0.count == 4 ? CGRect(x: num($0[0]) * k, y: num($0[1]) * k, width: num($0[2]) * k, height: num($0[3]) * k) : nil } } }
+        func fill(_ r: CGRect, _ c: UIColor) { let l = CALayer(); l.frame = r; l.backgroundColor = c.cgColor; ink.addSublayer(l) }
+        for m in marks {
+            let c = boardColor(m["c"] as? String) ?? ui(0xFFD23F)
+            switch m["t"] as? String ?? "" {
+            case "box":
+                let under = num(m["u"]) != 0 || (m["u"] as? Bool ?? false)
+                for r in rects(m) { under ? fill(CGRect(x: r.minX, y: r.maxY - 2.4 * k, width: r.width, height: max(1, 2.4 * k)), c) : fill(r, c.withAlphaComponent(0.55)) }
+            case "anc":
+                for r in rects(m) { fill(r, ui(0xC0392B, 0.1)); fill(CGRect(x: r.minX, y: r.maxY - 1.6 * k, width: r.width, height: max(1, 1.6 * k)), ui(0xC0392B, 0.75)) }
+            default:
+                guard let d = m["d"] as? String else { continue }
+                let n = d.replacingOccurrences(of: "M", with: " ").replacingOccurrences(of: "L", with: " ").replacingOccurrences(of: ",", with: " ").split(separator: " ").compactMap { Double($0) }
+                guard n.count >= 4 else { continue }
+                let path = UIBezierPath(); path.move(to: CGPoint(x: n[0] * k, y: n[1] * k))
+                var i = 2; while i + 1 < n.count { path.addLine(to: CGPoint(x: n[i] * k, y: n[i + 1] * k)); i += 2 }
+                let hl = num(m["hl"]) != 0
+                let l = CAShapeLayer(); l.path = path.cgPath; l.fillColor = nil; l.strokeColor = (hl ? c.withAlphaComponent(0.55) : c).cgColor
+                l.lineWidth = max(1, (num(m["w"]) == 0 ? 2.6 : num(m["w"])) * k); l.lineCap = hl ? .butt : .round; l.lineJoin = .round
+                ink.addSublayer(l)
+            }
+        }
+    }
     override init(frame: CGRect) {
         super.init(frame: frame); backgroundColor = .white
         let t = layer as! CATiledLayer; t.levelsOfDetail = 5; t.levelsOfDetailBias = 3; t.tileSize = CGSize(width: 512, height: 512)
@@ -155,6 +203,10 @@ private final class PieceView: UIView {
     var item: [String: Any]
     let handle = UIView()
     private var shape: CAShapeLayer?
+    private weak var textView: UITextView?
+    private weak var pdfScroll: UIScrollView?
+    private var pdfPages: [Int: PDFPageView] = [:]
+    var onScroll: (() -> Void)?                       // what is inside was scrolled: tied strings follow
     var type: String { item["type"] as? String ?? "" }
     var locked: Bool { item["locked"] as? Bool ?? false }
     var keepsShape: Bool { ["image", "pdf", "video"].contains(type) }
@@ -171,6 +223,7 @@ private final class PieceView: UIView {
     required init?(coder: NSCoder) { fatalError() }
 
     /// Where the piece sits on the table.
+    var frameOnTable: CGRect { CGRect(x: MID.x + num(item["x"]), y: MID.y + num(item["y"]), width: max(1, num(item["w"])), height: max(1, num(item["h"]))) }
     func place() {
         transform = .identity
         let w = max(1, num(item["w"])), h = max(1, num(item["h"]))
@@ -196,7 +249,7 @@ private final class PieceView: UIView {
     private func reader(_ s: NSAttributedString) -> UITextView {
         let t = UITextView(); t.isEditable = false; t.isSelectable = false; t.backgroundColor = .clear; t.textContainerInset = .zero; t.textContainer.lineFragmentPadding = 0
         t.attributedText = s; t.translatesAutoresizingMaskIntoConstraints = false; t.showsVerticalScrollIndicator = false; t.isScrollEnabled = true
-        t.panGestureRecognizer.minimumNumberOfTouches = 2      // one finger moves the piece; two scroll what is in it
+        t.delegate = self; if textView == nil { textView = t }
         return t
     }
     private func picture(_ url: URL?, into v: UIImageView) {
@@ -250,7 +303,7 @@ private final class PieceView: UIView {
             backgroundColor = .white
             let bar = UIView(); bar.backgroundColor = ui(0x2A3542); bar.translatesAutoresizingMaskIntoConstraints = false; addSubview(bar)
             let t = label(NSAttributedString(string: item["title"] as? String ?? "PDF", attributes: [.font: UIFont.systemFont(ofSize: 13, weight: .medium), .foregroundColor: ui(0xE9E2D2)]), lines: 1); bar.addSubview(t)
-            let stack = UIScrollView(); stack.translatesAutoresizingMaskIntoConstraints = false; stack.backgroundColor = ui(0x5B6573); stack.panGestureRecognizer.minimumNumberOfTouches = 2; addSubview(stack)
+            let stack = UIScrollView(); stack.translatesAutoresizingMaskIntoConstraints = false; stack.backgroundColor = ui(0x5B6573); stack.delegate = self; pdfScroll = stack; addSubview(stack)
             NSLayoutConstraint.activate([bar.leadingAnchor.constraint(equalTo: leadingAnchor), bar.trailingAnchor.constraint(equalTo: trailingAnchor), bar.topAnchor.constraint(equalTo: topAnchor), bar.heightAnchor.constraint(equalToConstant: 36),
                 t.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 12), t.trailingAnchor.constraint(lessThanOrEqualTo: bar.trailingAnchor, constant: -12), t.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
                 stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor), stack.topAnchor.constraint(equalTo: bar.bottomAnchor), stack.bottomAnchor.constraint(equalTo: bottomAnchor)])
@@ -264,9 +317,11 @@ private final class PieceView: UIView {
                     guard let pg = doc.page(at: p - 1) else { continue }
                     let box = pg.bounds(for: .mediaBox), h = w * box.height / max(1, box.width)
                     let v = PDFPageView(frame: CGRect(x: 0, y: y, width: w, height: h)); v.page = pg; stack.addSubview(v)
+                    v.setMarks(((self.item["marks"] as? [String: Any])?[String(p)] as? [[String: Any]]) ?? []); self.pdfPages[p] = v
                     y += h + (single ? 0 : 10)
                 }
                 stack.contentSize = CGSize(width: w, height: y); stack.isScrollEnabled = !single
+                self.onScroll?()
             }
         case "link":
             backgroundColor = ui(0xF6F1E6); clipsToBounds = false
@@ -293,6 +348,31 @@ private final class PieceView: UIView {
             pin(label(NSAttributedString(string: item["title"] as? String ?? "", attributes: [.font: garamond(18, bold: true), .foregroundColor: dark]), lines: 3), UIEdgeInsets(top: 14, left: 16, bottom: 14, right: 16), bottom: false)
         }
     }
+    /// Where a tied passage now is, on the table: the highlight on a PDF page, or the words in a sheet or note.
+    /// The string ends at the side of the passage nearer to `toward`.
+    func tiedPoint(_ anc: String, toward: CGPoint) -> CGPoint? {
+        var r = CGRect.null, box = bounds
+        if type == "pdf" {
+            guard let sc = pdfScroll else { return nil }
+            for (key, list) in (item["marks"] as? [String: Any]) ?? [:] {
+                guard let m = (list as? [[String: Any]])?.first(where: { $0["t"] as? String == "anc" && $0["id"] as? String == anc }), let first = (m["r"] as? [Any])?.first as? [Any], first.count == 4, let pv = pdfPages[Int(key) ?? -1] else { continue }
+                let k = pv.bounds.width / 1000
+                r = pv.convert(CGRect(x: num(first[0]) * k, y: num(first[1]) * k, width: num(first[2]) * k, height: num(first[3]) * k), to: self); box = sc.frame; break
+            }
+        } else if let tv = textView, let text = tv.attributedText {
+            text.enumerateAttribute(tiedKey, in: NSRange(location: 0, length: text.length)) { v, range, stop in
+                guard v as? String == anc else { return }
+                let g = tv.layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                var b = tv.layoutManager.boundingRect(forGlyphRange: NSRange(location: g.location, length: min(1, g.length)), in: tv.textContainer)
+                b.origin.x += tv.textContainerInset.left; b.origin.y += tv.textContainerInset.top
+                r = tv.convert(b, to: self); box = tv.frame; stop.pointee = true
+            }
+        }
+        guard !r.isNull else { return nil }
+        let right = frame.minX + r.maxX < toward.x
+        let y = min(max(r.midY, box.minY + 6), box.maxY - 6)
+        return CGPoint(x: frame.minX + (right ? r.maxX + 2 : r.minX - 2), y: frame.minY + y)
+    }
     private func drawShape() {
         guard let s = shape else { return }
         let w = bounds.width, h = bounds.height, sw = max(1, num(item["weight"]) == 0 ? 2 : num(item["weight"]))
@@ -316,6 +396,10 @@ private final class PieceView: UIView {
     }
 }
 
+extension PieceView: UIScrollViewDelegate, UITextViewDelegate {
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { onScroll?() }
+}
+
 // MARK: - The table
 
 final class BoardViewController: UIViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate {
@@ -324,7 +408,12 @@ final class BoardViewController: UIViewController, UIScrollViewDelegate, UIGestu
     private let scroll = UIScrollView()
     private let world = UIView(frame: CGRect(x: 0, y: 0, width: SPAN, height: SPAN))
     private let gridView = UIView(frame: CGRect(x: 0, y: 0, width: SPAN, height: SPAN))
-    private let strings = CAShapeLayer(), pins = CAShapeLayer()
+    private let strings = CALayer(), pins = CAShapeLayer()
+    private var drag: UIPanGestureRecognizer?
+    /// The board opens to be looked at. Edit lets pieces be moved, resized, written, added and removed.
+    var editing = false { didSet { drag?.isEnabled = editing; if !editing { select(nil) } } }
+    var onSelect: ((String?, String?) -> Void)?          // the selected piece's id and kind
+    var onWrite: ((String) -> Void)?                      // a piece whose words are to be edited
     private var pieces: [String: PieceView] = [:]
     private var selected: PieceView?
     private var start = CGRect.zero, resizing = false
@@ -341,22 +430,17 @@ final class BoardViewController: UIViewController, UIScrollViewDelegate, UIGestu
         scroll.contentSize = world.bounds.size; scroll.decelerationRate = .normal
         scroll.panGestureRecognizer.minimumNumberOfTouches = 1        // a finger on the bare table pans; on a piece it moves the piece
         view.addSubview(scroll); scroll.addSubview(world); world.addSubview(gridView)
-        strings.fillColor = nil; strings.lineWidth = 3; strings.lineCap = .round; strings.zPosition = 1_000_000
+        strings.zPosition = 1_000_000; strings.frame = world.bounds
         pins.zPosition = 1_000_001
         world.layer.addSublayer(strings); world.layer.addSublayer(pins)
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:))); tap.delegate = self; scroll.addGestureRecognizer(tap)
         let twice = UITapGestureRecognizer(target: self, action: #selector(tappedTwice(_:))); twice.numberOfTapsRequired = 2; scroll.addGestureRecognizer(twice)
         tap.require(toFail: twice)
         if !readOnly {
-            // A finger must rest on a piece a moment before it lifts and follows: a passing swipe only pans the table.
-            let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:))); hold.delegate = self
-            hold.minimumPressDuration = 0.3; hold.allowableMovement = 12
-            hold.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue), NSNumber(value: UITouch.TouchType.pencil.rawValue)]
-            scroll.addGestureRecognizer(hold)
-            // The trackpad's pointer is deliberate: a click and drag moves a piece at once.
+            // Once Edit is on, a drag on a piece moves it; until then every touch only looks.
             let drag = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:))); drag.delegate = self; drag.maximumNumberOfTouches = 1
-            drag.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)]
             drag.allowedScrollTypesMask = []                              // trackpad swipes pan the table, never a piece
+            drag.isEnabled = false; self.drag = drag
             scroll.addGestureRecognizer(drag)
             scroll.panGestureRecognizer.require(toFail: drag)
         }
@@ -369,7 +453,7 @@ final class BoardViewController: UIViewController, UIScrollViewDelegate, UIGestu
         let color = hex(bg["color"] as? String) ?? ui(0x3B3E2A)
         view.backgroundColor = color; scroll.backgroundColor = color
         paintGrid(kind: bg["grid"] as? String ?? "lines", size: num(bg["size"]) == 0 ? 0.25 : num(bg["size"]), on: color, strength: bg["gridOpacity"] == nil ? 1 : num(bg["gridOpacity"]))
-        for it in model.items { let v = PieceView(it, model: model); pieces[v.id] = v; world.addSubview(v) }
+        for it in model.items { mount(it) }
         drawStrings()
         opened = false; view.setNeedsLayout()
     }
@@ -377,6 +461,49 @@ final class BoardViewController: UIViewController, UIScrollViewDelegate, UIGestu
         super.viewDidLayoutSubviews()
         guard !opened, view.bounds.width > 0, !model.items.isEmpty || model.id != nil else { return }
         opened = true; fit(animated: false)
+    }
+    @discardableResult private func mount(_ it: [String: Any]) -> PieceView {
+        let v = PieceView(it, model: model); pieces[v.id] = v; world.addSubview(v)
+        v.onScroll = { [weak self] in self?.drawStrings() }
+        return v
+    }
+    private func top() -> Double { Double((model.items.map { num($0["z"]) }.max() ?? 0) + 1) }
+    /// A new piece in the middle of what is on screen.
+    func add(_ type: String) {
+        let c = scroll.convert(CGPoint(x: scroll.bounds.midX, y: scroll.bounds.midY), to: world)
+        let size: CGSize = type == "note" ? CGSize(width: 288, height: 288) : type == "quote" ? CGSize(width: 480, height: 288) : CGSize(width: 320, height: 60)
+        var it: [String: Any] = ["id": UUID().uuidString.lowercased(), "type": type, "x": Double((c.x - MID.x - size.width / 2).rounded()), "y": Double((c.y - MID.y - size.height / 2).rounded()),
+                                 "w": Double(size.width), "h": Double(size.height), "z": top(), "rot": 0, "html": ""]
+        if type == "note" { it["color"] = "yellow" }
+        if type == "text" { it["size"] = "M"; it["color"] = "ivory" }
+        model.items.append(it)
+        let v = mount(it); select(v); model.saveSoon()
+        onWrite?(v.id)
+    }
+    func removeSelected() {
+        guard let v = selected else { return }
+        model.items.removeAll { $0["id"] as? String == v.id }
+        model.links.removeAll { $0["a"] as? String == v.id || $0["b"] as? String == v.id }
+        v.removeFromSuperview(); pieces[v.id] = nil; select(nil); drawStrings(); model.saveSoon(links: true)
+    }
+    /// The words of a piece as plain lines, or nil when it carries formatting or tied passages that plain editing would lose.
+    func plainText(_ id: String) -> String? {
+        guard let it = model.items.first(where: { $0["id"] as? String == id }), ["note", "quote", "text", "sheet"].contains(it["type"] as? String ?? "") else { return nil }
+        let html = (it["html"] as? String ?? ""), low = html.lowercased()
+        for t in ["<span", "<b>", "<b ", "<strong", "<i>", "<i ", "<em", "<ul", "<ol", "<h1", "<h2", "<h3", "<blockquote", "<a ", "<img", "<u>", "<mark"] where low.contains(t) { return nil }
+        if it["readonly"] as? Bool ?? false { return nil }
+        return words(html, size: 16, color: .black).string
+    }
+    func setText(_ id: String, _ text: String) {
+        guard let i = model.items.firstIndex(where: { $0["id"] as? String == id }) else { return }
+        let esc = { (s: String) in s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;") }
+        model.items[i]["html"] = text.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces).isEmpty ? "<p><br></p>" : "<p>" + esc($0) + "</p>" }.joined()
+        let was = selected?.id == id
+        pieces[id]?.removeFromSuperview()
+        let v = mount(model.items[i]); if was { select(v) }
+        // a line of text takes the height of its words
+        if v.type == "text" { v.layoutIfNeeded(); let h = v.subviews.compactMap { $0 as? UILabel }.first?.sizeThatFits(CGSize(width: v.bounds.width, height: .greatestFiniteMagnitude)).height ?? v.bounds.height; model.items[i]["h"] = Double(max(30, h.rounded())); v.item["h"] = model.items[i]["h"]; v.place() }
+        drawStrings(); model.saveSoon()
     }
     private func paintGrid(kind: String, size: CGFloat, on bg: UIColor, strength: CGFloat) {
         guard kind != "none" else { gridView.backgroundColor = .clear; return }
@@ -394,26 +521,36 @@ final class BoardViewController: UIViewController, UIScrollViewDelegate, UIGestu
         }
         gridView.backgroundColor = UIColor(patternImage: img)
     }
-    /// Strings: a slack red thread from pin to pin, as the web board hangs them.
+    /// Strings: a slack thread from pin to pin, as the web board hangs them. One tied to a passage ends at those
+    /// words or that highlight, wherever they now are.
     private func drawStrings() {
-        let path = UIBezierPath(), dots = UIBezierPath()
-        var color = ui(0xC0392B)
+        let dots = UIBezierPath()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        strings.sublayers?.forEach { $0.removeFromSuperlayer() }
         for l in model.links {
             guard let a = pieces[l["a"] as? String ?? ""], let b = pieces[l["b"] as? String ?? ""] else { continue }
             func pinOf(_ v: PieceView, _ f: Any?) -> CGPoint {
-                let r = CGRect(x: MID.x + num(v.item["x"]), y: MID.y + num(v.item["y"]), width: num(v.item["w"]), height: num(v.item["h"]))
+                let r = v.frameOnTable
                 if let f = f as? [Any], f.count == 2 { return CGPoint(x: r.minX + num(f[0]) * r.width, y: r.minY + num(f[1]) * r.height) }
                 return CGPoint(x: r.midX, y: r.minY + 12)
             }
-            let p = pinOf(a, l["pa"]), q = pinOf(b, l["pb"]), m = CGPoint(x: (p.x + q.x) / 2, y: (p.y + q.y) / 2), d = hypot(q.x - p.x, q.y - p.y)
-            var apex = CGPoint(x: m.x, y: m.y + min(200, d * 0.14))
+            var p = pinOf(a, l["pa"]), q = pinOf(b, l["pb"])
+            let anc = l["anc"] as? String
+            if let anc, let t = b.tiedPoint(anc, toward: p) {
+                q = t
+                if l["pa"] == nil { let r = a.frameOnTable; p = CGPoint(x: q.x < r.midX ? r.minX + 4 : r.maxX - 4, y: r.minY + 28) }   // from the note's near side
+            }
+            let m = CGPoint(x: (p.x + q.x) / 2, y: (p.y + q.y) / 2), d = hypot(q.x - p.x, q.y - p.y)
+            var apex = CGPoint(x: m.x, y: m.y + min(200, d * (anc != nil ? 0.05 : 0.14)))
             if let bend = l["bend"] as? [String: Any] { apex = CGPoint(x: m.x + num(bend["x"]), y: m.y + num(bend["y"])) }
-            path.move(to: p); path.addQuadCurve(to: q, controlPoint: CGPoint(x: 2 * apex.x - m.x, y: 2 * apex.y - m.y))
-            for e in [p, q] { dots.append(UIBezierPath(ovalIn: CGRect(x: e.x - 7, y: e.y - 7, width: 14, height: 14))) }
-            color = ui(STRING_COLORS[l["color"] as? String ?? "red"] ?? 0xC0392B)
+            let path = UIBezierPath(); path.move(to: p); path.addQuadCurve(to: q, controlPoint: CGPoint(x: 2 * apex.x - m.x, y: 2 * apex.y - m.y))
+            let line = CAShapeLayer(); line.path = path.cgPath; line.fillColor = nil; line.lineWidth = 3; line.lineCap = .round
+            line.strokeColor = ui(STRING_COLORS[l["color"] as? String ?? "red"] ?? 0xC0392B).cgColor
+            line.shadowColor = UIColor.black.cgColor; line.shadowOpacity = 0.3; line.shadowRadius = 2; line.shadowOffset = CGSize(width: 0, height: 2)
+            strings.addSublayer(line)
+            dots.append(UIBezierPath(ovalIn: CGRect(x: p.x - 7, y: p.y - 7, width: 14, height: 14)))
+            let e: CGFloat = anc != nil ? 4 : 7; dots.append(UIBezierPath(ovalIn: CGRect(x: q.x - e, y: q.y - e, width: e * 2, height: e * 2)))
         }
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        strings.path = path.cgPath; strings.strokeColor = color.cgColor
         pins.path = dots.cgPath; pins.fillColor = ui(0xE9E2D2).cgColor; pins.strokeColor = ui(0x1E2836, 0.5).cgColor; pins.lineWidth = 1
         CATransaction.commit()
     }
@@ -449,40 +586,22 @@ final class BoardViewController: UIViewController, UIScrollViewDelegate, UIGestu
     private func piece(at p: CGPoint) -> PieceView? {
         pieces.values.filter { !$0.isHidden && $0.point(inside: world.convert(p, to: $0), with: nil) }.max { $0.layer.zPosition < $1.layer.zPosition }
     }
-    private func select(_ v: PieceView?) { selected?.select(false); selected = v; v?.select(true) }
-    @objc private func tapped(_ g: UITapGestureRecognizer) { select(piece(at: g.location(in: world))) }
+    private func select(_ v: PieceView?) { selected?.select(false); selected = v; v?.select(true); onSelect?(v?.id, v?.type) }
+    @objc private func tapped(_ g: UITapGestureRecognizer) { if editing { select(piece(at: g.location(in: world))) } }
     @objc private func tappedTwice(_ g: UITapGestureRecognizer) {
         guard let v = piece(at: g.location(in: world)) else { fit(); return }
         // a link or a video opens; anything else is brought up close
         if v.type == "link", let u = (v.item["url"] as? String).flatMap(URL.init(string:)) { openInApp(u); return }
         if v.type == "video", let id = v.item["vid"] as? String, let u = URL(string: "https://www.youtube.com/watch?v=\(id)") { openInApp(u); return }
+        if editing, ["note", "quote", "text", "sheet"].contains(v.type) { select(v); onWrite?(v.id); return }
         let r = v.frame.insetBy(dx: -40, dy: -40)
         scroll.zoom(to: r, animated: true)
     }
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
         if g === scroll.panGestureRecognizer || g is UITapGestureRecognizer || g is UIPinchGestureRecognizer { return true }
-        guard g is UIPanGestureRecognizer || g is UILongPressGestureRecognizer else { return true }
-        guard let v = piece(at: g.location(in: world)), !v.locked else { return false }   // the bare table pans
+        guard g is UIPanGestureRecognizer else { return true }
+        guard editing, let v = piece(at: g.location(in: world)), !v.locked else { return false }   // the bare table pans
         select(v); return true
-    }
-    private var grab = CGPoint.zero
-    /// A finger that has rested on a piece: the piece lifts, then follows.
-    @objc private func held(_ g: UILongPressGestureRecognizer) {
-        guard let v = selected else { return }
-        switch g.state {
-        case .began:
-            grab = g.location(in: world)
-            scroll.panGestureRecognizer.isEnabled = false; scroll.panGestureRecognizer.isEnabled = true     // the table stays put
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            UIView.animate(withDuration: 0.15) { v.layer.shadowRadius = 18; v.layer.shadowOpacity = 0.5; v.alpha = 0.94 }
-            move(v, .began, .zero, at: g.location(in: v))
-        case .changed:
-            let p = g.location(in: world); move(v, .changed, CGPoint(x: p.x - grab.x, y: p.y - grab.y), at: .zero)
-        case .ended, .cancelled, .failed:
-            UIView.animate(withDuration: 0.15) { v.layer.shadowRadius = 7; v.layer.shadowOpacity = (["line", "rect", "ellipse", "text"].contains(v.type) ? 0 : 0.3); v.alpha = 1 }
-            move(v, .ended, .zero, at: .zero)
-        default: break
-        }
     }
     @objc private func dragged(_ g: UIPanGestureRecognizer) {
         guard let v = selected else { return }
@@ -526,6 +645,12 @@ struct BoardScreen: View {
     @StateObject private var m: BoardModel
     @State private var vc: BoardViewController
     @State private var zoom = 100
+    @State private var editing = false
+    @State private var picked: String?
+    @State private var pickedKind: String?
+    @State private var writing: Writing?
+    @State private var note: String?
+    struct Writing: Identifiable { let id: String; var text: String }
     let readOnly: Bool
 
     init(auth: @escaping () async -> SupaAuth?) {
@@ -547,16 +672,66 @@ struct BoardScreen: View {
                 }
                 Spacer(minLength: 0)
                 if !m.state.isEmpty, m.id != nil { Text(m.state).font(.sans(12)).foregroundStyle(T.muted).lineLimit(1) }
+                if editing {
+                    if picked != nil {
+                        if ["note", "quote", "text", "sheet"].contains(pickedKind ?? "") { pill("pencil") { if let id = picked { write(id) } } }
+                        pill("trash") { vc.removeSelected() }
+                    }
+                    Menu {
+                        Button { vc.add("note") } label: { Label("Sticky note", systemImage: "note.text") }
+                        Button { vc.add("text") } label: { Label("Text", systemImage: "textformat") }
+                        Button { vc.add("quote") } label: { Label("Quotation", systemImage: "quote.opening") }
+                    } label: { Image(systemName: "plus").font(.system(size: 16, weight: .semibold)).foregroundStyle(T.ink).frame(width: 40, height: 40).background(Circle().fill(Color(rgb: 0x2d301f, 0.92))) }
+                }
+                if !readOnly, m.id != nil {
+                    Button { editing.toggle(); vc.editing = editing } label: {
+                        Text(editing ? "Done" : "Edit").font(.sans(14, .bold)).foregroundStyle(editing ? T.paper : T.ink).padding(.horizontal, 16).frame(height: 40).background(Capsule().fill(editing ? T.ink : Color(rgb: 0x2d301f, 0.92)))
+                    }
+                }
                 Button { vc.fit() } label: { Text("\(zoom)%").font(.sans(13, .semibold)).foregroundStyle(T.ink).padding(.horizontal, 12).frame(height: 40).background(Capsule().fill(Color(rgb: 0x2d301f, 0.92))) }
             }
             .padding(.horizontal, 12).padding(.top, 6)
         }
         .background(Color(rgb: 0x3B3E2A).ignoresSafeArea()).preferredColorScheme(.dark)
+        .sheet(item: $writing) { w in WritePiece(text: w.text) { vc.setText(w.id, $0) } }
+        .alert("Edit this one on a computer", isPresented: Binding(get: { note != nil }, set: { if !$0 { note = nil } })) { Button("OK") {} } message: { Text(note ?? "") }
         .task {
             vc.onZoom = { zoom = $0 }
+            vc.onSelect = { picked = $0; pickedKind = $1 }
+            vc.onWrite = { write($0) }
             await m.loadList()
             if await m.open(UserDefaults.standard.string(forKey: "lotm.board.last").flatMap { last in m.boards.contains { $0.id == last } ? last : nil }) { vc.show(); zoom = vc.zoomPercent }
         }
+    }
+}
+
+extension BoardScreen {
+    fileprivate func pill(_ icon: String, _ act: @escaping () -> Void) -> some View {
+        Button(action: act) { Image(systemName: icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(T.ink).frame(width: 40, height: 40).background(Circle().fill(Color(rgb: 0x2d301f, 0.92))) }
+    }
+    fileprivate func write(_ id: String) {
+        if let t = vc.plainText(id) { writing = Writing(id: id, text: t) }
+        else { note = "This piece has formatting, a tied passage, or is locked for reading. Changing its words here would lose that, so it is edited on the web board." }
+    }
+}
+
+/// The words of one piece, edited as plain lines.
+private struct WritePiece: View {
+    @State var text: String
+    let done: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var on: Bool
+    var body: some View {
+        NavigationStack {
+            TextEditor(text: $text).font(.serif(20)).focused($on).padding(.horizontal, 14).scrollContentBackground(.hidden).background(T.paper)
+                .navigationTitle("Words").navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) { Button("Done") { done(text); dismiss() }.bold() }
+                }
+                .onAppear { on = true }
+        }
+        .preferredColorScheme(.dark).tint(T.ink)
     }
 }
 
