@@ -194,6 +194,8 @@ struct WebView: UIViewRepresentable {
         // Our site stays in the app; everything else (articles, maps, books) opens in the in-app browser.
         func webView(_ w: WKWebView, decidePolicyFor a: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             guard let url = a.request.url else { return decisionHandler(.allow) }
+            // the Drafting Board is the app's own: a link to the web board opens it here
+            if url.host == "lotmstudy.org", url.path.hasPrefix("/board"), a.targetFrame?.isMainFrame != false { Task { @MainActor in if let w = Roster.web { openBoard(w) } }; return decisionHandler(.cancel) }
             if url.host == "lotmstudy.org" || url.host?.hasSuffix(".supabase.co") == true || url.scheme == "about" || url.scheme == "blob" || url.scheme == "data" { return decisionHandler(.allow) }
             if a.navigationType == .linkActivated || a.targetFrame == nil { openOutside(url); return decisionHandler(.cancel) }
             decisionHandler(.allow)

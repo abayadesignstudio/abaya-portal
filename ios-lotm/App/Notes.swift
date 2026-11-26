@@ -182,6 +182,11 @@ struct NotesPane: View {
                 HStack {
                     Text("Your private notebook").font(.sans(14)).foregroundStyle(T.muted)
                     Spacer()
+                    // the Drafting Board: these notes laid out on a table
+                    Button { openBoard(web) } label: {
+                        HStack(spacing: 6) { Image(systemName: "rectangle.on.rectangle.angled").font(.system(size: 13, weight: .bold)); Text("Board").font(.sans(14, .semibold)) }
+                            .foregroundStyle(T.ink).padding(.horizontal, 14).frame(height: 34).background(Capsule().fill(Color(rgb: 0x0c0e08, 0.08)))
+                    }.buttonStyle(.plain)
                     Button { presentSlide(NoteIndex(m: m)) } label: {
                         HStack(spacing: 6) { Image(systemName: "line.3.horizontal.decrease").font(.system(size: 13, weight: .bold)); Text("Index").font(.sans(14, .semibold)) }
                             .foregroundStyle(T.ink).padding(.horizontal, 14).frame(height: 34).background(Capsule().fill(Color(rgb: 0x0c0e08, 0.08)))
