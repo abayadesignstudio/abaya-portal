@@ -407,22 +407,33 @@ private struct BookPicker: View {
 struct DefinitionCard: View {
     let d: NDef?
     var edit = false
+    /// Given when the card is the word's whole page: the word heads it, and the member's own note, link and book follow.
+    var word = "", note = ""
+    var link: URL? = nil
+    var source = ""
+    var open: ((URL) -> Void)? = nil
     var removeSense: ((Int, Int) -> Void)? = nil
     var remove: (() -> Void)? = nil
     var again: (() -> Void)? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 16) {
-                Text("DEFINITION").font(.sans(11, .bold)).tracking(0.9).foregroundStyle(T.muted)
-                Spacer(minLength: 0)
-                if edit, let d {
-                    if !d.entries.isEmpty, let remove { Button("Remove", action: remove).font(.sans(12, .semibold)).foregroundStyle(T.muted) }
-                    if let again { Button("Look up again", action: again).font(.sans(12, .semibold)).foregroundStyle(T.ink) }
-                }
-            }.buttonStyle(.plain)
+            if word.isEmpty {
+                HStack(spacing: 16) {
+                    Text("DEFINITION").font(.sans(11, .bold)).tracking(0.9).foregroundStyle(T.muted)
+                    Spacer(minLength: 0)
+                    if edit, let d {
+                        if !d.entries.isEmpty, let remove { Button("Remove", action: remove).font(.sans(12, .semibold)).foregroundStyle(T.muted) }
+                        if let again { Button("Look up again", action: again).font(.sans(12, .semibold)).foregroundStyle(T.ink) }
+                    }
+                }.buttonStyle(.plain)
+            } else {
+                // the headword, with how it is said beside it
+                (Text(word).font(.serif(26, .semibold)).foregroundColor(T.ink) + Text(d?.ipa.isEmpty == false ? "   " + (d?.ipa ?? "") : "").font(.sans(14)).foregroundColor(T.muted))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let d, !d.entries.isEmpty {
-                if !d.ipa.isEmpty || !d.form.isEmpty {
-                    (Text(d.ipa).font(.sans(14)) + Text(!d.ipa.isEmpty && !d.form.isEmpty ? " · " : "") + Text(d.form).font(.serif(15, italic: true))).foregroundStyle(T.muted).padding(.top, 6)
+                if (word.isEmpty && !d.ipa.isEmpty) || !d.form.isEmpty {
+                    (Text(word.isEmpty ? d.ipa : "").font(.sans(14)) + Text(word.isEmpty && !d.ipa.isEmpty && !d.form.isEmpty ? " · " : "") + Text(d.form).font(.serif(15, italic: true))).foregroundStyle(T.muted).padding(.top, 6)
                 }
                 if !d.form.isEmpty, !d.word.isEmpty { Text(d.word).font(.serif(19, .semibold)).foregroundStyle(T.ink).padding(.top, 6) }
                 ForEach(Array(d.entries.enumerated()), id: \.offset) { i, e in
@@ -449,8 +460,17 @@ struct DefinitionCard: View {
                 }
                 if let u = URL(string: d.url) { Link("From Wiktionary (CC BY-SA)", destination: u).font(.sans(12)).foregroundStyle(T.muted).padding(.top, 10) }
             } else {
-                Text(d?.off == true ? "Definition removed." : d?.none == true ? "Wiktionary has no entry for this word." : "Looking it up…").font(.serif(16)).foregroundStyle(T.sub).padding(.top, 6)
+                // (a word whose entry was taken off shows only the word and the member's note)
+                if !(d?.off == true && !word.isEmpty) { Text(d?.off == true ? "Definition removed." : d?.none == true ? "Wiktionary has no entry for this word." : "Looking it up…").font(.serif(16)).foregroundStyle(T.sub).padding(.top, 6) }
             }
+            if !note.isEmpty {
+                T.rule.frame(height: 1).padding(.top, 12)
+                Text("YOUR NOTE").font(.sans(11, .bold)).tracking(0.9).foregroundStyle(T.muted).padding(.top, 10)
+                Text(linked(note)).font(.serif(18)).foregroundStyle(T.ink).tint(T.ink).lineSpacing(4).padding(.top, 4).fixedSize(horizontal: false, vertical: true)
+                    .environment(\.openURL, OpenURLAction { open?($0); return .handled })
+            }
+            if let link { LinkCard(url: link).id(link).padding(.top, 10) }
+            if !source.isEmpty { Text(source).font(.sans(13)).foregroundStyle(T.muted).padding(.top, 10) }
         }
         .textSelection(.enabled)
         .padding(.horizontal, 16).padding(.vertical, 14).frame(maxWidth: .infinity, alignment: .leading)
@@ -508,6 +528,8 @@ struct NoteEntry: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if editing { Seg(options: ["Quote", "Note", "Vocab"], value: Binding(get: { n.kindName }, set: { flushTyping(); n.kind = $0 == "Quote" ? "quote" : $0 == "Vocab" ? "vocab" : "thought" })).padding(.horizontal, 16) }
                     Color.clear.frame(height: 0).onAppear { titled = !n.title.trimmingCharacters(in: .whitespaces).isEmpty }
+                    // (a vocabulary word being read is one card, set like a dictionary entry: see below)
+                    if !asEntry {
                     VStack(alignment: .leading, spacing: 0) {
                         if titled, editing, n.kind != "vocab" { WriteField(text: $n.title, hint: "Title", size: 22).padding(.bottom, 8) }
                         else if titled || (n.kind == "vocab" && !n.title.isEmpty) { Text(n.title).font(.serif(22, .semibold)).foregroundStyle(T.ink).padding(.bottom, 8) }
@@ -553,10 +575,14 @@ struct NoteEntry: View {
                     }
                     .padding(.horizontal, 16).padding(.vertical, 14).frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 16).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.rule)).padding(.horizontal, 16).padding(.top, 14)
+                    }
 
-                    // A vocabulary word's dictionary entry, in a card of its own under the word.
+                    // A vocabulary word's dictionary entry. Being read, it is the whole of the word's card: the word heads it and
+                    // the member's own note follows. Being edited, it sits under the card the word and note are typed in.
                     if n.kind == "vocab", id != nil {
-                        DefinitionCard(d: n.definition, edit: editing,
+                        DefinitionCard(d: n.definition, edit: editing, word: asEntry ? n.title : "", note: asEntry ? n.body : "", link: asEntry ? n.firstLink : nil,
+                                       source: asEntry && !n.bookTitle.isEmpty ? n.bookTitle + (n.page.isEmpty ? "" : ", p. \(n.page)") : "",
+                                       open: { openInApp($0) },
                                        removeSense: { i, j in if let d = n.definition { keepDefinition(d.dropping(i, j)) } },
                                        remove: { keepDefinition(NDef(key: n.definition?.key ?? n.title.lowercased(), off: true)) },
                                        again: { keepDefinition(nil) })
@@ -665,6 +691,8 @@ struct NoteEntry: View {
         }
         .background(T.card.ignoresSafeArea()).preferredColorScheme(.dark)
     }
+    /// A vocabulary word that is being read, not edited: shown as one dictionary-entry card.
+    private var asEntry: Bool { n.kind == "vocab" && !editing && id != nil }
     private func keepDefinition(_ d: NDef?) { n.definition = d; saved?.definition = d; m.setDefinition(n.id, d) }
     private func save(thenClose: Bool = false) {
         flushTyping()
