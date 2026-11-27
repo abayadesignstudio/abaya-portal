@@ -4,6 +4,40 @@ import PhotosUI
 // Notes (the Commonplace), native: the private notebook in the middle pane of the Library — quick capture, search,
 // the list, an entry's own page, and the index.
 
+/// A vocabulary word's dictionary entry. The server looks the word up in Wiktionary a moment after it is saved and
+/// keeps the entry with the note. `none`: the dictionary has no such word. `off`: the member took the entry off.
+struct NDef: Equatable {
+    struct Sense: Equatable { var def = "", ex = "", label = "" }
+    struct Entry: Equatable { var pos = ""; var senses: [Sense] = [] }
+    var key = "", word = "", ipa = "", etym = "", form = "", url = "", none = false, off = false
+    var entries: [Entry] = []
+    init(key: String, off: Bool) { self.key = key; self.off = off }
+    init?(_ any: Any?) {
+        guard let d = any as? [String: Any] else { return nil }
+        func t(_ k: String) -> String { d[k] as? String ?? "" }
+        key = t("key"); word = t("word"); ipa = t("ipa"); etym = t("etym"); form = t("form"); url = t("url")
+        none = d["none"] as? Bool ?? false; off = d["off"] as? Bool ?? false
+        entries = (d["entries"] as? [[String: Any]] ?? []).map { e in
+            Entry(pos: e["pos"] as? String ?? "", senses: (e["senses"] as? [[String: Any]] ?? []).map { Sense(def: $0["def"] as? String ?? "", ex: $0["ex"] as? String ?? "", label: $0["label"] as? String ?? "") })
+        }
+    }
+    /// As the database keeps it.
+    var json: [String: Any] {
+        if off { return ["key": key, "off": true] }
+        if none { return ["key": key, "none": true] }
+        var d: [String: Any] = ["key": key, "word": word, "src": "Wiktionary", "url": url, "entries": entries.map { e in
+            ["pos": e.pos, "senses": e.senses.map { s -> [String: String] in var x = ["def": s.def]; if !s.ex.isEmpty { x["ex"] = s.ex }; if !s.label.isEmpty { x["label"] = s.label }; return x }] as [String: Any] }]
+        if !ipa.isEmpty { d["ipa"] = ipa }; if !etym.isEmpty { d["etym"] = etym }; if !form.isEmpty { d["form"] = form }
+        return d
+    }
+    /// The entry without one of its senses (or, with none left, taken off altogether).
+    func dropping(_ i: Int, _ j: Int) -> NDef {
+        var x = self; guard x.entries.indices.contains(i), x.entries[i].senses.indices.contains(j) else { return x }
+        x.entries[i].senses.remove(at: j); x.entries.removeAll { $0.senses.isEmpty }
+        return x.entries.isEmpty ? NDef(key: key, off: true) : x
+    }
+}
+
 struct NNote: Identifiable, Equatable {
     let id: String
     var kind = "thought", title = "", body = "", html: String? = nil, quotation = ""
@@ -13,6 +47,8 @@ struct NNote: Identifiable, Equatable {
     var image: String? { get { images.first } set { if let v = newValue { images.append(v) } else { images = [] } } }
     var pictureURLs: [URL] { images.compactMap(URL.init(string:)) }
     var created = Date(), createdRaw = ""
+    /// A vocabulary word's dictionary entry (never sent with the note's own changes: the server writes it).
+    var definition: NDef? = nil
     init(id: String) { self.id = id }
     /// Words brought in from elsewhere (the share sheet, a link into the app), as the kind chosen for them:
     /// a quote keeps them as its passage, a vocabulary word as its word, a plain entry as its text.
@@ -37,6 +73,7 @@ struct NNote: Identifiable, Equatable {
         images = one.map { many.contains($0) ? many : [$0] } ?? []
         linked = r["linked_ids"] as? [String] ?? []; isPrivate = r["is_private"] as? Bool ?? true
         createdRaw = r["created_at"] as? String ?? ""; created = parseDate(r["created_at"])
+        definition = NDef(r["definition"])
     }
     /// The row as the database keeps it.
     var row: [String: Any] {
@@ -58,7 +95,7 @@ enum NFilter: Equatable { case book(String), loose, author(String), tag(String),
         }
     }
 }
-private let NCOLS = "id,kind,title,body,body_html,quotation,book_title,book_author,book_cover_url,page,tags,source_url,image_url,image_urls,linked_ids,is_private,created_at,updated_at"
+private let NCOLS = "id,kind,title,body,body_html,quotation,book_title,book_author,book_cover_url,page,tags,source_url,image_url,image_urls,linked_ids,is_private,definition,created_at,updated_at"
 private func monthName(_ ym: String) -> String {
     let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM"
     guard let d = f.date(from: ym) else { return ym }
@@ -137,14 +174,34 @@ final class NotesModel: ObservableObject {
             if new {
                 row["user_id"] = db.a.me
                 let d = try await db.req("POST", "/rest/v1/private_notes?select=\(NCOLS)", json: row, prefer: "return=representation")
-                if let r = ((try? JSONSerialization.jsonObject(with: d)) as? [[String: Any]])?.first, let made = NNote(r) { notes.insert(made, at: 0) }
+                if let r = ((try? JSONSerialization.jsonObject(with: d)) as? [[String: Any]])?.first, let made = NNote(r) { notes.insert(made, at: 0); if made.kind == "vocab" { awaitDefinition(made.id) } }
             } else {
                 row["updated_at"] = ISO8601DateFormatter().string(from: Date())
                 _ = try await db.req("PATCH", "/rest/v1/private_notes?id=eq.\(n.id)", json: row)
                 if let i = notes.firstIndex(where: { $0.id == n.id }) { notes[i] = n }
+                if n.kind == "vocab", n.definition?.off != true, n.definition?.key != n.title.lowercased() { awaitDefinition(n.id) }   // a new or changed word is looked up afresh
             }
             Haptic.tap(); return true
         } catch { say(error.localizedDescription); return false }
+    }
+    /// A vocabulary word's definition is written by the server a moment after the word is saved: fetch it then.
+    func awaitDefinition(_ id: String) {
+        Task { for wait in [3.0, 5.0, 8.0] { try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)); if await pullDefinition(id) { return } } }
+    }
+    private func pullDefinition(_ id: String) async -> Bool {
+        guard let db = await db(), let r = (try? await db.rows("/rest/v1/private_notes?id=eq.\(id)&select=title,definition"))?.first,
+              let i = notes.firstIndex(where: { $0.id == id }), let d = NDef(r["definition"]) else { return false }
+        guard d.off || d.key == notes[i].title.lowercased() || d.key.isEmpty else { return false }   // still the old word's entry
+        notes[i].definition = d; return true
+    }
+    /// Keep a trimmed entry, take it off (`off`), or (nil) ask the server to look the word up again.
+    func setDefinition(_ id: String, _ d: NDef?) {
+        if let i = notes.firstIndex(where: { $0.id == id }) { notes[i].definition = d }
+        Task {
+            guard let db = await db() else { return }
+            do { _ = try await db.req("PATCH", "/rest/v1/private_notes?id=eq.\(id)", json: ["definition": d.map { $0.json as Any } ?? NSNull()]); if d == nil { awaitDefinition(id) } }
+            catch { say(error.localizedDescription) }
+        }
     }
     /// The note leaves the list at once; it is deleted for good only if Undo isn't tapped.
     func delete(_ n: NNote) {
@@ -284,6 +341,11 @@ private struct NoteCard: View {
                     .padding(.leading, 12).overlay(alignment: .leading) { T.ink.frame(width: 3) }.padding(.top, 8)
             }
             if !n.title.isEmpty { Text(n.title).font(.serif(18, .semibold)).foregroundStyle(T.ink).multilineTextAlignment(.leading).padding(.top, 6) }
+            if n.kind == "vocab", let d = n.definition, let e = d.entries.first, let sn = e.senses.first {
+                (Text(d.ipa.isEmpty ? "" : d.ipa + "  ").font(.sans(13)).foregroundColor(T.muted) + Text(e.pos + " ").font(.serif(16, italic: true)).foregroundColor(T.sub)
+                 + Text(sn.label.isEmpty ? "" : "(\(sn.label)) ").font(.serif(16)).foregroundColor(T.muted) + Text(sn.def).font(.serif(16)).foregroundColor(T.sub))
+                    .lineSpacing(2).lineLimit(2).multilineTextAlignment(.leading).padding(.top, 4)
+            }
             if !n.body.isEmpty { Text(n.body).font(.serif(n.kind == "quote" ? 17 : 18.5, .medium)).foregroundStyle(n.kind == "quote" ? T.sub : T.ink).lineSpacing(3).lineLimit(4).multilineTextAlignment(.leading).padding(.top, 6) }
             if let u = n.firstLink { LinkCard(url: u).id(u).padding(.top, 8) }
             if !n.bookTitle.isEmpty {
@@ -337,6 +399,62 @@ private struct BookPicker: View {
         }
         .background(T.card.ignoresSafeArea()).preferredColorScheme(.dark)
         .task { await m.loadLib() }
+    }
+}
+
+/// A vocabulary word's dictionary entry, set like a printed one: the word's sound, each part of speech in italics with
+/// its numbered senses, an example under a sense in italics, the word's origin at the foot.
+struct DefinitionCard: View {
+    let d: NDef?
+    var edit = false
+    var removeSense: ((Int, Int) -> Void)? = nil
+    var remove: (() -> Void)? = nil
+    var again: (() -> Void)? = nil
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 16) {
+                Text("DEFINITION").font(.sans(11, .bold)).tracking(0.9).foregroundStyle(T.muted)
+                Spacer(minLength: 0)
+                if edit, let d {
+                    if !d.entries.isEmpty, let remove { Button("Remove", action: remove).font(.sans(12, .semibold)).foregroundStyle(T.muted) }
+                    if let again { Button("Look up again", action: again).font(.sans(12, .semibold)).foregroundStyle(T.ink) }
+                }
+            }.buttonStyle(.plain)
+            if let d, !d.entries.isEmpty {
+                if !d.ipa.isEmpty || !d.form.isEmpty {
+                    (Text(d.ipa).font(.sans(14)) + Text(!d.ipa.isEmpty && !d.form.isEmpty ? " · " : "") + Text(d.form).font(.serif(15, italic: true))).foregroundStyle(T.muted).padding(.top, 6)
+                }
+                if !d.form.isEmpty, !d.word.isEmpty { Text(d.word).font(.serif(19, .semibold)).foregroundStyle(T.ink).padding(.top, 6) }
+                ForEach(Array(d.entries.enumerated()), id: \.offset) { i, e in
+                    Text(e.pos).font(.serif(17, italic: true)).foregroundStyle(T.sub).padding(.top, 10)
+                    ForEach(Array(e.senses.enumerated()), id: \.offset) { j, s in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text("\(j + 1).").font(.serif(17)).foregroundStyle(T.muted).frame(width: 22, alignment: .trailing)
+                            VStack(alignment: .leading, spacing: 2) {
+                                (Text(s.label.isEmpty ? "" : s.label.uppercased() + "  ").font(.sans(11, .semibold)).foregroundColor(T.muted) + Text(s.def).font(.serif(18)).foregroundColor(T.ink))
+                                    .lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+                                if !s.ex.isEmpty { Text("“\(s.ex)”").font(.serif(16, italic: true)).foregroundStyle(T.sub).fixedSize(horizontal: false, vertical: true) }
+                            }
+                            Spacer(minLength: 0)
+                            if edit, let removeSense {
+                                Button { removeSense(i, j) } label: { Image(systemName: "xmark").font(.system(size: 12, weight: .semibold)).frame(width: 30, height: 26).contentShape(Rectangle()) }
+                                    .buttonStyle(.plain).foregroundStyle(T.muted).accessibilityLabel("Remove this sense")
+                            }
+                        }.padding(.top, 5)
+                    }
+                }
+                if !d.etym.isEmpty {
+                    T.rule.frame(height: 1).padding(.top, 12)
+                    (Text("ORIGIN  ").font(.sans(11, .bold)).foregroundColor(T.muted) + Text(d.etym).font(.serif(15.5)).foregroundColor(T.sub)).lineSpacing(2).padding(.top, 10).fixedSize(horizontal: false, vertical: true)
+                }
+                if let u = URL(string: d.url) { Link("From Wiktionary (CC BY-SA)", destination: u).font(.sans(12)).foregroundStyle(T.muted).padding(.top, 10) }
+            } else {
+                Text(d?.off == true ? "Definition removed." : d?.none == true ? "Wiktionary has no entry for this word." : "Looking it up…").font(.serif(16)).foregroundStyle(T.sub).padding(.top, 6)
+            }
+        }
+        .textSelection(.enabled)
+        .padding(.horizontal, 16).padding(.vertical, 14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 16).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.rule))
     }
 }
 
@@ -435,6 +553,16 @@ struct NoteEntry: View {
                     }
                     .padding(.horizontal, 16).padding(.vertical, 14).frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 16).fill(T.card)).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.rule)).padding(.horizontal, 16).padding(.top, 14)
+
+                    // A vocabulary word's dictionary entry, in a card of its own under the word.
+                    if n.kind == "vocab", id != nil {
+                        DefinitionCard(d: n.definition, edit: editing,
+                                       removeSense: { i, j in if let d = n.definition { keepDefinition(d.dropping(i, j)) } },
+                                       remove: { keepDefinition(NDef(key: n.definition?.key ?? n.title.lowercased(), off: true)) },
+                                       again: { keepDefinition(nil) })
+                            .padding(.horizontal, 16).padding(.top, 10)
+                            .onChange(of: m.notes.first(where: { $0.id == n.id })?.definition) { _, d in n.definition = d; saved?.definition = d }
+                    }
 
                     // The note's pictures keep to a card of their own, under the words, so they never push the text about.
                     if !n.pictureURLs.isEmpty || addingPicture {
@@ -537,6 +665,7 @@ struct NoteEntry: View {
         }
         .background(T.card.ignoresSafeArea()).preferredColorScheme(.dark)
     }
+    private func keepDefinition(_ d: NDef?) { n.definition = d; saved?.definition = d; m.setDefinition(n.id, d) }
     private func save(thenClose: Bool = false) {
         flushTyping()
         let empty = [n.quotation, n.body, n.title].allSatisfy { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
