@@ -61,6 +61,24 @@ struct NNote: Identifiable, Equatable {
         default: kind = t.isEmpty ? "thought" : "quote"; quotation = t
         }
     }
+    /// The note's words for reading, its quoted paragraphs marked: those written here (lines that begin ">"), or, for a
+    /// note formatted on the web and not since changed, those of its formatted copy.
+    var readable: String {
+        if body.hasPrefix(">") || body.contains("\n>") { return quoteLines(body) }
+        return quoteMarked(body, html)
+    }
+    /// The same for the note's card in the list: one run of text, a quoted paragraph in italics behind a bar.
+    var cardText: Text {
+        let size: CGFloat = kind == "quote" ? 17 : 18.5
+        let paras = readable.components(separatedBy: "\n\n").prefix(6)
+        var t = Text("")
+        for (i, p) in paras.enumerated() {
+            if i > 0 { t = t + Text("\n") }
+            t = p.hasPrefix(quoteMark) ? t + Text("▎").font(.serif(size)).foregroundColor(T.muted) + Text(String(p.dropFirst())).font(.serif(size, italic: true))
+                                       : t + Text(p).font(.serif(size, .medium))
+        }
+        return t
+    }
     /// What a note is called: on its card, and at the head of its page.
     var kindName: String { kind == "quote" ? "Quote" : kind == "vocab" ? "Vocab" : "Note" }
     init?(_ r: [String: Any]) {
@@ -346,7 +364,7 @@ private struct NoteCard: View {
                  + Text(sn.label.isEmpty ? "" : "(\(sn.label)) ").font(.serif(16)).foregroundColor(T.muted) + Text(sn.def).font(.serif(16)).foregroundColor(T.sub))
                     .lineSpacing(2).lineLimit(2).multilineTextAlignment(.leading).padding(.top, 4)
             }
-            if !n.body.isEmpty { Text(n.body).font(.serif(n.kind == "quote" ? 17 : 18.5, .medium)).foregroundStyle(n.kind == "quote" ? T.sub : T.ink).lineSpacing(3).lineLimit(4).multilineTextAlignment(.leading).padding(.top, 6) }
+            if !n.body.isEmpty { n.cardText.foregroundStyle(n.kind == "quote" ? T.sub : T.ink).lineSpacing(3).lineLimit(4).multilineTextAlignment(.leading).padding(.top, 6) }
             if let u = n.firstLink { LinkCard(url: u).id(u).padding(.top, 8) }
             if !n.bookTitle.isEmpty {
                 HStack(spacing: 8) {
@@ -537,7 +555,7 @@ struct NoteEntry: View {
                             // A note opens to be read; its links can be followed. Edit, above, unlocks the words.
                             VStack(alignment: .leading, spacing: 12) {
                                 if n.kind == "quote", !n.quotation.isEmpty { Text(n.quotation).font(.serif(21, italic: true)).padding(.leading, 12).overlay(alignment: .leading) { T.ink.frame(width: 3) } }
-                                if !n.body.isEmpty { Text(linked(n.body)).font(.serif(20)) }
+                                if !n.body.isEmpty { Paras(text: n.readable, size: 20) }
                             }
                             .foregroundStyle(T.ink).tint(T.ink).lineSpacing(5).frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
                             .textSelection(.enabled).environment(\.openURL, OpenURLAction { openInApp($0); return .handled })
@@ -564,7 +582,9 @@ struct NoteEntry: View {
                             PhotosPicker(selection: $photo, matching: .images) { ntool("image") }.accessibilityLabel("Photo")
                             Button { camera = true } label: { ntool("camera") }.accessibilityLabel("Camera")
                             Button { linkFocus = true } label: { ntool("link") }.foregroundStyle(n.source.isEmpty ? T.muted : T.ink).accessibilityLabel("Web link")
-                            Button { flushTyping(); n.kind = n.kind == "quote" ? "thought" : "quote" } label: { ntool("quote2") }.foregroundStyle(n.kind == "quote" ? T.ink : T.muted).accessibilityLabel("Quote")
+                            // Quote sets the paragraph being written as a quoted passage. It does not change what kind of note this is
+                            // (that is the Quote / Note / Vocab choice above); a Quote's own passage is already set that way.
+                            if n.kind != "quote" { Button { if WriteFocus.on { quoteTool() } else { tick += 1; DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { quoteTool() } } } label: { ntool("quote2") }.accessibilityLabel("Quoted passage") }
                             Button { pick = "book" } label: { ntool("book") }.foregroundStyle(n.bookTitle.isEmpty ? T.muted : T.ink).accessibilityLabel("Book")
                             Button { if !editing { editing = true; tick += 1 }; insertTool("#") } label: { ntool("hash") }.accessibilityLabel("Topic")
                             Button { listTool("bullet") } label: { Image(systemName: "list.bullet").font(.system(size: 19)).frame(minWidth: 30, maxWidth: 44).frame(height: 42).contentShape(Rectangle()) }.accessibilityLabel("Bullet list")

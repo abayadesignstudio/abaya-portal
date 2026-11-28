@@ -255,6 +255,26 @@ func quoteMarked(_ body: String, _ html: String?) -> String {
 @MainActor func flushTyping() { NotificationCenter.default.post(name: .lotmFlushTyping, object: nil) }
 /// Start or end a list on the line being written, in whichever writing box has the keyboard: "bullet" or "number".
 @MainActor func listTool(_ kind: String) { NotificationCenter.default.post(name: .lotmList, object: kind) }
+/// Make the paragraph being written a quoted passage, or plain again, in whichever writing box has the keyboard.
+/// A quoted paragraph is kept in the words themselves as a line that begins "> ", and is shown set apart (italic, a
+/// rule down its left) wherever the note is read. It is a way of setting a paragraph, not a kind of note.
+@MainActor func quoteTool() { NotificationCenter.default.post(name: .lotmQuote, object: nil) }
+/// A note's words with its quoted paragraphs (lines that begin ">") marked for `Paras`.
+func quoteLines(_ s: String) -> String {
+    guard s.hasPrefix(">") || s.contains("\n>") else { return s }
+    var out: [String] = [], quote: [String] = [], plain: [String] = []
+    func close() {
+        if !quote.isEmpty { out.append(quoteMark + quote.joined(separator: "\n")); quote = [] }
+        if !plain.isEmpty { out.append(plain.joined(separator: "\n")); plain = [] }
+    }
+    for line in s.components(separatedBy: "\n") {
+        if line.hasPrefix(">") { if !plain.isEmpty { close() }; quote.append(String(line.dropFirst()).trimmingCharacters(in: .whitespaces)) }
+        else if line.trimmingCharacters(in: .whitespaces).isEmpty { close() }
+        else { if !quote.isEmpty { close() }; plain.append(line) }
+    }
+    close()
+    return out.joined(separator: "\n\n")
+}
 /// Type something at the cursor of whichever writing box has the keyboard (the # tool).
 @MainActor func insertTool(_ s: String) { NotificationCenter.default.post(name: .lotmInsert, object: s) }
 /// The topics written into a text as #words, as on X: lowercased, without the #, each once.
@@ -264,7 +284,7 @@ func hashtags(_ s: String) -> [String] {
     for m in re.matches(in: s, range: NSRange(s.startIndex..., in: s)) { if let r = Range(m.range(at: 1), in: s) { let t = s[r].lowercased(); if !out.contains(t) { out.append(t) } } }
     return out
 }
-extension Notification.Name { static let lotmFlushTyping = Notification.Name("lotm.flushTyping"); static let lotmList = Notification.Name("lotm.list"); static let lotmInsert = Notification.Name("lotm.insert"); static let lotmMention = Notification.Name("lotm.mention"); static let lotmTypedAtEnd = Notification.Name("lotm.typedAtEnd") }
+extension Notification.Name { static let lotmFlushTyping = Notification.Name("lotm.flushTyping"); static let lotmQuote = Notification.Name("lotm.quote"); static let lotmList = Notification.Name("lotm.list"); static let lotmInsert = Notification.Name("lotm.insert"); static let lotmMention = Notification.Name("lotm.mention"); static let lotmTypedAtEnd = Notification.Name("lotm.typedAtEnd") }
 /// Whether one of the app's writing fields has the keyboard (so a tool acts through the field, at its cursor).
 enum WriteFocus { static var on = false }
 
@@ -429,6 +449,7 @@ struct WriteField: View {
             .onReceive(NotificationCenter.default.publisher(for: .lotmFlushTyping)) { _ in flush() }
             .onReceive(NotificationCenter.default.publisher(for: .lotmList)) { n in if on { list(n.object as? String ?? "bullet") } }
             .onReceive(NotificationCenter.default.publisher(for: .lotmInsert)) { n in if on, let s = n.object as? String { put(s) } }
+            .onReceive(NotificationCenter.default.publisher(for: .lotmQuote)) { _ in if on { quote() } }
     }
     /// What has been typed reaches the rest of the screen when the typing pauses (or at once, before a save).
     private func later() {
@@ -453,6 +474,15 @@ struct WriteField: View {
     private func put(_ s: String) {
         let i = caret; local.insert(contentsOf: s, at: i)
         sel = TextSelection(insertionPoint: local.index(i, offsetBy: s.count))
+    }
+    /// The quote tool: the cursor's paragraph becomes a quoted passage ("> " before it), or plain again.
+    private func quote() {
+        let a = lineStart(caret)
+        if local[a...].hasPrefix("> ") { local.removeSubrange(a..<local.index(a, offsetBy: 2)) }
+        else if local[a...].hasPrefix(">") { local.remove(at: a) }
+        else { local.insert(contentsOf: "> ", at: a) }
+        let end = local[a...].firstIndex(of: "\n") ?? local.endIndex
+        sel = TextSelection(insertionPoint: end); Haptic.tap(); later()
     }
     /// The list tools: make the cursor's line an item of that kind, change its kind, or (the same kind again) plain.
     private func list(_ kind: String) {
